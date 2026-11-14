@@ -35,13 +35,71 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 当前本地门禁 | `b435164f` 的完整本地验证、隐私扫描和 hardened mutation campaign 通过；JVM 为 2981 tests / 0 failures / 0 errors / 13 skipped，mutation 为 baseline passed / 6 killed / 0 survived。均不是 hosted CI 或设备证据。 | [2026-11-13 — Egress, suspend startup and mutation convergence](#2026-11-13--egress-suspend-startup-and-mutation-convergence) |
+| 当前本地门禁 | `00a2969f` 的完整本地验证与隐私扫描通过；JVM 为 2992 tests / 0 failures / 0 errors / 13 skipped。typed replay 零 broken，P0–P3 仅验证合成投影合同。均不是 hosted CI、真实模型或设备证据。 | [2026-11-14 — Privacy planning and typed execution](#2026-11-14--privacy-planning-and-typed-execution) |
 | 最近记录的全量 main CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。该条目是历史 CI 证据，不是当前提交的本地门禁结论。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
 | 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查。二者均不是设备、延迟或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-14 — Privacy planning and typed execution
+
+本轮覆盖项：新增未接线的 forward-only 分支里程碑 parser/evaluator 与调用方能力约束；debug-only
+`TypedObservationCandidateReplanner` 只处理唯一、真实 Accessibility 输入/提交候选；新增 P0–P3
+合成隐私投影和 paired replay。release 观察行为、LocalOnly、确认、关键控件和 progress egress 均未改变。
+代码提交为 `8e9fc8e2` 与 `00a2969f4826aa4cd60d785a155b1086e6c1b022`。审查中补齐了
+`BranchingMilestonePlan` gated-type 源码扫描、每次 projection 的公开输入复验、封闭能力 ID，以及观察解析
+缓存和阶段前置检查。
+
+验证命令：
+
+```bash
+# 受影响 Kotlin suites
+./gradlew :app:testDebugUnitTest \
+  --tests "com.bytedance.zgx.solin.orchestration.collab.*" \
+  --tests "com.bytedance.zgx.solin.orchestration.*Observation*" \
+  --tests "com.bytedance.zgx.solin.lab.TypedObservation*" \
+  --tests "com.bytedance.zgx.solin.skill.*" \
+  --tests "com.bytedance.zgx.solin.SolinAppContainer*" \
+  --tests "com.bytedance.zgx.solin.architecture.PackageBoundaryArchitectureTest"
+
+python3 -I lab/scripts/test_privacy_utility.py
+python3 -I lab/scripts/privacy_utility.py --check \
+  --output lab/results/20261114-privacy-utility/report.json
+
+# 最终完整门禁；宿主缺少 zip，PATH 中仅加入已检查的 /tmp fixture shim
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/tmp/t6tools/bin:/data00/home/zouguoxue/android-font-verification/jdk21/bin:$PATH \
+GRADLE_OPTS=-Xmx8g scripts/verify_local.sh
+
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/data00/home/zouguoxue/android-font-verification/jdk21/bin:$PATH \
+scripts/privacy_scan.sh
+
+/data00/home/zouguoxue/android-sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 受影响 suites、验证脚本和隐私扫描通过；最终完整本地门禁通过，含 **2992 JVM tests / 0 failures /
+  0 errors / 13 skipped**、Lint、debug/androidTest/release 构建、releaseSmoke 与 artifact scan。
+  产物检查见 `build/verification/local/android-artifact-scan.properties`。
+- 分支计划新增 6 项 JVM 测试，覆盖前向转移、未知结果、严格 schema、能力外分支、回边/不可达节点与
+  Branch Steering；未接入云运行时或 Room，未发送真实请求。
+- typed gold sweep 的 16 个 emitted 动作全部匹配。历史 `20261108` 输出 replay：E2B **17/46 → 30/46**，
+  13 fixed / 0 broken / 少 21 次模型调用；E4B **23/46 → 30/46**，7 fixed / 0 broken / 少 23 次。
+  证据为 `lab/results/20261114-typed-observation/replay-summary.json`。这是 replanner 级历史输出重放，
+  不是新模型、完整生产路径、延迟、能耗或设备结果。
+- 隐私工具 7 tests 通过。12 个合成 fixture 中 P0/P1/P2/P3 分别正确 4/0/11/11；P2 Branch Steering
+  失败 0，P3 为 1。`modelEvidence=false`，成本字段仅来自合成输入；见
+  `lab/results/20261114-privacy-utility/report.json`。P3 不是生产选项，未新增隐私旁路。
+- `failedTarget=physical-device-and-paired-benchmark`，`reason=no-connected-authorized-device`：
+  `adb devices -l` 只有表头，未执行安装、instrumentation、数据清除或配对基准；本轮也未执行云端 live
+  planner、真实 FullContext、模型转换或 emulator regression。pending 状态见
+  `build/verification/privacy-capability/device-status.properties`。不能把 replay 或合成投影写成真机通过。
 
 ## 2026-11-13 — Egress, suspend startup and mutation convergence
 

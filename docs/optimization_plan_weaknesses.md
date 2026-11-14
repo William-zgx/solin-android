@@ -9,11 +9,11 @@
 
 ---
 
-## 当前核对（2026-11-13）
+## 当前核对（2026-11-14）
 
 本页各 Wave 的行数、方法清单和测试数保留为当时的历史结果，不代表当前重跑证据。
 当前 `SolinViewModel.kt` / `SolinScreen.kt` / `AgentLoopRuntime.kt` 分别为
-851 / 497 / 1917 行；生产 Kotlin 文件 **327** 个，文件数门禁也是 327。2026-11-11 的包方向、
+851 / 497 / 1917 行；生产 Kotlin 文件 **328** 个，文件数门禁也是 328。2026-11-11 的包方向、
 严格 JSON、日志门面和 evidence decorator 收归保持单向依赖；2026-11-12 又删除纯 screenshot
 provider 转发文件，由组装根直接绑定 Accessibility capture。工具能力矩阵当前有 52 项。
 
@@ -26,6 +26,8 @@ lab 架构扫描改为一次读文件/词法分析，manifest 的 load→mutate�
 等价 persisted-enum 解码统一为 exact-name helper；各自 fallback 和严格拒绝路径保持独立。
 随后三类工具 egress 决策收归 `safety/EgressGate.kt`，pending-send 首个 suspend 垂直切片完成原子消费、
 启动 fail-closed 与稳定重试；mutation runner 以 campaign 级锁、统一进程生命周期和独立深度夹具加固。
+2026-11-14 新增未接线的分支计划、debug-only typed observation candidate 和合成隐私效用实验；paired replay
+与 P0–P3 合同检查均有固定负向用例，生产隐私、release 观察和关键动作合同不变。
 以上均保持现有隐私、确认、持久化和生命周期合同。
 
 - ViewModel 和 Screen 提取已落地，当前归属见 [模块文档](agent_core_modules.md)。

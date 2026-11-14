@@ -5,7 +5,7 @@ Keep it about module ownership, boundaries, current status, and regression
 coverage. Historical command output and validation notes belong in
 [validation_report.md](validation_report.md).
 
-Checked on 2026-11-13. The tree has 327 production Kotlin files and 52 registered
+Checked on 2026-11-14. The tree has 328 production Kotlin files and 52 registered
 capability-matrix tool entries. These are measured inventory values, not goals to
 grow toward. `:app` is the product module; `releaseSmoke` is a verification helper.
 Runtime/package boundaries remain conventions enforced by architecture tests.
@@ -248,6 +248,13 @@ Current status:
   `searchVerificationStatus=verified`; device instrumentation that needs a
   preinstalled verified local planning model is optional smoke coverage and
   skips when that model is absent.
+- `TypedObservationCandidateReplanner` is a debug-only, high-confidence fast path for unique
+  Accessibility search input/submit candidates. It uses literal user queries and non-model provenance,
+  falls through on ambiguity or unknown evidence, and leaves release behavior unchanged. Saved-output
+  replay reaches 30/46 for both E2B and E4B with zero broken cases; this is not full-path/device evidence.
+- `orchestration/collab/MilestonePlan.kt` also holds an unwired forward-only branching-plan experiment.
+  Local predicates are closed, unknown outcomes block, caller-supplied capabilities constrain every node,
+  and the gated-type source scan protects the validated factory. No cloud runtime or progress egress is enabled.
 - Pending confirmations, redacted Skill plan shapes, value-free Skill
   checkpoints, and selected no-payload continuation cursors can restore after
   process death. Raw tool arguments, model output, private payload, and

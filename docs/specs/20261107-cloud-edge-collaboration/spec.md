@@ -14,8 +14,11 @@ The pure core is in `app/src/main/java/com/bytedance/zgx/solin/orchestration/col
 - `CollaborationPolicy.kt`: `CollaborationRole`, `RolePlacementPolicy`, `EscalationPolicy`.
 - `MilestonePlan.kt`: `MilestonePlanParser` with its strict JSON scan
   (`StrictJsonScan`), the per-run `RunProgressGate`, and `CloudPlannerRequest`.
+- `BranchingMilestonePlanParser` and `BranchingPlanEvaluator`: a lab-only, forward-only extension with
+  closed local predicates and caller-precommitted `BranchCapabilities`. Unknown predicate outcomes block;
+  the gated-type scan protects the validated factory.
 
-There are 48 JVM tests across six classes, plus one instrumented test class
+The original 48 JVM tests across six classes remain, with six additional branching-plan tests in a seventh, plus one instrumented test class
 (`MilestonePlanParserDeviceTest`) that compiles but has not yet run on a device.
 **No runtime path calls any of it.** It touches no Room table and no network.
 `DerivedProgressEgress.DEFAULT` is `Off`, and no build type or setting can change
@@ -599,14 +602,15 @@ The two remaining settings live in `data/Stores.kt` and
 
 ## 8. Threats and rules
 
-Rules use the `architecture_depth.md` style. T1–T9 are the existing threats; T10
-and T11 are new. T11 must be added to that table when the cloud planner is wired
-(Phase 4), and T10 when the progress flag is wired (Phase 6).
+Rules use the `architecture_depth.md` style. T1–T9 are the existing threats; T10–T12 cover the proposed
+collaboration paths. T11 must be added to that table when the cloud planner is wired (Phase 4), T10 when
+progress is wired (Phase 6), and T12 if branching plans move beyond the current lab-only contract.
 
 | # | New threat | Example | Primary defense |
 | --- | --- | --- | --- |
 | T10 | Covert channel through derived signals | A malicious app hides a button so the failure kind the cloud operator sees encodes a bit | Closed enums only, pinned failure codes, at most 3 reports and about 86 bits of content per run, plus the existence and timing of each report; flag Off by default (§6.3) |
 | T11 | Malicious or compromised remote planner | The planner returns a plan that opens a banking app and types text | Closed intent set with no critical intent, apps and tools from static lists, queries copied literally from the request, strict JSON on every org.json, unchanged action and egress gates |
+| T12 | Branch Steering through hostile UI observations | A malicious page drives a valid predicate toward an unapproved app, tool or action, or leaves the outcome unknown | Forward-only destinations, caller-precommitted `BranchCapabilities`, canonical milestone checks, unknown-outcome `blocked`, and the gated-type source scan |
 
 | Rule | Threats | Enforced by |
 | --- | --- | --- |
@@ -615,6 +619,7 @@ and T11 are new. T11 must be added to that table when the cloud planner is wired
 | Undeclared inputs block the call | T9 | `RoleConstraint.UndeclaredInputs` gives `PLACEMENT_DECISION_MISSING` |
 | A device-bound role with no local model blocks; it never falls back to Remote | T6, T9 | `RolePlacementPolicy` (decided under Auto, reported with the user's preference) |
 | Closed intents with no critical action | T1, T2, T11 | `MilestoneIntent` and the action gate |
+| Branch capabilities and forward-only transitions | T12, T11 | Required caller `BranchCapabilities`, parser reachability/destination checks, unknown-outcome blocking and the gated-type scan |
 | A query is a literal span of the request | T1, T5, T11 | `MilestonePlanParser` |
 | Apps and tools come from static public lists | T4, T11 | `MilestoneVocabulary.DEFAULT` |
 | A bad milestone rejects the whole plan, with an enum reason | T1, T7 | `MilestonePlanParser` |
@@ -636,6 +641,7 @@ and T11 are new. T11 must be added to that table when the cloud planner is wired
 | `RolePlacementPolicyTest` | 10 | Role contract, privacy, candidates, Answerer equivalence with the rules, Remote-implies-eligible sweep, real preference on device-bound decisions |
 | `EscalationPolicyTest` | 10 | Answerer-only, failed-call privacy, escalation tiers and the pre-approval sweep |
 | `MilestonePlanParserTest` | 12 | Injection, hidden or padded queries, vocabulary, exact shape, duplicate keys, whole-plan rejection, no critical intent, public tools |
+| `BranchingMilestonePlanTest` | 6 | Forward-only transitions, unknown outcomes, strict schema, capability confinement, cycles/unreachable nodes and Branch Steering rejection |
 | `StrictJsonScanTest` | 3 | Syntax Android's org.json tolerates, tested on the scan directly; strict JSON still accepted |
 | `RunProgressGateTest` | 11 | Flag defaults Off, byte-identical and pinned output when Off, no secrets in output, failure-code smuggling and the pinned code list, OCR in element names, package spoofing, gate order, per-run budget, closed rendering and reflection |
 | `GatedTypeSourceScanTest` | 2 | Private-constructor factory/copy bypass source scanning |

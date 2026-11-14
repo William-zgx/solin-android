@@ -299,3 +299,26 @@ also stays debug-only: the production-file devbox composite above supplies no la
 | Setting | `data/Stores.kt`, `data/PreferenceSettingsStore.kt`, `data/ModelRepository.kt` |
 | Run options | `presentation/ChatControllerHelpers.kt`, `presentation/ChatController.kt` |
 | Tests | `LocalModelFirstPlanningTest`, `InitialRouteCancellationTest`, `LocalOneShotEngineTest`, `AgentRunOptionsTest`, `ToolRetrieverTest`, `ChatPlacementInputsTest`, `PreferenceSettingsStoreTest`, `SolinViewModelTest` |
+
+## 9. Typed observation candidate experiment (2026-11-14)
+
+`orchestration/TypedObservationCandidateReplanner.kt` handles only high-confidence `input_ready` and
+`query_typed` search states. It requires a canonical observation-query extraction and exactly one enabled,
+real Accessibility target. Query text must match the user's literal request; OCR-only, ambiguous,
+sequential/critical and unknown cases fall through. Requests use non-model provenance and the ordinary
+registry, confirmation, action and egress gates. It is composed after remote vision and before the model
+replanner with `enabled = BuildConfig.DEBUG`; release behavior is unchanged.
+
+A deterministic sweep covers all 46 Suite A fixtures: 16 emitted actions, all gold-matched. A paired replay
+against the saved `20261108` production-model answers produced:
+
+| Model | Baseline | Replay | Fixed | Broken | Saved model calls avoided |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| E2B | 17/46 | 30/46 | 13 | 0 | 21 |
+| E4B | 23/46 | 30/46 | 7 | 0 | 23 |
+
+See [`lab/results/20261114-typed-observation/SUMMARY.md`](../../../lab/results/20261114-typed-observation/SUMMARY.md).
+This is replanner-level saved-output evidence, not a new model run, complete coordinator run, latency result
+or device acceptance. Verified-search completion remains in `ToolObservationCoordinator`, not in the new
+class. Full production-path and paired device comparisons remain pending; the typed candidate is not a
+reason to enable a new model strategy by default.

@@ -428,3 +428,31 @@ and rerun. A held-out label correction must likewise be separate and must not be
   it does not measure multi-step drift.
 - The built-in registry (`ToolRegistry()`) is used for Suites B and C. Production adds module tool
   providers (MCP, plan tools) when they are configured.
+
+## Typed observation replay (2026-11-14)
+
+Run the deterministic gold sweep and paired saved-output replay:
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests "com.bytedance.zgx.solin.lab.TypedObservationCandidateSuiteTest" \
+  --tests "com.bytedance.zgx.solin.lab.TypedObservationReplayTest"
+```
+
+The replay reads `results/20261108` and writes `build/verification/typed-observation/replay-summary.json`;
+it does not call a model or rewrite historical outputs. E2B improves 17/46 → 30/46 with 13 fixed and no
+broken cases; E4B improves 23/46 → 30/46 with 7 fixed and no broken cases. See
+[`results/20261114-typed-observation/SUMMARY.md`](results/20261114-typed-observation/SUMMARY.md). This is
+replanner-level, not full production-path or device evidence.
+
+## Synthetic privacy utility contracts (2026-11-14)
+
+```bash
+python3 -I lab/scripts/test_privacy_utility.py
+python3 -I lab/scripts/privacy_utility.py --check \
+  --output lab/results/20261114-privacy-utility/report.json
+```
+
+The 12 fixtures compare P0 local, P1 request-only, P2 structured observation and P3 synthetic full context.
+Every projection is revalidated and unknown privacy fails closed. P3 is not a production option and no real
+model/network/device run occurs. See [`results/20261114-privacy-utility/SUMMARY.md`](results/20261114-privacy-utility/SUMMARY.md).
