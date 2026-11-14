@@ -15,12 +15,12 @@ internal data class DraftFormUiFill(
     val formTitle: String,
     val fieldTitle: String,
     val fieldTarget: String,
-    val text: String,
+    val text: String
 )
 
 internal data class OpenAppUiSearchRequest(
     val appName: String,
-    val query: String,
+    val query: String
 )
 
 internal sealed class CurrentPageUiCommand {
@@ -74,8 +74,7 @@ internal fun String.requestsCurrentScreenObservation(): Boolean {
     return referencesScreen && asksObserve
 }
 
-internal fun String.requestsCurrentSettingsUiControl(): Boolean =
-    extractCurrentSettingsUiTarget() != null
+internal fun String.requestsCurrentSettingsUiControl(): Boolean = extractCurrentSettingsUiTarget() != null
 
 private val EXTRACT_CURRENT_SETTINGS_UI_TARGET_CURRENT_THIS_REGEX =
     Regex("""\b(?:current|this)\s+(?:settings?|preferences?)\s+(?:screen|page)\b""", RegexOption.IGNORE_CASE)
@@ -105,8 +104,7 @@ internal fun String.extractCurrentSettingsUiTarget(): String? {
     return target.takeIf { it.length in 1..80 }
 }
 
-internal fun String.requestsCurrentBrowserUiSearch(): Boolean =
-    extractCurrentBrowserUiQuery() != null
+internal fun String.requestsCurrentBrowserUiSearch(): Boolean = extractCurrentBrowserUiQuery() != null
 
 private val EXTRACT_CURRENT_BROWSER_UI_QUERY_CURRENT_THIS_REGEX =
     Regex("""\b(?:current|this)\s+(?:browser|web\s+page|webpage)\b""", RegexOption.IGNORE_CASE)
@@ -134,8 +132,7 @@ internal fun String.extractCurrentBrowserUiQuery(): String? {
     return query.takeIf { it.length in 1..120 }
 }
 
-internal fun String.requestsCurrentMapsUiRoute(): Boolean =
-    extractCurrentMapsUiQuery() != null
+internal fun String.requestsCurrentMapsUiRoute(): Boolean = extractCurrentMapsUiQuery() != null
 
 private val EXTRACT_CURRENT_MAPS_UI_QUERY_CURRENT_THIS_REGEX =
     Regex("""\b(?:current|this)\s+maps?\b|\bmaps?\s+(?:screen|page)\b""", RegexOption.IGNORE_CASE)
@@ -166,8 +163,7 @@ internal fun String.extractCurrentMapsUiQuery(): String? {
     return query.takeIf { it.length in 1..120 }
 }
 
-internal fun String.requestsCurrentAppUiSearch(): Boolean =
-    extractCurrentAppUiSearchQuery() != null
+internal fun String.requestsCurrentAppUiSearch(): Boolean = extractCurrentAppUiSearchQuery() != null
 
 private val EXTRACT_CURRENT_APP_UI_SEARCH_QUERY_REGEX =
     Regex("""\b(?:current|this)\s+(?:app|application|page|screen)\b""", RegexOption.IGNORE_CASE)
@@ -187,7 +183,7 @@ internal fun String.extractCurrentAppUiSearchQuery(): String? {
         "这个界面",
         "应用里",
         "app 里",
-        "app里",
+        "app里"
     ).any { it in this } ||
         EXTRACT_CURRENT_APP_UI_SEARCH_QUERY_REGEX.containsMatchIn(normalized)
     val asksSearch = containsSearchVerb()
@@ -195,16 +191,15 @@ internal fun String.extractCurrentAppUiSearchQuery(): String? {
     return extractQueryAfterSearchVerb()
 }
 
-internal fun String.requestsOpenAppThenUiSearch(): Boolean =
-    extractOpenAppUiSearchRequest() != null
+internal fun String.requestsOpenAppThenUiSearch(): Boolean = extractOpenAppUiSearchRequest() != null
 
 private val EXTRACT_OPEN_APP_UI_SEARCH_REQUEST_ZH1_REGEX = Regex(
-    """^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:打开|启动|进入)\s*(.+?)\s*(?:后|之后|然后|接着|并|，|,|\s)*\s*(?:搜索|搜一下|搜|查询|查找|查)\s*[:：]?\s*(.+?)\s*[。.!！]?\s*$""",
+    """^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:打开|启动|进入)\s*(.+?)\s*(?:后|之后|然后|接着|并|，|,|\s)*\s*(?:搜索|搜一下|搜|查询|查找|查)\s*[:：]?\s*(.+?)\s*[。.!！]?\s*$"""
 )
 
 private val EXTRACT_OPEN_APP_UI_SEARCH_REQUEST_PLEASE_OPEN_REGEX = Regex(
     """^\s*(?:please\s+)?(?:open|launch|start)\s+(?:the\s+)?(.+?)\s+(?:(?:and\s+then|then|after\s+that|and)\s+)?(?:search|look\s+up|find)\s+(?:for\s+)?(.+?)\s*$""",
-    RegexOption.IGNORE_CASE,
+    RegexOption.IGNORE_CASE
 )
 
 internal fun String.extractOpenAppUiSearchRequest(): OpenAppUiSearchRequest? {
@@ -226,8 +221,18 @@ internal fun String.extractOpenAppUiSearchRequest(): OpenAppUiSearchRequest? {
     return null
 }
 
-internal fun String.requestsCurrentPageSimpleInteraction(): Boolean =
-    extractCurrentPageUiCommand() != null
+/** Observation-only query extraction; unlike skill planning it also accepts “在京东搜索机械键盘”。 */
+internal fun String.extractObservationSearchQuery(): String? {
+    if (startsWithActionNegation() || looksLikeUiControlDiscussion()) return null
+    if (listOf("然后", "接着", "随后", "之后", "，", ",").any { it in this }) return null
+    extractOpenAppUiSearchRequest()?.query?.let { return it }
+    extractCurrentAppUiSearchQuery()?.let { return it }
+    extractCurrentBrowserUiQuery()?.let { return it }
+    if (!containsSearchVerb()) return null
+    return extractQueryAfterSearchVerb()
+}
+
+internal fun String.requestsCurrentPageSimpleInteraction(): Boolean = extractCurrentPageUiCommand() != null
 
 private val EXTRACT_CURRENT_PAGE_UI_COMMAND_CURRENT_THIS_REGEX =
     Regex("""\b(?:current|this)\s+(?:page|screen|app|application)\b""", RegexOption.IGNORE_CASE)
@@ -251,7 +256,7 @@ internal fun String.extractCurrentPageUiCommand(): CurrentPageUiCommand? {
         "这个屏幕",
         "当前应用",
         "当前 app",
-        "当前app",
+        "当前app"
     ).any { it in this } ||
         EXTRACT_CURRENT_PAGE_UI_COMMAND_CURRENT_THIS_REGEX.containsMatchIn(normalized)
     // A back word ANYWHERE used to be enough, which turned questions like "这个函数的返回值是什么"
@@ -298,8 +303,7 @@ private val IS_WHOLE_INPUT_BACK_COMMAND_REGEX =
  * Deliberately anchored: a bare "返回" also appears inside ordinary sentences ("这个函数的返回值
  * 是什么") and "back" inside "back up my photos", and a ui_press_back for those is wrong.
  */
-private fun String.isWholeInputBackCommand(): Boolean =
-    IS_WHOLE_INPUT_BACK_COMMAND_REGEX.containsMatchIn(this)
+private fun String.isWholeInputBackCommand(): Boolean = IS_WHOLE_INPUT_BACK_COMMAND_REGEX.containsMatchIn(this)
 
 private val HAS_CURRENT_PAGE_TAP_INTENT_REGEX =
     Regex("""\b(?:tap|click|select|choose|open|filter)\b""", RegexOption.IGNORE_CASE)
@@ -337,9 +341,8 @@ private fun String.extractCurrentPageTapTarget(): String? {
 private val HAS_ACTIONABLE_UI_TARGET_REGEX =
     Regex("""(?:是什么|什么意思|怎么|如何|说明|解释|总结|摘要|识别|读取|文字|文本|截图|通知|前台应用|当前应用是什么)""")
 
-private fun String.hasActionableUiTarget(): Boolean =
-    this !in setOf("当前页面", "当前页", "当前界面", "当前屏幕", "当前应用", "这个页面", "这个界面", "这个屏幕") &&
-        !contains(HAS_ACTIONABLE_UI_TARGET_REGEX)
+private fun String.hasActionableUiTarget(): Boolean = this !in setOf("当前页面", "当前页", "当前界面", "当前屏幕", "当前应用", "这个页面", "这个界面", "这个屏幕") &&
+    !contains(HAS_ACTIONABLE_UI_TARGET_REGEX)
 
 private val EXTRACT_CURRENT_PAGE_TYPE_COMMAND_ZH1_REGEX =
     Regex("""^.*?(?:输入|填写)\s*[:：]?\s*(.+?)\s*$""")
@@ -364,11 +367,10 @@ private fun String.extractCurrentPageTypeCommand(): CurrentPageUiCommand.Type? {
 private val STRIP_CURRENT_PAGE_REFERENCE_REGEX =
     Regex("""^\s*(?:当前页面|当前页|当前界面|当前屏幕|这个页面|这个界面|这个屏幕|当前应用|当前\s*app)(?:上|里|内|中|的|上的|里的|中的)?\s*""")
 
-private fun String.stripCurrentPageReference(): String =
-    replace(
-        STRIP_CURRENT_PAGE_REFERENCE_REGEX,
-        "",
-    )
+private fun String.stripCurrentPageReference(): String = replace(
+    STRIP_CURRENT_PAGE_REFERENCE_REGEX,
+    ""
+)
 
 private val SCROLL_DIRECTION_FOR_CURRENT_PAGE_COMMAND_UP_BACKWARD_REGEX =
     Regex("""\b(up|backward)\b""", RegexOption.IGNORE_CASE)
@@ -385,7 +387,9 @@ private val SCROLL_DIRECTION_FOR_CURRENT_PAGE_COMMAND_FORWARD_REGEX =
 private fun String.scrollDirectionForCurrentPageCommand(): String {
     val normalized = lowercase()
     return when {
-        "往上" in this || "上滑" in this || "向上" in this ||
+        "往上" in this ||
+            "上滑" in this ||
+            "向上" in this ||
             SCROLL_DIRECTION_FOR_CURRENT_PAGE_COMMAND_UP_BACKWARD_REGEX.containsMatchIn(normalized) -> "up"
         "向左" in this || SCROLL_DIRECTION_FOR_CURRENT_PAGE_COMMAND_LEFT_REGEX.containsMatchIn(normalized) -> "left"
         "向右" in this || SCROLL_DIRECTION_FOR_CURRENT_PAGE_COMMAND_RIGHT_REGEX.containsMatchIn(normalized) -> "right"
@@ -418,41 +422,38 @@ private fun String.extractQueryAfterSearchVerb(): String? {
 
 private val APP_SEARCH_SLOT_PATH_CHARS_REGEX = Regex("""[/:\\]""")
 
-private fun String.cleanAppSearchSlot(): String? =
-    trim()
-        .removePrefix("应用")
-        .removePrefix("app")
-        .trim()
-        .trimEnd('。', '.', '！', '!', '，', ',')
-        .takeIf { candidate ->
-            candidate.length in 1..80 &&
-                candidate !in setOf("应用", "app", "应用程序", "软件") &&
-                !candidate.contains(APP_SEARCH_SLOT_PATH_CHARS_REGEX) &&
-                !candidate.looksLikeSystemOrWebTarget()
-        }
+private fun String.cleanAppSearchSlot(): String? = trim()
+    .removePrefix("应用")
+    .removePrefix("app")
+    .trim()
+    .trimEnd('。', '.', '！', '!', '，', ',')
+    .takeIf { candidate ->
+        candidate.length in 1..80 &&
+            candidate !in setOf("应用", "app", "应用程序", "软件") &&
+            !candidate.contains(APP_SEARCH_SLOT_PATH_CHARS_REGEX) &&
+            !candidate.looksLikeSystemOrWebTarget()
+    }
 
 private val CLEAN_SEARCH_QUERY_SLOT_REGEX = Regex("""^\s*(?:搜索|查询|查找|筛选)\s*$""")
 
-private fun String.cleanSearchQuerySlot(): String? =
-    trim()
-        .trim('"', '\'', '“', '”', '‘', '’')
-        .trimEnd('。', '.', '！', '!', '，', ',')
-        .trim()
-        .takeIf { candidate ->
-            candidate.isNotBlank() &&
-                candidate.length <= 120 &&
-                !candidate.contains(CLEAN_SEARCH_QUERY_SLOT_REGEX)
-        }
+private fun String.cleanSearchQuerySlot(): String? = trim()
+    .trim('"', '\'', '“', '”', '‘', '’')
+    .trimEnd('。', '.', '！', '!', '，', ',')
+    .trim()
+    .takeIf { candidate ->
+        candidate.isNotBlank() &&
+            candidate.length <= 120 &&
+            !candidate.contains(CLEAN_SEARCH_QUERY_SLOT_REGEX)
+    }
 
-private fun String.cleanUiTargetSlot(): String? =
-    trim()
-        .trim('"', '\'', '“', '”', '‘', '’')
-        .trimEnd('。', '.', '！', '!', '，', ',')
-        .trim()
-        .takeIf { candidate ->
-            candidate.isNotBlank() &&
-                candidate.length <= 120
-        }
+private fun String.cleanUiTargetSlot(): String? = trim()
+    .trim('"', '\'', '“', '”', '‘', '’')
+    .trimEnd('。', '.', '！', '!', '，', ',')
+    .trim()
+    .takeIf { candidate ->
+        candidate.isNotBlank() &&
+            candidate.length <= 120
+    }
 
 private val SYSTEM_OR_WEB_TARGET_REGEX =
     Regex("""\b(?:wi[-\s]?fi|wifi|wlan|settings?|preferences?|permission|web\s*page|website|link|url)\b""", RegexOption.IGNORE_CASE)
@@ -463,8 +464,7 @@ private fun String.looksLikeSystemOrWebTarget(): Boolean {
         SYSTEM_OR_WEB_TARGET_REGEX.containsMatchIn(normalized)
 }
 
-internal fun String.requestsCurrentDraftFormUiFill(): Boolean =
-    extractCurrentDraftFormUiFill() != null
+internal fun String.requestsCurrentDraftFormUiFill(): Boolean = extractCurrentDraftFormUiFill() != null
 
 private val EXTRACT_CURRENT_DRAFT_FORM_UI_FILL_CURRENT_THIS_REGEX =
     Regex("""\b(?:current|this)\s+(?:email|mail)\s+(?:draft|form|compose)\b""", RegexOption.IGNORE_CASE)
@@ -500,14 +500,14 @@ internal fun String.extractCurrentDraftFormUiFill(): DraftFormUiFill? {
             formTitle = "邮件",
             fieldTitle = "正文",
             fieldTarget = "正文",
-            text = text,
+            text = text
         )
     } else {
         DraftFormUiFill(
             formTitle = "日历",
             fieldTitle = "标题",
             fieldTarget = "标题",
-            text = text,
+            text = text
         )
     }
 }
@@ -519,9 +519,8 @@ private val STARTS_WITH_QUESTION_OPENER_HOW_DO_REGEX =
     Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b""")
 
 /** "How do I…" / "请问…" style openers: the user is asking about something, not requesting it. */
-private fun String.startsWithQuestionOpener(normalized: String): Boolean =
-    STARTS_WITH_QUESTION_OPENER_ZH1_REGEX.containsMatchIn(this) ||
-        STARTS_WITH_QUESTION_OPENER_HOW_DO_REGEX.containsMatchIn(normalized)
+private fun String.startsWithQuestionOpener(normalized: String): Boolean = STARTS_WITH_QUESTION_OPENER_ZH1_REGEX.containsMatchIn(this) ||
+    STARTS_WITH_QUESTION_OPENER_HOW_DO_REGEX.containsMatchIn(normalized)
 
 private fun String.looksLikeUiControlDiscussion(): Boolean {
     val normalized = lowercase()
@@ -541,14 +540,13 @@ private val CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_PLEASE_DO_REGEX =
 private val CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_HOW_DO_REGEX =
     Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b.*\b(?:summarize|summary|brief|recap)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b.*\bshare\b""")
 
-internal fun String.looksLikeCurrentScreenTextSummaryShareNonAction(normalized: String): Boolean =
-    startsWithQuestionOpener(normalized) &&
-        CurrentScreenTextActionParser.referencesCurrentScreenText(this) &&
-        ("分享" in this || SHARE_REGEX.containsMatchIn(normalized)) ||
-        CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_ZH1_REGEX.containsMatchIn(this) ||
-        CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_ZH2_REGEX.containsMatchIn(this) ||
-        CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_PLEASE_DO_REGEX.containsMatchIn(normalized) ||
-        CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_HOW_DO_REGEX.containsMatchIn(normalized)
+internal fun String.looksLikeCurrentScreenTextSummaryShareNonAction(normalized: String): Boolean = startsWithQuestionOpener(normalized) &&
+    CurrentScreenTextActionParser.referencesCurrentScreenText(this) &&
+    ("分享" in this || SHARE_REGEX.containsMatchIn(normalized)) ||
+    CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_ZH1_REGEX.containsMatchIn(this) ||
+    CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_ZH2_REGEX.containsMatchIn(this) ||
+    CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_PLEASE_DO_REGEX.containsMatchIn(normalized) ||
+    CURRENT_SCREEN_TEXT_SUMMARY_SHARE_NON_ACTION_HOW_DO_REGEX.containsMatchIn(normalized)
 
 internal fun String.requestsClipboardSummaryShare(): Boolean {
     val normalized = lowercase()
@@ -573,11 +571,10 @@ private val CLIPBOARD_SUMMARY_SHARE_NON_ACTION_PLEASE_DO_REGEX =
 private val CLIPBOARD_SUMMARY_SHARE_NON_ACTION_HOW_DO_REGEX =
     Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b.*\b(?:summarize|summary|brief|recap)\b.*\bclipboard\b.*\bshare\b""")
 
-private fun String.looksLikeClipboardSummaryShareNonAction(normalized: String): Boolean =
-    CLIPBOARD_SUMMARY_SHARE_NON_ACTION_ZH1_REGEX.containsMatchIn(this) ||
-        CLIPBOARD_SUMMARY_SHARE_NON_ACTION_ZH2_REGEX.containsMatchIn(this) ||
-        CLIPBOARD_SUMMARY_SHARE_NON_ACTION_PLEASE_DO_REGEX.containsMatchIn(normalized) ||
-        CLIPBOARD_SUMMARY_SHARE_NON_ACTION_HOW_DO_REGEX.containsMatchIn(normalized)
+private fun String.looksLikeClipboardSummaryShareNonAction(normalized: String): Boolean = CLIPBOARD_SUMMARY_SHARE_NON_ACTION_ZH1_REGEX.containsMatchIn(this) ||
+    CLIPBOARD_SUMMARY_SHARE_NON_ACTION_ZH2_REGEX.containsMatchIn(this) ||
+    CLIPBOARD_SUMMARY_SHARE_NON_ACTION_PLEASE_DO_REGEX.containsMatchIn(normalized) ||
+    CLIPBOARD_SUMMARY_SHARE_NON_ACTION_HOW_DO_REGEX.containsMatchIn(normalized)
 
 private val CLIPBOARD_CONTEXT_REGEX = Regex("""\b(read|summarize|summary|recap)\b""")
 
@@ -591,5 +588,4 @@ internal fun String.requestsClipboardContext(): Boolean {
     return referencesClipboard && asksToRead && !asksToShare
 }
 
-internal fun ActionDraft.toToolRequest(): ToolRequest =
-    ToolRequest(toolName = functionName, arguments = parameters, reason = summary)
+internal fun ActionDraft.toToolRequest(): ToolRequest = ToolRequest(toolName = functionName, arguments = parameters, reason = summary)

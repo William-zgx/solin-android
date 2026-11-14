@@ -235,6 +235,246 @@ object MilestonePlanParser {
     private class PlanRejection(val reason: MilestoneRejection, val index: Int?) : RuntimeException(null, null, false, false)
 }
 
+/** A deterministic observation evaluated only on the device. Its value never leaves the device. */
+enum class LocalPredicate(val wireName: String) {
+    ResultsMatchQuery("results_match_query"),
+    LastActionSucceeded("last_action_succeeded"),
+    PlannedAppForeground("planned_app_foreground"),
+    TargetExists("target_exists")
+}
+
+/** Caller-owned, precommitted upper bound for every branch in one plan. */
+data class BranchCapabilities(
+    val intents: Set<MilestoneIntent>,
+    val apps: Set<String>,
+    val tools: Set<String>
+)
+
+data class BranchNode(
+    val id: String,
+    val milestone: Milestone,
+    val predicate: LocalPredicate,
+    val onTrue: String,
+    val onFalse: String
+)
+
+/** A validated forward-only plan. Terminal destinations are `done` and `blocked`. */
+@ConsistentCopyVisibility
+data class BranchingMilestonePlan private constructor(val nodes: List<BranchNode>) {
+    companion object {
+        internal fun fromValidated(nodes: List<BranchNode>): BranchingMilestonePlan = BranchingMilestonePlan(nodes)
+    }
+}
+
+enum class BranchRejection {
+    TooLarge,
+    NotJsonObject,
+    MalformedJson,
+    TrailingContent,
+    DuplicateKey,
+    UnsupportedVersion,
+    UnexpectedKey,
+    MissingKey,
+    WrongType,
+    EmptyPlan,
+    TooManyNodes,
+    InvalidNodeId,
+    DuplicateNodeId,
+    UnknownPredicate,
+    InvalidMilestone,
+    CapabilityNotAllowed,
+    UnknownDestination,
+    NonForwardDestination,
+    UnreachableNode
+}
+
+sealed interface BranchParseResult {
+    data class Accepted(val plan: BranchingMilestonePlan) : BranchParseResult
+    data class Rejected(val reason: BranchRejection, val index: Int? = null) : BranchParseResult
+}
+
+/** Strict, lab-first parser for upfront branches; no runtime path calls this experiment. */
+object BranchingMilestonePlanParser {
+    const val SCHEMA_VERSION = 1
+    const val MAX_RAW_CHARS = 8_192
+    const val MAX_NODES = 8
+
+    private val PLAN_KEYS = setOf("version", "nodes")
+    private val NODE_KEYS = setOf("id", "milestone", "predicate", "on_true", "on_false")
+    private val NODE_ID = Regex("[a-z][a-z0-9_]{0,31}")
+    private val TERMINALS = setOf("done", "blocked")
+
+    fun parse(
+        raw: String,
+        userRequest: String,
+        capabilities: BranchCapabilities,
+        vocabulary: MilestoneVocabulary = MilestoneVocabulary.DEFAULT
+    ): BranchParseResult = try {
+        BranchParseResult.Accepted(readPlan(raw, userRequest, capabilities, vocabulary))
+    } catch (rejection: BranchRejectionException) {
+        BranchParseResult.Rejected(rejection.reason, rejection.index)
+    }
+
+    private fun readPlan(
+        raw: String,
+        userRequest: String,
+        capabilities: BranchCapabilities,
+        vocabulary: MilestoneVocabulary
+    ): BranchingMilestonePlan {
+        if (raw.length > MAX_RAW_CHARS) reject(BranchRejection.TooLarge)
+        StrictJsonScan.firstViolation(raw)?.let { reason ->
+            reject(
+                when (reason) {
+                    StrictJsonRejection.NotJsonObject -> BranchRejection.NotJsonObject
+                    StrictJsonRejection.MalformedJson -> BranchRejection.MalformedJson
+                    StrictJsonRejection.DuplicateKey -> BranchRejection.DuplicateKey
+                    StrictJsonRejection.TrailingContent -> BranchRejection.TrailingContent
+                }
+            )
+        }
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: reject(BranchRejection.MalformedJson)
+        root.requireExactKeys(PLAN_KEYS, index = null)
+        val version = root.get("version")
+        if (version !is Int || version != SCHEMA_VERSION) reject(BranchRejection.UnsupportedVersion)
+        validateCapabilities(capabilities, vocabulary)
+        val items = root.get("nodes") as? JSONArray ?: reject(BranchRejection.WrongType)
+        if (items.length() == 0) reject(BranchRejection.EmptyPlan)
+        if (items.length() > MAX_NODES) reject(BranchRejection.TooManyNodes)
+        val nodes = (0 until items.length()).map { index ->
+            val item = items.get(index) as? JSONObject ?: reject(BranchRejection.WrongType, index)
+            item.requireExactKeys(NODE_KEYS, index)
+            val id = item.get("id") as? String ?: reject(BranchRejection.WrongType, index)
+            if (!NODE_ID.matches(id)) reject(BranchRejection.InvalidNodeId, index)
+            val predicateName = item.get("predicate") as? String ?: reject(BranchRejection.WrongType, index)
+            val predicate = LocalPredicate.entries.firstOrNull { it.wireName == predicateName }
+                ?: reject(BranchRejection.UnknownPredicate, index)
+            val milestone = readMilestone(item.get("milestone"), index, userRequest, vocabulary)
+            if (milestone.intent !in capabilities.intents ||
+                milestone.app != null &&
+                milestone.app !in capabilities.apps ||
+                milestone.tool != null &&
+                milestone.tool !in capabilities.tools
+            ) {
+                reject(BranchRejection.CapabilityNotAllowed, index)
+            }
+            BranchNode(
+                id = id,
+                milestone = milestone,
+                predicate = predicate,
+                onTrue = item.destination("on_true", index),
+                onFalse = item.destination("on_false", index)
+            )
+        }
+        nodes.indices.forEach { index ->
+            if (nodes.indices.any { other -> other < index && nodes[other].id == nodes[index].id }) {
+                reject(BranchRejection.DuplicateNodeId, index)
+            }
+        }
+        nodes.indices.forEach { index ->
+            nodes[index].destinations().forEach { destination ->
+                if (destination !in TERMINALS && nodes.drop(index + 1).none { it.id == destination }) {
+                    reject(
+                        if (nodes.any { it.id == destination }) {
+                            BranchRejection.NonForwardDestination
+                        } else {
+                            BranchRejection.UnknownDestination
+                        },
+                        index
+                    )
+                }
+            }
+        }
+        val reachable = mutableSetOf<String>()
+        var frontier = setOf(nodes.first().id)
+        while (frontier.isNotEmpty()) {
+            reachable += frontier
+            frontier = nodes.filter { it.id in frontier }.flatMap { it.destinations() }.toSet() - reachable
+        }
+        nodes.indices.forEach { index ->
+            if (nodes[index].id !in reachable) reject(BranchRejection.UnreachableNode, index)
+        }
+        return BranchingMilestonePlan.fromValidated(nodes)
+    }
+
+    private fun validateCapabilities(capabilities: BranchCapabilities, vocabulary: MilestoneVocabulary) {
+        if (capabilities.intents.isEmpty() ||
+            capabilities.apps.isEmpty() ||
+            capabilities.tools.isEmpty() ||
+            capabilities.apps.any { it !in vocabulary.apps } ||
+            capabilities.tools.any { it !in vocabulary.tools }
+        ) {
+            reject(BranchRejection.CapabilityNotAllowed)
+        }
+    }
+
+    private fun readMilestone(
+        raw: Any,
+        index: Int,
+        userRequest: String,
+        vocabulary: MilestoneVocabulary
+    ): Milestone {
+        val milestone = raw as? JSONObject ?: reject(BranchRejection.WrongType, index)
+        val wrapped = JSONObject().put("version", MilestonePlanParser.SCHEMA_VERSION)
+            .put("milestones", JSONArray().put(milestone))
+        return when (val result = MilestonePlanParser.parse(wrapped.toString(), userRequest, vocabulary)) {
+            is MilestoneParseResult.Accepted -> result.plan.milestones.single()
+            is MilestoneParseResult.Rejected -> reject(BranchRejection.InvalidMilestone, index)
+        }
+    }
+
+    private fun JSONObject.destination(key: String, index: Int): String = get(key) as? String ?: reject(BranchRejection.WrongType, index)
+
+    private fun JSONObject.requireExactKeys(expected: Set<String>, index: Int?) {
+        val actual = keysSet()
+        if (actual.any { it !in expected }) reject(BranchRejection.UnexpectedKey, index)
+        if (expected.any { it !in actual }) reject(BranchRejection.MissingKey, index)
+    }
+
+    private fun BranchNode.destinations(): List<String> = listOf(onTrue, onFalse)
+
+    private fun reject(reason: BranchRejection, index: Int? = null): Nothing = throw BranchRejectionException(reason, index)
+
+    private class BranchRejectionException(val reason: BranchRejection, val index: Int?) : RuntimeException(null, null, false, false)
+}
+
+sealed interface BranchStep {
+    data class Act(val node: BranchNode) : BranchStep
+    data object Done : BranchStep
+    data object Blocked : BranchStep
+}
+
+/** Owns the current node so callers cannot jump to a different branch by naming it. */
+class BranchingPlanEvaluator(plan: BranchingMilestonePlan) {
+    private val nodes = plan.nodes
+    private var currentIndex = 0
+    private var current: BranchStep = BranchStep.Act(nodes.first())
+
+    fun current(): BranchStep = current
+
+    fun advance(outcome: Boolean?): BranchStep {
+        val active = current as? BranchStep.Act ?: return BranchStep.Blocked
+        if (outcome == null) return finish(BranchStep.Blocked)
+        val destination = if (outcome) active.node.onTrue else active.node.onFalse
+        return when (destination) {
+            "done" -> finish(BranchStep.Done)
+            "blocked" -> finish(BranchStep.Blocked)
+            else -> {
+                val nextIndex = nodes.indexOfFirst { it.id == destination }
+                if (nextIndex <= currentIndex) return finish(BranchStep.Blocked)
+                currentIndex = nextIndex
+                current = BranchStep.Act(nodes[currentIndex])
+                current
+            }
+        }
+    }
+
+    private fun finish(terminal: BranchStep): BranchStep {
+        currentIndex = nodes.size
+        current = terminal
+        return current
+    }
+}
+
 /**
  * Experimental switch for the derived-progress relaxation (spec.md § Derived progress egress).
  * [Off] in every build: nothing derived from the device reaches the cloud planner.

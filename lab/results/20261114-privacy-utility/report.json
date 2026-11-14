@@ -1,0 +1,73 @@
+{
+  "caseCount": 12,
+  "modelEvidence": false,
+  "schema": "SolinPrivacyUtilityReport/v1",
+  "status": "synthetic-contract-only",
+  "tiers": {
+    "p0": {
+      "branchSteeringFailures": 1,
+      "broken": 0,
+      "brokenCaseIds": [],
+      "bytes": 0,
+      "cloudCalls": 0,
+      "correct": 4,
+      "fixed": 0,
+      "fixedCaseIds": [],
+      "syntheticCost": 0
+    },
+    "p1": {
+      "branchSteeringFailures": 1,
+      "broken": 4,
+      "brokenCaseIds": [
+        "already_complete",
+        "unsupported_target",
+        "predicate_failure",
+        "pii_history"
+      ],
+      "bytes": 1106,
+      "cloudCalls": 12,
+      "correct": 0,
+      "fixed": 0,
+      "fixedCaseIds": [],
+      "syntheticCost": 0.12
+    },
+    "p2": {
+      "branchSteeringFailures": 0,
+      "broken": 0,
+      "brokenCaseIds": [],
+      "bytes": 3724,
+      "cloudCalls": 12,
+      "correct": 11,
+      "fixed": 7,
+      "fixedCaseIds": [
+        "supported_input",
+        "supported_submit",
+        "predicate_success",
+        "branch_steering",
+        "pii_screen",
+        "pii_memory",
+        "optional_boolean"
+      ],
+      "syntheticCost": 0.12
+    },
+    "p3": {
+      "branchSteeringFailures": 1,
+      "broken": 0,
+      "brokenCaseIds": [],
+      "bytes": 4236,
+      "cloudCalls": 24,
+      "correct": 11,
+      "fixed": 7,
+      "fixedCaseIds": [
+        "supported_input",
+        "supported_submit",
+        "predicate_success",
+        "pii_screen",
+        "pii_memory",
+        "optional_boolean",
+        "argument_shape"
+      ],
+      "syntheticCost": 0.48
+    }
+  }
+}

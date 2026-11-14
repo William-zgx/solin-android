@@ -445,6 +445,9 @@ class SolinAppContainer(
                         // Counts every step, including typed and submit steps that make no remote call.
                         maxReplans = 12
                     ),
+                    com.bytedance.zgx.solin.orchestration.TypedObservationCandidateReplanner(
+                        enabled = BuildConfig.DEBUG
+                    ),
                     ModelObservationReplanner(
                         actionPlanningRuntime = observationActionPlanningRuntime,
                         actionModelPathProvider = modelRepository::verifiedObservationActionModelPath,
