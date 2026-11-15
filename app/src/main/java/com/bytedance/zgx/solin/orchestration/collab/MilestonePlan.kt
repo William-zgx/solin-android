@@ -676,7 +676,7 @@ fun interface MilestonePlannerModel {
 }
 
 /** Executes the request-only experiment; production disclosure/dispatch remains a separate prerequisite. */
-class CloudMilestonePlanner(internal val model: MilestonePlannerModel) {
+class CloudMilestonePlanner(private val model: MilestonePlannerModel) {
     fun planSequential(userRequest: String): MilestoneParseResult {
         val output = model.complete(
             SEQUENTIAL_INSTRUCTION + appAliasInstruction(MilestoneVocabulary.DEFAULT.apps),
@@ -696,12 +696,15 @@ class CloudMilestonePlanner(internal val model: MilestonePlannerModel) {
 
     private fun appAliasInstruction(allowedApps: Set<String>): String {
         val aliases = AppInteractionProfiles.profiles
-            .filter { profile -> profile.packageNames.any { it in allowedApps } }
-            .joinToString("; ") { profile ->
-                profile.packageNames.joinToString(",") { packageName ->
-                    "$packageName aliases=${profile.appNameAliases.sorted().joinToString("/")}"
+            .mapNotNull { profile ->
+                val packages = profile.packageNames.filter { it in allowedApps }
+                if (packages.isEmpty()) {
+                    null
+                } else {
+                    "${packages.joinToString(",")} aliases=${profile.appNameAliases.sorted().joinToString("/")}"
                 }
             }
+            .joinToString("; ")
         return if (aliases.isBlank()) "" else " App aliases: $aliases."
     }
 

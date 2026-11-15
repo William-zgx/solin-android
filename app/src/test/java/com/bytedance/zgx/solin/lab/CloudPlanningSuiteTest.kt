@@ -47,47 +47,18 @@ class CloudPlanningSuiteTest {
                     .put("sequential", evaluate(planner, case, sequential = true))
                     .put("branching", evaluate(planner, case, sequential = false))
             }
-            val summary = JSONObject()
+            val summary = comparisonSummary(results)
                 .put("schema", "SolinCloudPlanningReport/v1")
                 .put("evidence", "live request-only remote lab; not production or device evidence")
                 .put("model", config.normalized().modelName)
                 .put("caseCount", results.size)
-                .put(
-                    "fixedVsSequential",
-                    JSONArray(
-                        results.filter { result ->
-                            result.getJSONObject("branching").getBoolean("correct") &&
-                                !result.getJSONObject("sequential").getBoolean("correct")
-                        }.map { it.getString("caseId") }
-                    )
-                )
-                .put(
-                    "brokenVsSequential",
-                    JSONArray(
-                        results.filter { result ->
-                            !result.getJSONObject("branching").getBoolean("correct") &&
-                                result.getJSONObject("sequential").getBoolean("correct")
-                        }.map { it.getString("caseId") }
-                    )
-                )
-                .put(
-                    "metrics",
-                    JSONObject()
-                        .put("sequential", metrics(results, "sequential"))
-                        .put("branching", metrics(results, "branching"))
-                )
                 .put("cases", JSONArray(results))
             val output = File(LabEnv.repoRoot, "build/verification/cloud-planning/live-summary.json")
             output.parentFile?.mkdirs()
             output.writeText(summary.toString())
             println("live cloud planning: $summary")
 
-            val errors = results.flatMap { result -> listOf("sequential", "branching").map { mode -> result.getJSONObject(mode) } }
-                .filter { it.has("errorType") }
-            assertTrue("live planner errors: $errors", errors.isEmpty())
-            listOf("sequential", "branching").forEach { mode ->
-                assertTrue("no valid $mode plan", results.any { result -> result.getJSONObject(mode).getBoolean("correct") })
-            }
+            assertAtLeastOneCorrect(results, config.normalized().modelName)
         } finally {
             runtime.stop()
         }
@@ -118,7 +89,12 @@ class CloudPlanningSuiteTest {
         assertEquals("TrailingContent", rejected.getString("rejectionReason"))
     }
 
-    internal fun evaluate(planner: CloudMilestonePlanner, case: CloudCase, sequential: Boolean): JSONObject {
+    internal fun evaluate(
+        planner: CloudMilestonePlanner,
+        case: CloudCase,
+        sequential: Boolean,
+        rawPreview: (() -> String?)? = null
+    ): JSONObject {
         val started = System.nanoTime()
         val result = JSONObject()
             .put("cloudCalls", 1)
@@ -153,7 +129,7 @@ class CloudPlanningSuiteTest {
                             .put("rejectionIndex", parsed.index ?: JSONObject.NULL)
                 }
             }
-            (planner.model as? LocalLiteRtMilestonePlannerModel)?.lastRawOutput?.let { raw ->
+            rawPreview?.invoke()?.let { raw ->
                 result.put("rawPreview", raw.previewForLab())
             }
             result.put("wallMs", (System.nanoTime() - started) / 1_000_000)
@@ -210,6 +186,31 @@ class CloudPlanningSuiteTest {
                     .put("onFalse", node.onFalse)
                     .put("milestone", milestonesJson(listOf(node.milestone)).getJSONObject(0))
             )
+        }
+    }
+
+    internal fun comparisonSummary(results: List<JSONObject>): JSONObject = JSONObject()
+        .put("fixedVsSequential", JSONArray(results.filter { result ->
+            result.getJSONObject("branching").getBoolean("correct") &&
+                !result.getJSONObject("sequential").getBoolean("correct")
+        }.map { it.getString("caseId") }))
+        .put("brokenVsSequential", JSONArray(results.filter { result ->
+            !result.getJSONObject("branching").getBoolean("correct") &&
+                result.getJSONObject("sequential").getBoolean("correct")
+        }.map { it.getString("caseId") }))
+        .put("metrics", JSONObject()
+            .put("sequential", metrics(results, "sequential"))
+            .put("branching", metrics(results, "branching")))
+
+    internal fun transportErrors(results: List<JSONObject>): List<JSONObject> =
+        results.flatMap { result -> listOf("sequential", "branching").map { mode -> result.getJSONObject(mode) } }
+            .filter { it.has("errorType") }
+
+    internal fun assertAtLeastOneCorrect(results: List<JSONObject>, model: String) {
+        val errors = transportErrors(results)
+        assertTrue("live planner errors for $model: $errors", errors.isEmpty())
+        listOf("sequential", "branching").forEach { mode ->
+            assertTrue("no valid $mode plan for $model", results.any { result -> result.getJSONObject(mode).getBoolean("correct") })
         }
     }
 

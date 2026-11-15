@@ -172,7 +172,7 @@ fun Map<String, String>.toJson(): JSONObject = JSONObject().also { json -> forEa
  * with an existing manifest so suites run in separate Gradle invocations share one file.
  */
 object LabManifest {
-    fun recordModels(client: OllamaClient, models: List<String>, options: OllamaClient.Options = OllamaClient.Options()) = mutateManifest { manifest ->
+    fun recordModels(client: OllamaClient, models: List<String>, outputFile: File? = null) = mutateManifest(outputFile) { manifest ->
         manifest.put("runDate", LabEnv.runDate)
         manifest.put("ollamaVersion", runCatching { client.version() }.getOrDefault("unknown"))
         val head = gitHead()
@@ -182,7 +182,7 @@ object LabManifest {
         // It is recorded per model as well, because one folder can hold an Ollama run and a LiteRT
         // run on the same day and the top-level note only names the last host that wrote here.
         manifest.put("hostNote", LabEnv.hostNote)
-        manifest.put("samplingOptions", options.toJson())
+        manifest.put("samplingOptions", OllamaClient.Options().toJson())
         val modelsJson = manifest.optJSONObject("models") ?: JSONObject()
         val tags = runCatching { client.tags() }.getOrNull()
         models.forEach { model ->
@@ -201,7 +201,7 @@ object LabManifest {
         manifest.put("models", modelsJson)
     }
 
-    fun recordSuite(suite: String, info: JSONObject) = mutateManifest { manifest ->
+    fun recordSuite(suite: String, info: JSONObject, outputFile: File? = null) = mutateManifest(outputFile) { manifest ->
         val suites = manifest.optJSONObject("suites") ?: JSONObject()
         suites.put(suite, info)
         manifest.put("suites", suites)
@@ -219,8 +219,8 @@ object LabManifest {
     }
 
     @Synchronized
-    private fun mutateManifest(mutate: (JSONObject) -> Unit) {
-        val file = File(LabEnv.resultsDir, "manifest.json")
+    private fun mutateManifest(outputFile: File? = null, mutate: (JSONObject) -> Unit) {
+        val file = outputFile ?: File(LabEnv.resultsDir, "manifest.json")
         val manifest = if (file.isFile) JSONObject(file.readText()) else JSONObject()
         mutate(manifest)
         file.writeText(manifest.toString(2))

@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.orchestration.collab
 
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.device.AppInteractionProfiles
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -80,6 +81,24 @@ class CloudMilestonePlannerTest {
 
         assertEquals(BranchParseResult.Rejected(BranchRejection.CapabilityNotAllowed), result)
         assertEquals(0, calls)
+    }
+
+    @Test
+    fun aliasInstructionsStayInsideAllowedApps() {
+        val profile = AppInteractionProfiles.profiles.first { it.packageNames.size > 1 }
+        val allowed = profile.packageNames.first()
+        var instruction = ""
+        val planner = CloudMilestonePlanner { system, _ ->
+            instruction = system
+            BRANCHING_PLAN
+        }
+
+        val result = planner.planBranching(REQUEST, capabilities().copy(apps = capabilities().apps + allowed))
+
+        assertTrue(result is BranchParseResult.Accepted)
+        profile.packageNames.filter { it != allowed }.forEach { sibling ->
+            assertFalse("unexpected sibling package $sibling", instruction.contains(sibling))
+        }
     }
 
     private fun capabilities() = BranchCapabilities(

@@ -18,10 +18,14 @@ class LocalLiteRtMilestonePlannerModel(
                 OllamaClient.Message(role = "system", content = instruction),
                 OllamaClient.Message(role = "user", content = renderedRequest)
             ),
-            options = OllamaClient.Options(numPredict = 1_024)
+            options = LocalLiteRtMilestonePlannerModel.PLANNING_OPTIONS
         )
         if (result.error != null) throw IOException(result.error)
         lastRawOutput = result.text
         return result.text
+    }
+
+    internal companion object {
+        val PLANNING_OPTIONS = OllamaClient.Options(numPredict = 1_024)
     }
 }
