@@ -77,8 +77,9 @@ skips the suite with an assumption failure rather than selecting another path. T
 The shim owns every run cache and removes it on success, failure and SIGTERM. With no `--cache-dir`, caches are
 created under `SOLIN_LITERT_SCRATCH_ROOT` (default `~/.cache/solin-litert`, which is under `/data00` on n37).
 Crash leftovers are lock-checked and pruned to `SOLIN_LITERT_SCRATCH_MAX_DIRS=2` and
-`SOLIN_LITERT_SCRATCH_MAX_BYTES=8589934592` by default. Before LiteRT starts, the shim requires the largest
-model-cache reserve plus `SOLIN_LITERT_MIN_FREE_BYTES=4294967296` of free space, and refuses to run otherwise.
+`SOLIN_LITERT_SCRATCH_MAX_BYTES=8589934592` by default. Before LiteRT starts, the shim requires an all-model
+cache reserve plus `SOLIN_LITERT_MIN_FREE_BYTES=4294967296` of free space, and it accounts for other active
+runs' remaining cache writes before starting another run.
 An explicit `--cache-dir` must be empty and is also removed on exit; a nonempty directory is preserved and rejected.
 On hosts with a `/data00` filesystem, automatic and explicit caches must both reside there; `/tmp` is refused.
 SIGKILL cannot run an exit handler, so its stale directory is reclaimed by a later bounded startup.

@@ -16,8 +16,9 @@ the paths below are placeholders):
 `--model-root` overrides `SOLIN_LAB_LITERT_MODEL_ROOT`; one of them is required. Run caches default to
 `~/.cache/solin-litert` (under `/data00` on n37), or `SOLIN_LITERT_SCRATCH_ROOT`. Each run removes its cache on
 success, failure and SIGTERM. Stale crash directories are lock-checked and bounded by
-`SOLIN_LITERT_SCRATCH_MAX_DIRS` / `SOLIN_LITERT_SCRATCH_MAX_BYTES`; startup also requires room for the largest
-model cache plus `SOLIN_LITERT_MIN_FREE_BYTES`. An explicit `--cache-dir` must be empty and is likewise removed.
+`SOLIN_LITERT_SCRATCH_MAX_DIRS` / `SOLIN_LITERT_SCRATCH_MAX_BYTES`; startup reserves all model caches and other
+active runs' remaining writes, plus `SOLIN_LITERT_MIN_FREE_BYTES`. An explicit `--cache-dir` must be empty and
+is likewise removed.
 On hosts with `/data00`, every cache must reside on that filesystem; explicit `/tmp` paths are rejected.
 
 Then point the harness at it:
@@ -41,6 +42,7 @@ import json
 import os
 import shutil
 import signal
+import stat
 import sys
 import tempfile
 import threading
@@ -60,7 +62,17 @@ MODELS = {
 # One engine per model, loaded lazily, and only one model resident at a time: loading two Gemma 4
 # files at once is more memory than the bench needs and would also contend for CPU.
 _engine_lock = threading.Lock()
-_loaded = {"name": None, "engine": None, "cache": None}
+_loaded = {"name": None, "engine": None}
+
+
+def _unload_engine_locked():
+    _loaded["engine"] = None
+    _loaded["name"] = None
+
+
+def _unload_engine():
+    with _engine_lock:
+        _unload_engine_locked()
 
 
 def _import_litert():
@@ -98,33 +110,30 @@ def _digest(path):
 _digest.cache = {}
 
 
-def _engine_for(model_root, name, cache_dir=""):
+def _engine_for(model_root, name, cache_dir):
     litert = _import_litert()
     with _engine_lock:
-        if _loaded["name"] == name and _loaded["cache"] == cache_dir:
+        if _loaded["name"] == name:
             return _loaded["engine"]
         # Unload the previous model before loading the next one.
-        _loaded["engine"] = None
-        _loaded["name"] = None
+        _unload_engine_locked()
         _, max_tokens = MODELS[name]
-        kwargs = {} if max_tokens is None else {"max_num_tokens": max_tokens}
-        if cache_dir:
-            # A second shim process must not share a compiled-model cache with the first.
-            kwargs["cache_dir"] = cache_dir
+        kwargs = {"cache_dir": cache_dir}
+        if max_tokens is not None:
+            kwargs["max_num_tokens"] = max_tokens
         started = time.time()
         engine = litert.Engine(_model_path(model_root, name), backend=litert.interfaces.CPU(), **kwargs)
         print(
-            "[shim] loaded %s in %.1fs%s%s" % (
+            "[shim] loaded %s in %.1fs%s cache_dir=%s" % (
                 name,
                 time.time() - started,
                 "" if max_tokens is None else " max_num_tokens=%d" % max_tokens,
-                "" if not cache_dir else " cache_dir=%s" % cache_dir,
+                cache_dir,
             ),
             flush=True,
         )
         _loaded["engine"] = engine
         _loaded["name"] = name
-        _loaded["cache"] = cache_dir
         return engine
 
 
@@ -230,6 +239,12 @@ def _send_one_shot(conversation, user, max_output_tokens):
             capped = True
             conversation.cancel_process()
     return {"role": "assistant", "content": "".join(text_parts), "tool_calls": tool_calls}, capped
+
+
+class ShimHTTPServer(ThreadingHTTPServer):
+    # server_close waits for in-flight model loads/writes before the run cache is removed.
+    daemon_threads = False
+    block_on_close = True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -374,9 +389,6 @@ class CacheLease:
     def close(self):
         if self.lock_handle is None:
             return
-        _loaded["engine"] = None
-        _loaded["name"] = None
-        _loaded["cache"] = None
         try:
             if self.path.exists():
                 shutil.rmtree(self.path)
@@ -393,21 +405,24 @@ def _positive_env(name, default):
 
 
 def _model_reserve(model_root):
+    """Reserve all model caches because one shim may switch among every advertised model."""
     sizes = []
     for file_name, _ in MODELS.values():
         path = os.path.join(model_root, file_name)
         if os.path.isfile(path):
             sizes.append(os.path.getsize(path))
-    return max(sizes, default=0)
+    return sum(sizes)
 
 
-def _require_free_space(path, reserve, minimum_free):
+def _require_free_space(path, reserve, minimum_free, active_usage=()):
+    active_remaining = sum(max(0, reserve - size) for size in active_usage)
     free = shutil.disk_usage(path).free
-    required = reserve + minimum_free
+    required = reserve + active_remaining + minimum_free
     if free < required:
         raise RuntimeError(
             "insufficient disk space at %s: %d bytes free, %d required "
-            "(%d model-cache reserve + %d safety margin)" % (path, free, required, reserve, minimum_free)
+            "(%d model-cache reserve + %d active-run reserve + %d safety margin)"
+            % (path, free, required, reserve, active_remaining, minimum_free)
         )
 
 
@@ -416,7 +431,10 @@ def _validate_cache_filesystem(path):
     data_root = "/data00"
     if not os.path.isdir(data_root):
         return
-    if os.stat(path).st_dev != os.stat(data_root).st_dev:
+    candidate = Path(path)
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    if os.stat(candidate).st_dev != os.stat(data_root).st_dev:
         raise RuntimeError("run cache must be on the /data00 filesystem on this host, not %s" % path)
 
 
@@ -435,11 +453,23 @@ def _try_lock(cache_dir):
 def _directory_size(path):
     total = 0
     for root, dirs, files in os.walk(path):
-        dirs[:] = [name for name in dirs if not (Path(root) / name).is_symlink()]
+        kept_dirs = []
+        for name in dirs:
+            try:
+                info = (Path(root) / name).lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                kept_dirs.append(name)
+        dirs[:] = kept_dirs
         for name in files:
             file_path = Path(root) / name
-            if not file_path.is_symlink():
-                total += file_path.stat().st_size
+            try:
+                info = file_path.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
     return total
 
 
@@ -453,12 +483,12 @@ def _prune_scratch(root, reserve, max_dirs, max_bytes):
         mtime = path.stat().st_mtime
         handle = _try_lock(path)
         if handle is None:
-            active.append(path)
+            active.append((path, _directory_size(path)))
         else:
-            stale.append([path, handle, _directory_size(path), mtime])
+            stale.append((path, handle, _directory_size(path), mtime))
     try:
         kept_count = 1 + len(active)  # Reserve one slot for this run, even before its directory exists.
-        kept_bytes = reserve + sum(_directory_size(path) for path in active)
+        kept_bytes = reserve + sum(size for _, size in active)
         stale.sort(key=lambda item: item[3], reverse=True)
         for path, _, size, _ in stale:
             if kept_count < max_dirs and kept_bytes + size <= max_bytes:
@@ -469,6 +499,27 @@ def _prune_scratch(root, reserve, max_dirs, max_bytes):
     finally:
         for _, handle, _, _ in stale:
             handle.close()
+    return [size for _, size in active]
+
+
+def _delete_unlocked(path):
+    handle = _try_lock(path)
+    if handle is None:
+        return
+    try:
+        shutil.rmtree(path)
+    finally:
+        handle.close()
+
+
+def _lock_empty_cache(path):
+    handle = _try_lock(path)
+    if handle is None:
+        raise RuntimeError("could not lock run cache %s" % path)
+    if any(entry.name != ".lock" for entry in path.iterdir()):
+        handle.close()
+        raise FileExistsError("cache directory changed during startup; existing files were preserved")
+    return handle
 
 
 def _prepare_cache(args):
@@ -478,47 +529,44 @@ def _prepare_cache(args):
     minimum_free = _positive_env("SOLIN_LITERT_MIN_FREE_BYTES", DEFAULT_MIN_FREE_BYTES)
     reserve = _model_reserve(args.model_root)
     if reserve > max_bytes:
-        raise ValueError("SOLIN_LITERT_SCRATCH_MAX_BYTES must cover the largest model cache reserve")
+        raise ValueError("SOLIN_LITERT_SCRATCH_MAX_BYTES must cover the all-model cache reserve")
 
     target = None
-    lock_handle = None
-    owned = False
     try:
         if args.cache_dir:
-            target = Path(args.cache_dir).expanduser().absolute()
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if target.exists() and (target.is_symlink() or not target.is_dir() or any(target.iterdir())):
+            candidate = Path(args.cache_dir).expanduser().absolute()
+            if candidate.exists() and (candidate.is_symlink() or not candidate.is_dir() or any(candidate.iterdir())):
                 raise ValueError("--cache-dir must be an empty shim-owned directory; existing files were preserved")
-            owned = True
+            target = candidate if candidate.exists() else None
+            _validate_cache_filesystem(candidate)
+            if target is None:
+                target = candidate
+            target.parent.mkdir(parents=True, exist_ok=True)
             _require_free_space(target.parent, reserve, minimum_free)
             target.mkdir(exist_ok=True)
-        else:
-            root = Path(args.scratch_root).expanduser().absolute()
-            if root.exists() and (root.is_symlink() or not root.is_dir()):
-                raise ValueError("scratch root must be a real directory, not a symlink or file")
-            root.mkdir(parents=True, exist_ok=True)
-            startup_lock = open(root / ".startup.lock", "a+b")
-            try:
-                fcntl.flock(startup_lock.fileno(), fcntl.LOCK_EX)
-                _prune_scratch(root, reserve, max_dirs, max_bytes)
-                _require_free_space(root, reserve, minimum_free)
-                target = Path(tempfile.mkdtemp(prefix=CACHE_PREFIX, dir=root))
-                owned = True
-                lock_handle = _try_lock(target)
-                if lock_handle is None:
-                    raise RuntimeError("could not lock run cache %s" % target)
-            finally:
-                startup_lock.close()
-        if lock_handle is None:
-            lock_handle = _try_lock(target)
-            if lock_handle is None:
-                # A concurrent owner may have taken an explicit directory after our empty check.
-                owned = False
-                raise RuntimeError("could not lock run cache %s" % target)
-        return CacheLease(target, lock_handle)
+            return CacheLease(target, _lock_empty_cache(target))
+
+        root = Path(args.scratch_root).expanduser().absolute()
+        _validate_cache_filesystem(root)
+        if root.exists() and (root.is_symlink() or not root.is_dir()):
+            raise ValueError("scratch root must be a real directory, not a symlink or file")
+        root.mkdir(parents=True, exist_ok=True)
+        startup_lock = open(root / ".startup.lock", "a+b")
+        try:
+            fcntl.flock(startup_lock.fileno(), fcntl.LOCK_EX)
+            active_usage = _prune_scratch(root, reserve, max_dirs, max_bytes)
+            _require_free_space(root, reserve, minimum_free, active_usage)
+            target = Path(tempfile.mkdtemp(prefix=CACHE_PREFIX, dir=root))
+            return CacheLease(target, _lock_empty_cache(target))
+        finally:
+            startup_lock.close()
+    except FileExistsError:
+        # A non-shim writer won the race after our first check; do not remove its files.
+        target = None
+        raise
     except BaseException:
-        if owned and target is not None and target.exists():
-            shutil.rmtree(target, ignore_errors=True)
+        if target is not None and target.exists():
+            _delete_unlocked(target)
         raise
 
 
@@ -549,13 +597,12 @@ def main(argv):
     try:
         try:
             cache = _prepare_cache(args)
-            _validate_cache_filesystem(cache.path)
         except (OSError, RuntimeError, ValueError) as error:
             parser.error(str(error))
         Handler.model_root = args.model_root
         Handler.cache_dir = str(cache.path)
         Handler.litert = _import_litert()
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+        server = ShimHTTPServer(("127.0.0.1", args.port), Handler)
         print(
             "[shim] listening on http://127.0.0.1:%d (model root %s, run cache %s; cache removed on exit)"
             % (args.port, args.model_root, cache.path),
@@ -571,6 +618,7 @@ def main(argv):
                 server.server_close()
         finally:
             if cache is not None:
+                _unload_engine()
                 cache.close()
 
 

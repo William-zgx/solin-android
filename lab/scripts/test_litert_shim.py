@@ -69,8 +69,11 @@ class OutputCapTest(unittest.TestCase):
 
 
 class FakeServer:
+    instances = []
+
     def __init__(self, _address, _handler):
         self.closed = False
+        FakeServer.instances.append(self)
 
     def serve_forever(self):
         return None
@@ -88,6 +91,10 @@ class CacheLifecycleTest(unittest.TestCase):
         self.model_root.mkdir()
         self.scratch = self.root / "scratch"
         self.shim = load_shim()
+        self.filesystem_guard = mock.patch.object(self.shim, "_validate_cache_filesystem")
+        self.filesystem_guard.start()
+        self.addCleanup(self.filesystem_guard.stop)
+        FakeServer.instances.clear()
         self.environment = mock.patch.dict(
             os.environ,
             {
@@ -113,10 +120,11 @@ class CacheLifecycleTest(unittest.TestCase):
         with mock.patch.object(self.shim.signal, "signal"), \
                 mock.patch.object(self.shim, "_validate_cache_filesystem"), \
                 mock.patch.object(self.shim, "_import_litert", return_value=object()), \
-                mock.patch.object(self.shim, "ThreadingHTTPServer", FakeServer):
+                mock.patch.object(self.shim, "ShimHTTPServer", FakeServer):
             cache = self.root / "successful-run"
             self.assertEqual(0, self.shim.main(self.main_args(cache)))
             self.assertFalse(cache.exists())
+            self.assertTrue(FakeServer.instances[-1].closed)
 
         with mock.patch.object(self.shim.signal, "signal"), \
                 mock.patch.object(self.shim, "_validate_cache_filesystem"), \
@@ -126,10 +134,41 @@ class CacheLifecycleTest(unittest.TestCase):
                 self.shim.main(self.main_args(cache))
             self.assertFalse(cache.exists())
 
+    def test_main_sigterm_removes_cache(self):
+        shim = self.shim
+
+        class InterruptServer(FakeServer):
+            def serve_forever(self):
+                shim._termination_signal(15, None)
+
+        cache = self.root / "sigterm-run"
+        with mock.patch.object(self.shim.signal, "signal"), \
+                mock.patch.object(self.shim, "_validate_cache_filesystem"), \
+                mock.patch.object(self.shim, "_import_litert", return_value=object()), \
+                mock.patch.object(self.shim, "ShimHTTPServer", InterruptServer):
+            self.assertEqual(0, self.shim.main(self.main_args(cache)))
+        self.assertFalse(cache.exists())
+
+    def test_main_filesystem_rejection_removes_precreated_empty_cache(self):
+        cache = self.root / "rejected-run"
+        cache.mkdir()
+        with mock.patch.object(self.shim.signal, "signal"), \
+                mock.patch.object(self.shim, "_validate_cache_filesystem", side_effect=RuntimeError("wrong filesystem")), \
+                mock.patch.object(self.shim, "_import_litert") as import_litert:
+            with self.assertRaises(SystemExit):
+                self.shim.main(self.main_args(cache))
+        import_litert.assert_not_called()
+        self.assertFalse(cache.exists())
+
+    def test_server_waits_for_inflight_handlers(self):
+        self.assertFalse(self.shim.ShimHTTPServer.daemon_threads)
+        self.assertTrue(self.shim.ShimHTTPServer.block_on_close)
+
     def test_low_space_rejects_before_import_and_removes_owned_empty_cache(self):
         cache = self.root / "low-space"
         cache.mkdir()
         with mock.patch.object(self.shim.signal, "signal"), \
+                mock.patch.object(self.shim, "_validate_cache_filesystem"), \
                 mock.patch.object(self.shim.shutil, "disk_usage", return_value=mock.Mock(free=0)), \
                 mock.patch.object(self.shim, "_import_litert") as import_litert:
             with self.assertRaises(SystemExit):
@@ -147,11 +186,14 @@ class CacheLifecycleTest(unittest.TestCase):
         self.assertEqual(b"keep", payload.read_bytes())
 
     def test_explicit_cache_cannot_bypass_data00_filesystem(self):
+        self.filesystem_guard.stop()
+        self.addCleanup(self.filesystem_guard.start)
         with mock.patch.object(self.shim.os.path, "isdir", return_value=True), \
+                mock.patch.object(self.shim.os.path, "exists", return_value=True), \
                 mock.patch.object(
                     self.shim.os,
                     "stat",
-                    side_effect=lambda path: types.SimpleNamespace(st_dev=1 if os.fspath(path) == "/data00" else 2),
+                    side_effect=lambda path, **_: types.SimpleNamespace(st_dev=1 if os.fspath(path) == "/data00" else 2),
                 ):
             with self.assertRaisesRegex(RuntimeError, "/data00 filesystem"):
                 self.shim._validate_cache_filesystem(self.root / "root-partition-cache")
@@ -175,6 +217,42 @@ class CacheLifecycleTest(unittest.TestCase):
             finally:
                 second.close()
                 first.close()
+
+    def test_model_reserve_sums_all_models_and_enforces_cap(self):
+        for index, (file_name, _) in enumerate(self.shim.MODELS.values(), start=1):
+            (self.model_root / file_name).write_bytes(b"x" * (index * 100))
+        self.assertEqual(600, self.shim._model_reserve(self.model_root))
+        with mock.patch.dict(os.environ, {"SOLIN_LITERT_SCRATCH_MAX_BYTES": "599"}):
+            with self.assertRaisesRegex(ValueError, "all-model cache reserve"):
+                self.shim._prepare_cache(self.args())
+        with mock.patch.dict(os.environ, {"SOLIN_LITERT_SCRATCH_MAX_BYTES": "600"}):
+            lease = self.shim._prepare_cache(self.args())
+            lease.close()
+
+    def test_active_runs_count_toward_free_space(self):
+        with mock.patch.object(self.shim.shutil, "disk_usage", return_value=mock.Mock(free=700)):
+            with self.assertRaisesRegex(RuntimeError, "active-run reserve"):
+                self.shim._require_free_space(self.root, 600, 100, active_usage=[500])
+        with mock.patch.object(self.shim.shutil, "disk_usage", return_value=mock.Mock(free=800)):
+            self.shim._require_free_space(self.root, 600, 100, active_usage=[500])
+
+    def test_lock_recheck_preserves_foreign_file(self):
+        cache = self.root / "race-cache"
+        cache.mkdir()
+        original_try_lock = self.shim._try_lock
+
+        def write_then_lock(path):
+            (path / "foreign").write_bytes(b"keep")
+            return original_try_lock(path)
+
+        with mock.patch.object(self.shim, "_try_lock", side_effect=write_then_lock):
+            with self.assertRaises(FileExistsError):
+                self.shim._prepare_cache(self.args(cache))
+        self.assertEqual(b"keep", (cache / "foreign").read_bytes())
+
+    def test_directory_size_tolerates_disappearing_files(self):
+        with mock.patch.object(self.shim.Path, "lstat", side_effect=FileNotFoundError):
+            self.assertEqual(0, self.shim._directory_size(self.root))
 
     def make_stale(self, name, size, mtime):
         path = self.scratch / (self.shim.CACHE_PREFIX + name)
