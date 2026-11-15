@@ -201,6 +201,7 @@ jobs:
             "cmdline-tools;latest" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
+            "cmake;3.31.6" \
             "platform-tools" \
             "emulator" \
             "system-images;android-36;google_apis;arm64-v8a"
@@ -280,7 +281,8 @@ jobs:
             "cmdline-tools;latest" \
             "platform-tools" \
             "emulator" \
-            "build-tools;36.0.0"
+            "build-tools;36.0.0" \
+            "cmake;3.31.6"
 
       - name: Prepare API matrix AVDs
         run: |
