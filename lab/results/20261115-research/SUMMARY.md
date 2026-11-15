@@ -36,15 +36,15 @@ error body or device observation is included.
 
 ## Reproduce
 
-Start the shim with a new empty cache directory, then run the suite. An authorized local endpoint is not a
-cloud API and no remote credential is required.
+Start the shim, then run the suite. An authorized local endpoint is not a cloud API and no remote credential is
+required. The current shim auto-creates its run cache under the bounded `/data00` scratch root and removes it on
+success, failure or SIGTERM; no `/tmp` cache directory is needed.
 
 ```bash
-CACHE_DIR="$(mktemp -d /tmp/solin-litert-final-20261115-XXXXXX)"
+SOLIN_LITERT_SCRATCH_ROOT=/data00/home/zouguoxue/.cache/solin-litert \
 LD_LIBRARY_PATH=/data00/home/zouguoxue/edge-litert/deb/root/usr/lib/x86_64-linux-gnu \
 SOLIN_LAB_LITERT_MODEL_ROOT=/data00/home/zouguoxue/edge-litert/models \
-/data00/home/zouguoxue/edge-litert/venv/bin/python -I lab/scripts/litert_shim.py \
-  --port 11437 --cache-dir "$CACHE_DIR"
+/data00/home/zouguoxue/edge-litert/venv/bin/python -I lab/scripts/litert_shim.py --port 11437
 
 SOLIN_LAB=1 \
 SOLIN_LAB_OLLAMA_URL=http://127.0.0.1:11437 \

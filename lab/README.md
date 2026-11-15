@@ -66,13 +66,22 @@ export SOLIN_LAB_MODELS=litert/gemma-4-e2b
 export SOLIN_LAB_MODES=R-gated-e2e
 export SOLIN_LAB_LITERT_MODEL_ROOT=/path/to/models
 export SOLIN_LAB_OLLAMA_URL=http://127.0.0.1:11437
-/path/to/litert-venv/bin/python -I lab/scripts/litert_shim.py \
-    --port 11437 --cache-dir /path/to/litert-cache
+export SOLIN_LITERT_SCRATCH_ROOT=/data00/home/example/.cache/solin-litert
+/path/to/litert-venv/bin/python -I lab/scripts/litert_shim.py --port 11437
 ```
 
 `--model-root` can override the environment variable for the shim. An unset root or a missing model file
 skips the suite with an assumption failure rather than selecting another path. The historical
 `SOLIN_LAB_MODES=R-gated-e2e-fence` mode remains available to reproduce the pre-production-fence comparison.
+
+The shim owns every run cache and removes it on success, failure and SIGTERM. With no `--cache-dir`, caches are
+created under `SOLIN_LITERT_SCRATCH_ROOT` (default `~/.cache/solin-litert`, which is under `/data00` on n37).
+Crash leftovers are lock-checked and pruned to `SOLIN_LITERT_SCRATCH_MAX_DIRS=2` and
+`SOLIN_LITERT_SCRATCH_MAX_BYTES=8589934592` by default. Before LiteRT starts, the shim requires the largest
+model-cache reserve plus `SOLIN_LITERT_MIN_FREE_BYTES=4294967296` of free space, and refuses to run otherwise.
+An explicit `--cache-dir` must be empty and is also removed on exit; a nonempty directory is preserved and rejected.
+On hosts with a `/data00` filesystem, automatic and explicit caches must both reside there; `/tmp` is refused.
+SIGKILL cannot run an exit handler, so its stale directory is reclaimed by a later bounded startup.
 
 ## Errored runs never look like scores (Decision L1)
 
