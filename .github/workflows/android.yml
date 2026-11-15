@@ -64,16 +64,18 @@ jobs:
         if: steps.zvec.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
+          ZVEC_VERSION="$(sed -n 's/^val zvecVersion = "\([^"]*\)"$/\1/p' app/build.gradle.kts)"
+          test -n "$ZVEC_VERSION"
           fetch() {
             curl --fail --location --silent --show-error --create-dirs \
               --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 600 \
               --connect-timeout 20 --max-time 240 "$1" -o "$2"
           }
           fetch \
-            "https://github.com/zvec-ai/zvec-dart/releases/download/v0.5.1/libzvec-android-arm64-v8a.zip" \
+            "https://github.com/zvec-ai/zvec-dart/releases/download/v${ZVEC_VERSION}/libzvec-android-arm64-v8a.zip" \
             "${{ github.workspace }}/build/verification/zvec-seeds/libzvec-android-arm64-v8a.zip"
           fetch \
-            "https://raw.githubusercontent.com/alibaba/zvec/v0.5.1/src/include/zvec/c_api.h" \
+            "https://raw.githubusercontent.com/alibaba/zvec/v${ZVEC_VERSION}/src/include/zvec/c_api.h" \
             "${{ github.workspace }}/build/verification/zvec-seeds/c_api.h"
 
       - name: Verify
