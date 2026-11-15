@@ -53,6 +53,40 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Restore zvec native inputs
+        uses: actions/cache@v4
+        with:
+          path: build/verification/zvec-seeds
+          key: zvec-0.5.1-708a58bf32a232890fd3e761bf662c05357aca9e0a4ba2783e4a9f86b78bbe3f-ea6b3f3373f29799a885442bf51ec1604426055e5b7b56ea2e12d8ccd70b2af0
+
+      - name: Prepare zvec native inputs
+        env:
+          ZVEC_SEED_DIR: ${{ github.workspace }}/build/verification/zvec-seeds
+        run: |
+          set -euo pipefail
+          mkdir -p "$ZVEC_SEED_DIR"
+          ZIP="$ZVEC_SEED_DIR/libzvec-android-arm64-v8a.zip"
+          HEADER="$ZVEC_SEED_DIR/c_api.h"
+          if [[ ! -s "$ZIP" ]]; then
+            curl --fail --location --silent --show-error \
+              --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 600 \
+              --connect-timeout 20 --max-time 240 \
+              "https://github.com/zvec-ai/zvec-dart/releases/download/v0.5.1/libzvec-android-arm64-v8a.zip" \
+              -o "$ZIP"
+          fi
+          if [[ ! -s "$HEADER" ]]; then
+            curl --fail --location --silent --show-error \
+              --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 300 \
+              --connect-timeout 20 --max-time 60 \
+              "https://raw.githubusercontent.com/alibaba/zvec/v0.5.1/src/include/zvec/c_api.h" \
+              -o "$HEADER"
+          fi
+          unzip -t "$ZIP" >/dev/null
+          {
+            echo "SOLIN_ZVEC_ANDROID_ARM64_ZIP=$ZIP"
+            echo "SOLIN_ZVEC_C_API_HEADER=$HEADER"
+          } >> "$GITHUB_ENV"
+
       - name: Verify
         run: scripts/verify_local.sh
 
