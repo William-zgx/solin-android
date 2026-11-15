@@ -36,12 +36,40 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | 当前本地门禁 | `2452f888` 的完整本地验证与隐私扫描通过；JVM 为 3007 tests / 0 failures / 0 errors / 15 skipped，另有 21 项 LiteRT shim stdlib 回归。真实 E4B 写入中 SIGTERM 后缓存清理完成，`/tmp` 与 `/data00` scratch 均无残留。 | [2026-11-15 — LiteRT shim cache safety](#2026-11-15--litert-shim-cache-safety) |
-| 最近记录的全量 main CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。该条目是历史 CI 证据，不是当前提交的本地门禁结论。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
+| 当前 main CI verify | `573b42a2` 的 [#169](https://github.com/William-zgx/solin-android/actions/runs/43721643118) `Verify` 与 AI behavior boundary 均 success，local/AI evidence artifacts 已上传；总体因既有 emulator 基础设施 cancelled，不能写成完整工作流通过。 | [2026-11-15 — Main CI build repair](#2026-11-15--main-ci-build-repair) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
 | 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查；20261115 为生产 E2B/E4B 文件与服务摘要双重校验后的 3-case 顺序/分支规划比较。均不是设备或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) · [Planning comparison](#2026-11-15--production-model-planning-comparison) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-15 — Main CI build repair
+
+本轮覆盖项：修复 main `verify` 在 #163–#168 连续失败的问题。公开步骤元数据确认失败均为 `scripts/verify_local.sh`，
+不是 e6b01e3a 引入的回归。诊断过程中为 zvec native 输入加入按 `app/build.gradle.kts` hash 键控的缓存、
+有界 curl 预取与 Gradle seed 路径，保留原有 SHA-256 校验；为公开 runner 设置 8 GiB Gradle 堆，并用实际
+KotlinCompileDaemon 证明 `-Dorg.gradle.project.kotlin.daemon.jvmargs=-Xmx2g` 生效。诊断日志和测试报告只进入
+独立 failure-only artifact，不改变 release evidence 布局。
+
+最终根因来自 [#168](https://github.com/William-zgx/solin-android/actions/runs/43720558454) 的公开 error annotation：
+`:app:configureCMakeDebug[arm64-v8a]` 报 `[CXX1300] CMake '3.31.6' was not found in SDK, PATH, or by cmake.dir
+property`。因此下载和堆都只是推进诊断的条件，不能当作最终根因。修复 `0ab4e57f` 与 `573b42a2` 在全部
+Android/App 构建 job（含 macOS emulator）安装项目指定的 `cmake;3.31.6`，不改变 emulator 基础设施策略。
+
+验证命令与证据：
+
+- 普通 fresh clone 按 CI 默认环境复现 native 下载等待；curl seed 下载后 `:app:downloadZvecNativeLibs` 与
+  SHA-256 校验通过。native 输入就绪后默认 4 GiB 的完整 `verify_local.sh` 也通过，因此没有全局提高开发机堆。
+- 强制 `:app:compileDebugKotlin --rerun-tasks` 通过，并直接观察到新 KotlinCompileDaemon 使用 `-Xmx2g`。
+- 合成失败脚本验证 `PIPESTATUS`、公开 error annotation 和独立 diagnostics artifact；原始 evidence artifact 合同不变。
+- GitHub Actions [#169](https://github.com/William-zgx/solin-android/actions/runs/43721643118)：`Install Android SDK
+  packages`、`Prepare zvec native inputs`、`Verify`、`Verify AI behavior eval boundary map`、`Record local
+  verification evidence` 和两个 evidence upload 步骤均 **success**。`android-local-verification-evidence` 与
+  `android-ai-behavior-eval-evidence` 均存在。这是当前 main CI verify 修复的实际通过证据。
+- 独立 Claude Opus 5.5 correctness 与 simplify 审查者对 cache 键、URL 版本派生、Gradle/Kotlin 内存参数、
+  诊断 artifact 隔离和 CMake 安装均确认 clean。未创建 Release、tag 或对外公告，未执行真机/配对基准。
+- #169 总体仍为 cancelled，原因是既有 emulator 基础设施；本项只验收 `verify` job 与 AI behavior boundary，
+  不把总体 cancelled 写成完整 CI 成功。后续文档提交另用最新 main run 做最终核对。
 
 ## 2026-11-15 — LiteRT shim cache safety
 

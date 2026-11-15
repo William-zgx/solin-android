@@ -1,6 +1,6 @@
 # Release Readiness
 
-Code baseline for this readiness refresh: `2452f88885d377ce6925841b545adff306039e59`
+Code baseline for this readiness refresh: `573b42a2fa03514f369c8dfd08c285757691c159`
 (2026-11-15). The current local gate is recorded below; the latest recorded hosted full CI
 remains the earlier `cb7e4918` run. This page is not the release checklist or evidence log.
 
@@ -58,8 +58,8 @@ Current implementation ownership and limitations live in
 
 | Area | Current evidence | Caveat |
 | --- | --- | --- |
-| Current local gate | `2452f888` passed `scripts/verify_local.sh`, including 21 LiteRT shim stdlib tests, 3007 JVM tests (15 skipped), Lint, debug/release builds and artifact checks; `scripts/privacy_scan.sh` passed. Real E2B/E4B calls succeeded, SIGTERM during E4B cache writing left no `/tmp` or `/data00` scratch residue. Earlier identity-verified devbox planning was 3/3 in both modes. | Local JVM and devbox evidence is not hosted CI, emulator, physical-device, OEM, thermal, paired-benchmark or release approval evidence. Main CI restoration remains a separate priority. |
-| Mainline CI | Latest main run [#163](https://github.com/William-zgx/solin-android/actions/runs/43666824737) on `0f25fd0e` was **cancelled** with `verify` failed. The last recorded full success remains [Android Verification 41699276903](https://github.com/William-zgx/solin-android/actions/runs/41699276903) on `cb7e4918`. | A cancelled run is not current CI evidence. A successful push run still does not execute protected signing, release archive, or final public-release jobs. |
+| Current local gate | `2452f888` passed `scripts/verify_local.sh`, including 21 LiteRT shim stdlib tests, 3007 JVM tests (15 skipped), Lint, debug/release builds and artifact checks; `scripts/privacy_scan.sh` passed. `573b42a2` separately repaired hosted CI by installing the project-pinned CMake and stabilizing native inputs. | Local JVM and devbox evidence is not hosted CI, emulator, physical-device, OEM, thermal, paired-benchmark or release approval evidence. |
+| Mainline CI | [#169](https://github.com/William-zgx/solin-android/actions/runs/43721643118) on `573b42a2` passed `Verify` and AI behavior boundary checks, and uploaded local/AI evidence. The root cause was missing project-pinned CMake 3.31.6, now installed in all Android build jobs. | The overall run remains cancelled by existing emulator infrastructure, so this is verify-job evidence, not a full workflow pass or device acceptance. Protected signing/release jobs are not executed by a normal push. |
 | JVM and Lint | The matching local fix gate passed 2688 JVM tests with zero failures/errors/skips and Lint with zero errors. The registration-race regression failed on the previous implementation and passed after the fix. | This count is evidence for that commit, not a permanent minimum or device-behavior claim. |
 | AI behavior fixtures | CI fixture/boundary validation passed 40 cases across 7 categories and 6 MVP scenarios. | Fixture validation is not a fresh public-strict runtime trace or live-model task benchmark. |
 | Hosted emulator | The top-level regression report has `status=skipped`, `failedTarget=emulator-infra`, `reason=emulator-infra-hvf-unsupported`; its nested emulator report failed at `emulator-startup` / `process-exited`. | No hosted device regression passed in that run despite the job's green status. API matrix and model-provenance jobs were not run by this push. |
