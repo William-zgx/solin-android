@@ -93,7 +93,8 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [[ "$status" -ne 0 ]]; then
-            printf '::error::verify_local.sh failed with exit %s; see summary and artifacts\n' "$status"
+            encoded="$(tail -n 120 "$LOG_FILE" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+            printf '::error::%s\n' "$encoded"
             {
               echo '## verify_local.sh failure'
               echo '```text'
