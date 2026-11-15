@@ -58,13 +58,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/verification/zvec-seeds
-          key: zvec-0.5.1-v1
+          key: zvec-0.5.1-708a58bf32a232890fd3e761bf662c05357aca9e0a4ba2783e4a9f86b78bbe3f-ea6b3f3373f29799a885442bf51ec1604426055e5b7b56ea2e12d8ccd70b2af0
 
       - name: Prepare zvec native inputs
         if: steps.zvec.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          grep -q 'zvecVersion = "0.5.1"' app/build.gradle.kts
           fetch() {
             curl --fail --location --silent --show-error --create-dirs \
               --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 600 \
