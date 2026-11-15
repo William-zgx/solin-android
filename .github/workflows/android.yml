@@ -83,7 +83,21 @@ jobs:
           GRADLE_OPTS: '-Dorg.gradle.jvmargs="-Xmx8g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" -Dorg.gradle.project.kotlin.daemon.jvmargs=-Xmx2g'
           SOLIN_ZVEC_ANDROID_ARM64_ZIP: ${{ github.workspace }}/build/verification/zvec-seeds/libzvec-android-arm64-v8a.zip
           SOLIN_ZVEC_C_API_HEADER: ${{ github.workspace }}/build/verification/zvec-seeds/c_api.h
-        run: scripts/verify_local.sh
+        run: |
+          set -euo pipefail
+          LOG_DIR=build/verification/ci-local-verification
+          LOG_FILE="$LOG_DIR/verify.log"
+          mkdir -p "$LOG_DIR"
+          set +e
+          scripts/verify_local.sh 2>&1 | tee "$LOG_FILE"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            while IFS= read -r line; do
+              printf '::error::%s\n' "$line"
+            done < <(tail -n 40 "$LOG_FILE")
+          fi
+          exit "$status"
 
       - name: Verify AI behavior eval boundary map
         run: scripts/verify_ai_behavior_eval.sh --require-boundary-map --report build/verification/ai-behavior-eval/ai-behavior-eval.properties
