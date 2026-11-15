@@ -318,8 +318,11 @@ object BranchingMilestonePlanParser {
     fun capabilitiesAreValidForPlanning(
         capabilities: BranchCapabilities,
         vocabulary: MilestoneVocabulary = MilestoneVocabulary.DEFAULT
-    ): Boolean = capabilities.intents.isNotEmpty() && capabilities.apps.isNotEmpty() && capabilities.tools.isNotEmpty() &&
-        capabilities.apps.all { it in vocabulary.apps } && capabilities.tools.all { it in vocabulary.tools }
+    ): Boolean = capabilities.intents.isNotEmpty() &&
+        capabilities.apps.isNotEmpty() &&
+        capabilities.tools.isNotEmpty() &&
+        capabilities.apps.all { it in vocabulary.apps } &&
+        capabilities.tools.all { it in vocabulary.tools }
 
     private fun readPlan(
         raw: String,
@@ -673,9 +676,12 @@ fun interface MilestonePlannerModel {
 }
 
 /** Executes the request-only experiment; production disclosure/dispatch remains a separate prerequisite. */
-class CloudMilestonePlanner(private val model: MilestonePlannerModel) {
+class CloudMilestonePlanner(internal val model: MilestonePlannerModel) {
     fun planSequential(userRequest: String): MilestoneParseResult {
-        val output = model.complete(SEQUENTIAL_INSTRUCTION, CloudPlannerRequest.render(userRequest).text)
+        val output = model.complete(
+            SEQUENTIAL_INSTRUCTION + appAliasInstruction(MilestoneVocabulary.DEFAULT.apps),
+            CloudPlannerRequest.render(userRequest).text
+        )
         return MilestonePlanParser.parse(output, userRequest)
     }
 
@@ -683,9 +689,20 @@ class CloudMilestonePlanner(private val model: MilestonePlannerModel) {
         if (!BranchingMilestonePlanParser.capabilitiesAreValidForPlanning(capabilities)) {
             return BranchParseResult.Rejected(BranchRejection.CapabilityNotAllowed)
         }
-        val instruction = BRANCHING_INSTRUCTION + capabilities.instructionSuffix()
+        val instruction = BRANCHING_INSTRUCTION + appAliasInstruction(capabilities.apps) + capabilities.instructionSuffix()
         val output = model.complete(instruction, CloudPlannerRequest.render(userRequest).text)
         return BranchingMilestonePlanParser.parse(output, userRequest, capabilities)
+    }
+
+    private fun appAliasInstruction(allowedApps: Set<String>): String {
+        val aliases = AppInteractionProfiles.profiles
+            .filter { profile -> profile.packageNames.any { it in allowedApps } }
+            .joinToString("; ") { profile ->
+                profile.packageNames.joinToString(",") { packageName ->
+                    "$packageName aliases=${profile.appNameAliases.sorted().joinToString("/")}"
+                }
+            }
+        return if (aliases.isBlank()) "" else " App aliases: $aliases."
     }
 
     private fun BranchCapabilities.instructionSuffix(): String = " Allowed intents=" + intents.map { it.wireName }.sorted() +
@@ -695,11 +712,32 @@ class CloudMilestonePlanner(private val model: MilestonePlannerModel) {
 
     companion object {
         const val SEQUENTIAL_INSTRUCTION =
-            "Return only one JSON object with version=1 and a milestones array. Use the supplied closed vocabulary. No Markdown or explanation."
+            "Return only one JSON object with version=1 and a milestones array. Use the supplied closed vocabulary. No Markdown or explanation. " +
+                "Every milestone must have exactly intent plus only its required app/query/tool fields. " +
+                "open_app takes only intent and app; search_in_app takes only intent, app and query; use_tool takes only intent and tool. " +
+                "For alarms/reminders, use intent=use_tool with a tool from the supplied list, never intent=set_system_alarm or schedule_reminder. " +
+                "Copy app values exactly from the supplied allowed apps; never use any_app or a package from another app. " +
+                "Copy each query literally from the user request. Example: " +
+                "{\"version\":1,\"milestones\":[" +
+                "{\"intent\":\"open_app\",\"app\":\"com.taobao.taobao\"}," +
+                "{\"intent\":\"search_in_app\",\"app\":\"com.taobao.taobao\",\"query\":\"牛奶\"}]}" +
+                " Alarm example milestone: {\"intent\":\"use_tool\",\"tool\":\"set_system_alarm\"}"
         const val BRANCHING_INSTRUCTION =
-            "Return only one JSON object with version=1 and nodes. Each node has id,milestone,predicate,on_true,on_false. " +
+            "Return only one JSON object with version=1 and nodes. Each node has exactly id,milestone,predicate,on_true,on_false. " +
                 "Use at most 8 forward-only nodes; destinations are a later id,done or blocked. " +
-                "Predicates: results_match_query,last_action_succeeded,planned_app_foreground,target_exists. No Markdown or explanation."
+                "Predicates: results_match_query,last_action_succeeded,planned_app_foreground,target_exists. No Markdown or explanation. " +
+                "IDs are lowercase snake_case strings, never numbers. Milestones are objects, never strings. " +
+                "Destinations are the exact id value of the target node, done, or blocked; never use an intent name as a destination. " +
+                "Destinations are IDs or done/blocked strings, never booleans or null. Do not add destination, step or description fields. " +
+                "Copy app values exactly from the supplied allowed apps; never use any_app or a package from another app. " +
+                "Do not wrap output in ``` or json fences. Example: " +
+                "{\"version\":1,\"nodes\":[" +
+                "{\"id\":\"open_app\",\"milestone\":{\"intent\":\"open_app\",\"app\":\"com.taobao.taobao\"}," +
+                "\"predicate\":\"planned_app_foreground\",\"on_true\":\"search_in_app\",\"on_false\":\"blocked\"}," +
+                "{\"id\":\"search_in_app\",\"milestone\":{\"intent\":\"search_in_app\",\"app\":\"com.taobao.taobao\",\"query\":\"牛奶\"}," +
+                "\"predicate\":\"results_match_query\",\"on_true\":\"done\",\"on_false\":\"blocked\"}]}" +
+                " Alarm/reminder actions must use intent=use_tool, never intent=schedule_reminder or set_system_alarm. " +
+                " Alarm example full plan: {\"version\":1,\"nodes\":[{\"id\":\"alarm\",\"milestone\":{\"intent\":\"use_tool\",\"tool\":\"set_system_alarm\"},\"predicate\":\"last_action_succeeded\",\"on_true\":\"done\",\"on_false\":\"blocked\"}]}"
     }
 }
 

@@ -172,7 +172,7 @@ fun Map<String, String>.toJson(): JSONObject = JSONObject().also { json -> forEa
  * with an existing manifest so suites run in separate Gradle invocations share one file.
  */
 object LabManifest {
-    fun recordModels(client: OllamaClient, models: List<String>) = mutateManifest { manifest ->
+    fun recordModels(client: OllamaClient, models: List<String>, options: OllamaClient.Options = OllamaClient.Options()) = mutateManifest { manifest ->
         manifest.put("runDate", LabEnv.runDate)
         manifest.put("ollamaVersion", runCatching { client.version() }.getOrDefault("unknown"))
         val head = gitHead()
@@ -182,7 +182,7 @@ object LabManifest {
         // It is recorded per model as well, because one folder can hold an Ollama run and a LiteRT
         // run on the same day and the top-level note only names the last host that wrote here.
         manifest.put("hostNote", LabEnv.hostNote)
-        manifest.put("samplingOptions", OllamaClient.Options().toJson())
+        manifest.put("samplingOptions", options.toJson())
         val modelsJson = manifest.optJSONObject("models") ?: JSONObject()
         val tags = runCatching { client.tags() }.getOrNull()
         models.forEach { model ->

@@ -25,7 +25,7 @@ class CloudMilestonePlannerTest {
         assertEquals(CloudPlannerRequest.render(REQUEST).text, rendered)
         assertFalse(rendered.contains("screenObservation"))
         assertFalse(rendered.contains("progress"))
-        assertEquals(CloudMilestonePlanner.SEQUENTIAL_INSTRUCTION, instruction)
+        assertTrue(instruction.startsWith(CloudMilestonePlanner.SEQUENTIAL_INSTRUCTION))
         assertFalse(rendered.contains(CloudMilestonePlanner.SEQUENTIAL_INSTRUCTION))
     }
 

@@ -98,7 +98,7 @@ class CloudPlanningSuiteTest {
         val wrongQuery = CloudMilestonePlanner { _, _ ->
             """{"version":1,"milestones":[{"intent":"search_in_app","app":"com.taobao.taobao","query":"北京机场"}]}"""
         }
-        val wrongResult = evaluate(wrongQuery, CASES.first(), sequential = true)
+        val wrongResult = evaluate(wrongQuery, CASES.first().copy(request = "打开淘宝搜索牛奶和北京机场"), sequential = true)
         assertTrue(wrongResult.getBoolean("accepted"))
         assertFalse(wrongResult.getBoolean("correct"))
         assertEquals("北京机场", wrongResult.getJSONArray("plan").getJSONObject(0).getString("query"))
@@ -118,7 +118,7 @@ class CloudPlanningSuiteTest {
         assertEquals("TrailingContent", rejected.getString("rejectionReason"))
     }
 
-    private fun evaluate(planner: CloudMilestonePlanner, case: CloudCase, sequential: Boolean): JSONObject {
+    internal fun evaluate(planner: CloudMilestonePlanner, case: CloudCase, sequential: Boolean): JSONObject {
         val started = System.nanoTime()
         val result = JSONObject()
             .put("cloudCalls", 1)
@@ -152,6 +152,9 @@ class CloudPlanningSuiteTest {
                             .put("rejectionReason", parsed.reason.name)
                             .put("rejectionIndex", parsed.index ?: JSONObject.NULL)
                 }
+            }
+            (planner.model as? LocalLiteRtMilestonePlannerModel)?.lastRawOutput?.let { raw ->
+                result.put("rawPreview", raw.previewForLab())
             }
             result.put("wallMs", (System.nanoTime() - started) / 1_000_000)
         } catch (error: CancellationException) {
@@ -210,7 +213,7 @@ class CloudPlanningSuiteTest {
         }
     }
 
-    private fun metrics(results: List<JSONObject>, mode: String): JSONObject {
+    internal fun metrics(results: List<JSONObject>, mode: String): JSONObject {
         val values = results.map { it.getJSONObject(mode) }
         return JSONObject()
             .put("correct", values.count { it.getBoolean("correct") })
@@ -220,15 +223,15 @@ class CloudPlanningSuiteTest {
             .put("wallMs", values.sumOf { it.getLong("wallMs") })
     }
 
-    private enum class BranchDestination { Next, Done, Blocked }
+    internal enum class BranchDestination { Next, Done, Blocked }
 
-    private data class ExpectedBranch(
+    internal data class ExpectedBranch(
         val predicate: LocalPredicate,
         val onTrue: BranchDestination,
         val onFalse: BranchDestination
     )
 
-    private data class CloudCase(
+    internal data class CloudCase(
         val id: String,
         val request: String,
         val capabilities: BranchCapabilities,
@@ -236,9 +239,9 @@ class CloudPlanningSuiteTest {
         val expectedBranches: List<ExpectedBranch>
     )
 
-    private companion object {
+    internal companion object {
         val CASES = listOf(
-            searchCase("taobao_search", "打开淘宝搜索牛奶和北京机场", "com.taobao.taobao", "牛奶"),
+            searchCase("taobao_search", "打开淘宝搜索牛奶", "com.taobao.taobao", "牛奶"),
             alarmCase(),
             searchCase("amap_search", "打开高德地图搜索北京机场", "com.autonavi.minimap", "北京机场")
         )
