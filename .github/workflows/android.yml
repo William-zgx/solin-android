@@ -85,7 +85,7 @@ jobs:
           SOLIN_ZVEC_C_API_HEADER: ${{ github.workspace }}/build/verification/zvec-seeds/c_api.h
         run: |
           set -euo pipefail
-          LOG_DIR=build/verification/ci-local-verification
+          LOG_DIR=build/verification/ci-diagnostics
           LOG_FILE="$LOG_DIR/verify.log"
           mkdir -p "$LOG_DIR"
           set +e
@@ -132,8 +132,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-local-verification-evidence
+          path: build/verification/ci-local-verification
+
+      - name: Upload verify failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-verify-failure-reports
           path: |
-            build/verification/ci-local-verification
+            build/verification/ci-diagnostics/
             app/build/reports/tests/
             app/build/test-results/
             app/build/reports/lint-results-*
