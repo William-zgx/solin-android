@@ -52,7 +52,6 @@ class CloudPlanningSuiteTest {
                 .put("evidence", "live request-only remote lab; not production or device evidence")
                 .put("model", config.normalized().modelName)
                 .put("caseCount", results.size)
-                .put("cases", JSONArray(results))
             val output = File(LabEnv.repoRoot, "build/verification/cloud-planning/live-summary.json")
             output.parentFile?.mkdirs()
             output.writeText(summary.toString())
@@ -200,7 +199,8 @@ class CloudPlanningSuiteTest {
         }.map { it.getString("caseId") }))
         .put("metrics", JSONObject()
             .put("sequential", metrics(results, "sequential"))
-            .put("branching", metrics(results, "branching")))
+            .put("branching", metrics(results, "branching"))
+        .put("cases", JSONArray(results)))
 
     internal fun transportErrors(results: List<JSONObject>): List<JSONObject> =
         results.flatMap { result -> listOf("sequential", "branching").map { mode -> result.getJSONObject(mode) } }

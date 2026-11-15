@@ -25,6 +25,7 @@ class LocalCloudPlanningSuiteTest {
         val models = availableLabModels(client).filter { it in PRODUCTION_MODELS }
         Assume.assumeTrue("no production LiteRT models available", models.isNotEmpty())
         verifyProductionFiles(models)
+        verifyServingDigests(client, models)
         LabManifest.recordModels(client, models)
         val allCases = CloudPlanningSuiteTest.CASES
         val selectedCases = allCases
@@ -99,6 +100,37 @@ class LocalCloudPlanningSuiteTest {
                 )
             } finally {
                 temporary.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun servingDigestMustMatchVerifiedModel() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder().code(200).body(
+                    """{"models":[{"name":"litert/gemma-4-e2b","digest":"different"}]}"""
+                ).build()
+            )
+            server.start()
+            var rejected = false
+            try {
+                verifyServingDigests(OllamaClient(server.url("/").toString()), listOf("litert/gemma-4-e2b"))
+            } catch (_: IllegalArgumentException) {
+                rejected = true
+            }
+            assertTrue(rejected)
+        }
+    }
+
+    private fun verifyServingDigests(client: OllamaClient, models: List<String>) {
+        val tags = client.tags()
+        models.forEach { model ->
+            val digest = (0 until tags.length()).map { tags.getJSONObject(it) }
+                .firstOrNull { it.optString("name") == model }
+                ?.optString("digest")
+            require(digest == EXPECTED_MODELS.getValue(model).digest) {
+                "serving model digest mismatch for $model"
             }
         }
     }
