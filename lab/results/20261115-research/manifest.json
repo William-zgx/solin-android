@@ -1,0 +1,43 @@
+{
+  "ollamaVersion": "litert-lm-0.12.0",
+  "gitHead": "6bf596c65d15bc6ec6e1e18cb0af5215fa32d345",
+  "samplingOptions": {
+    "top_p": 0.1,
+    "seed": 7,
+    "top_k": 1,
+    "temperature": 0,
+    "num_predict": 384,
+    "num_ctx": 8192
+  },
+  "models": {
+    "litert/gemma-4-e2b": {
+      "digest": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)",
+      "sizeBytes": 2588147712
+    },
+    "litert/gemma-4-e4b": {
+      "digest": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)",
+      "sizeBytes": 3659530240
+    }
+  },
+  "runDate": "20261115-research",
+  "latestSuiteGitHead": "6bf596c65d15bc6ec6e1e18cb0af5215fa32d345",
+  "suites": {"local-cloud-planning": {
+    "samplingOptions": {
+      "top_p": 0.1,
+      "seed": 7,
+      "top_k": 1,
+      "temperature": 0,
+      "num_predict": 1024,
+      "num_ctx": 8192
+    },
+    "cases": 3,
+    "modes": [
+      "sequential",
+      "branching"
+    ],
+    "datasetCases": 3
+  }},
+  "hostNote": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"
+}

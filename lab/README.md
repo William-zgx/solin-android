@@ -484,3 +484,19 @@ It compares exact milestones, predicates and branch destinations, and records ac
 structured plans, cloud calls, request bytes and wall time, plus fixed/broken between sequential and branching
 modes. It does not store raw prompts, API keys or full error bodies. No authorized endpoint was available in
 this batch, so live evidence is pending and the suite is skipped by default.
+
+## Production LiteRT planning comparison (2026-11-15)
+
+`LocalLiteRtMilestonePlannerModel` runs the same exact plan/branch semantics through the lab's
+Ollama-compatible LiteRT shim. The suite independently hashes the production files and requires the serving
+`/api/tags` digest to match; model selection, verification and manifest metadata share one tags snapshot.
+The final devbox CPU run used the production `.litertlm` files and produced:
+
+| model | sequential correct | branching correct | fixed / broken |
+| --- | ---: | ---: | ---: |
+| E2B | 3/3 | 3/3 | 0 / 0 |
+| E4B | 3/3 | 3/3 | 0 / 0 |
+
+See [`results/20261115-research/SUMMARY.md`](results/20261115-research/SUMMARY.md) for metrics, the initial
+failed attempt, raw-preview policy and reproduction commands. These are real model calls, but not cloud or
+phone evidence. A skip or `UP-TO-DATE` result is not a live result; inspect `local-cloud-planning-summary.json`.

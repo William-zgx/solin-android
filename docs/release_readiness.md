@@ -1,7 +1,7 @@
 # Release Readiness
 
-Code baseline for this readiness refresh: `3cd5328f28f058d77bb0a7af84702ae2a0244242`
-(2026-11-14). The full local gate for that integrated tree passed; the latest recorded hosted full CI
+Code baseline for this readiness refresh: `6bf596c65d15bc6ec6e1e18cb0af5215fa32d345`
+(2026-11-15). The current local gate is recorded below; the latest recorded hosted full CI
 remains the earlier `cb7e4918` run. This page is not the release checklist or evidence log.
 
 - Use [the release checklist](release_checklist.md) to execute a release candidate.
@@ -58,7 +58,7 @@ Current implementation ownership and limitations live in
 
 | Area | Current evidence | Caveat |
 | --- | --- | --- |
-| Current local gate | `3cd5328f` passed `scripts/verify_local.sh`, including script regression, 3001 JVM tests (14 skipped), Lint, debug/release builds and artifact checks; `scripts/privacy_scan.sh` passed. Full coordinator and exact cloud-plan semantic tests exist; optional live cloud planning remains pending an authorized endpoint. | Local JVM/offline evidence is not hosted CI, emulator, physical-device, OEM, thermal or release approval evidence. |
+| Current local gate | `6bf596c6` passed `scripts/verify_local.sh`, including script regression, 3007 JVM tests (15 skipped), Lint, debug/release builds and artifact checks; `scripts/privacy_scan.sh` passed. Identity-verified devbox production E2B/E4B planning was 3/3 sequential and 3/3 branching for each model; optional authorized live cloud planning remains pending. | Local JVM and devbox model evidence is not hosted CI, emulator, physical-device, OEM, thermal, paired-benchmark or release approval evidence. |
 | Mainline CI | [Android Verification 41699276903](https://github.com/William-zgx/solin-android/actions/runs/41699276903) passed on `cb7e4918`: `verify` ran `scripts/verify_local.sh`, including script regression, JVM tests, Lint, builds, and artifact checks. | A push run does not execute the protected signing, release archive, or final public-release jobs. |
 | JVM and Lint | The matching local fix gate passed 2688 JVM tests with zero failures/errors/skips and Lint with zero errors. The registration-race regression failed on the previous implementation and passed after the fix. | This count is evidence for that commit, not a permanent minimum or device-behavior claim. |
 | AI behavior fixtures | CI fixture/boundary validation passed 40 cases across 7 categories and 6 MVP scenarios. | Fixture validation is not a fresh public-strict runtime trace or live-model task benchmark. |

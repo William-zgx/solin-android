@@ -5,7 +5,7 @@ Keep it about module ownership, boundaries, current status, and regression
 coverage. Historical command output and validation notes belong in
 [validation_report.md](validation_report.md).
 
-Checked on 2026-11-14. The tree has 328 production Kotlin files and 52 registered
+Checked on 2026-11-15. The tree has 328 production Kotlin files and 52 registered
 capability-matrix tool entries. These are measured inventory values, not goals to
 grow toward. `:app` is the product module; `releaseSmoke` is a verification helper.
 Runtime/package boundaries remain conventions enforced by architecture tests.
@@ -258,7 +258,9 @@ Current status:
   Local predicates are closed, unknown outcomes block, caller-supplied capabilities constrain every node,
   and the gated-type source scan protects the validated factory. `CloudMilestonePlanner` preflights those
   public capabilities before instruction construction or model invocation; its optional live lab reports
-  exact plan/branch semantics and structured diagnostics. No cloud runtime or progress egress is enabled.
+  exact plan/branch semantics and structured diagnostics. A separate devbox suite verifies local production-file
+  and serving digests, then compares the real E2B/E4B models; the final three-case run was 3/3 in both modes
+  for both models. No cloud runtime or progress egress is enabled, and this is not device evidence.
 - Pending confirmations, redacted Skill plan shapes, value-free Skill
   checkpoints, and selected no-payload continuation cursors can restore after
   process death. Raw tool arguments, model output, private payload, and

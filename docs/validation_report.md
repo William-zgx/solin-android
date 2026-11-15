@@ -35,13 +35,76 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 当前本地门禁 | `3cd5328f` 的完整本地验证与隐私扫描通过；JVM 为 3001 tests / 0 failures / 0 errors / 14 skipped。完整协调器与云规划语义测试通过，live cloud planning 仍待授权端点。均不是 hosted CI、真实模型或设备证据。 | [2026-11-14 — Coordinator and cloud planner lab](#2026-11-14--coordinator-and-cloud-planner-lab) |
+| 当前本地门禁 | `6bf596c6` 的完整本地验证与隐私扫描通过；JVM 为 3007 tests / 0 failures / 0 errors / 15 skipped。生产 E2B/E4B LiteRT 顺序与分支规划另经真实 devbox 运行为各 3/3；授权 live cloud 与物理设备仍 pending。 | [2026-11-15 — Production-model planning comparison](#2026-11-15--production-model-planning-comparison) |
 | 最近记录的全量 main CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。该条目是历史 CI 证据，不是当前提交的本地门禁结论。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
-| 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查。二者均不是设备、延迟或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) |
+| 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查；20261115 为生产 E2B/E4B 文件与服务摘要双重校验后的 3-case 顺序/分支规划比较。均不是设备或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) · [Planning comparison](#2026-11-15--production-model-planning-comparison) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-15 — Production-model planning comparison
+
+本轮覆盖项：新增 devbox 专用生产 `.litertlm` 规划适配器，使用与 request-only cloud suite 相同的精确
+`Milestone`、谓词和分支目的地语义，对 E2B/E4B 比较顺序与 forward-only 分支规划。本地文件独立流式
+SHA-256 与 `/api/tags` 服务摘要必须一致；模型选择、服务校验和 manifest 共用一份 tags 快照。报告保留顶层
+逐案 `cases`、结构化计划、拒绝原因和有界 raw preview，manifest 记录实际选案数与 suite 级 1024-token 采样。
+生产云运行时、LocalOnly、确认与关键动作合同均未改变。
+
+相关提交：`1cfa3655`、`11826663`、`3a5c3a2c`、`6bf596c65d15bc6ec6e1e18cb0af5215fa32d345`。
+原 correctness 与 simplify 审查者复核发现 `cases` 误嵌套到 `metrics`、tags 重复请求两处问题；修复后增加报告结构
+回归并复用单次 tags 快照，最终两位审查者均无剩余发现。聚焦测试与 Spotless 通过。
+
+真实模型运行使用 JDK 21、Android SDK、空 shim cache 和已校验的 LiteRT 0.12.0 shim；启动及完整复现步骤见
+`lab/results/20261115-research/SUMMARY.md`。实际测试命令为：
+
+```bash
+SOLIN_LAB=1 \
+SOLIN_LAB_OLLAMA_URL=http://127.0.0.1:11437 \
+SOLIN_LAB_DATE=20261115-research \
+SOLIN_LAB_MODELS='litert/gemma-4-e2b,litert/gemma-4-e4b' \
+SOLIN_LAB_LITERT_MODEL_ROOT=/data00/home/zouguoxue/edge-litert/models \
+SOLIN_LAB_HOST_NOTE='devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)' \
+./gradlew :app:testDebugUnitTest \
+  --tests "com.bytedance.zgx.solin.lab.LocalCloudPlanningSuiteTest" --rerun-tasks
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/data00/home/zouguoxue/android-font-verification/jdk21/bin:/tmp/t6tools/bin:$PATH \
+GRADLE_OPTS='-Dorg.gradle.jvmargs=-Xmx8g' scripts/verify_local.sh
+
+./gradlew :app:testDebugUnitTest --tests "com.bytedance.zgx.solin.docs.*" --rerun-tasks
+scripts/privacy_scan.sh
+/data00/home/zouguoxue/android-sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 最终真实模型运行在 `6bf596c6` 上 **BUILD SUCCESSFUL**，不是 `UP-TO-DATE` 或 assumption skip：
+
+  | 模型 | 顺序正确 | 分支正确 | fixed / broken | 顺序 wall ms | 分支 wall ms | 每模式请求字节 |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+  | E2B | 3/3 | 3/3 | 0 / 0 | 17276 | 24594 | 2902 |
+  | E4B | 3/3 | 3/3 | 0 / 0 | 31080 | 44122 | 2902 |
+
+  每模式 3 次模型调用，全部 accepted 且精确 correct。两种模式打平，不构成分支规划优于顺序规划或生产接入的证据。
+- 两个生产文件 SHA-256 分别与服务端 digest 匹配；manifest `gitHead=6bf596c6...`，`cases=3`、
+  `datasetCases=3`、suite `num_predict=1024`，顶层默认采样仍保持 384。证据为
+  `lab/results/20261115-research/local-cloud-planning-summary.json` 与 `manifest.json`。
+- 初始 E2B 运行没有任何 accepted 计划，数字 ID、字符串 milestone、布尔 destination、Markdown fence 和错误
+  intent 均被拒绝；原始失败保留在 `local-cloud-planning-summary-initial.json`。最终成功来自指令/schema 示例与
+  静态 app alias 修正，没有放宽 parser 或 capability 规则。
+- 首次完整门禁实际执行 **3007 JVM tests / 0 failures / 0 errors / 15 skipped** 后，`packageReleaseBundle`
+  因既有 4 GB daemon 报 `Java heap space`（`failedTarget=packageReleaseBundle`、`reason=java-heap-space-4g-daemon`），
+  该次未记为通过。显式 `-Dorg.gradle.jvmargs=-Xmx8g` 重跑复用同一代码树的 JVM `UP-TO-DATE` 结果，完成 Lint、
+  debug/androidTest/release 构建、releaseSmoke 与 artifact scan，最终 `Local verification passed`；隐私扫描与最终
+  `com.bytedance.zgx.solin.docs.* --rerun-tasks` 文档合同测试通过。普通 JVM 门禁中的本地模型套件因未设置
+  `SOLIN_LAB` 而 skip，上述真实模型结果来自单独显式运行，二者没有混算。
+- 未配置 `SOLIN_LAB_REMOTE_BASE_URL` / `SOLIN_LAB_REMOTE_MODEL`，授权 live cloud suite 仍 skip，没有云端成功率、
+  成本或延迟结论。`adb devices -l` 只有表头：`failedTarget=physical-device-and-paired-benchmark`，
+  `reason=no-connected-authorized-device`；未执行安装、instrumentation、数据清除、真机或配对基准。
+  未执行生产云接线、Room 迁移、生产 FullContext、模型转换或发布审批。
 
 ## 2026-11-14 — Coordinator and cloud planner lab
 

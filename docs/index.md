@@ -20,9 +20,9 @@ for the coding-agent protocol.
 
 ## Current baseline
 
-Implementation and repository links were refreshed on 2026-11-13. The
-[current local main gate](validation_report.md#2026-11-13--big-simplification-convergence)
-at `c60b2818` passed on the integrated tree. The dated
+Implementation and repository links were refreshed on 2026-11-15. The
+[current local main gate](validation_report.md#2026-11-15--production-model-planning-comparison)
+at `6bf596c6` passed on the integrated tree. The dated
 [main CI convergence](validation_report.md#2026-11-04--main-ci-convergence) entry for `cb7e4918`
 retains the successful workflow and hosted emulator infrastructure skip as historical evidence;
 it is not device evidence for the current tree. The earlier Mika entry retains the APK hashes
@@ -61,7 +61,7 @@ pending approval records remain pending until their owners complete the review.
 | [Data-layer suspend migration](plans/data-layer-suspend-migration.md) | Incremental plan: atomic pending-send consumption and startup retry are implemented; other blocking persistence bridges remain |
 | [Privacy and typed execution](plans/privacy-capability-experiments.md) | Lab/debug branch plans, high-confidence Accessibility execution, optional live cloud comparison and synthetic privacy tiers; production privacy defaults unchanged |
 | Capability benches | [Lab guide](../lab/README.md) · [Production-file 20261108](../lab/results/20261108/SUMMARY.md) · [Held-out 20261109](../lab/results/20261109-heldout/SUMMARY.md) · [20261107 campaign](../lab/results/20261107/SUMMARY.md) · [Argument research 20261112](../lab/results/20261112-research/SUMMARY.md) | Execution/scoring rules, production-file and held-out devbox LiteRT results, earlier desktop proxy results, and rules-only argument/constraint validation; none is device evidence |
-| Execution/privacy experiments | [Typed replay](../lab/results/20261114-typed-observation/SUMMARY.md) · [Synthetic privacy utility](../lab/results/20261114-privacy-utility/SUMMARY.md) | Saved-output paired replay and synthetic projection contracts; no new model, network or device evidence |
+| Execution/privacy experiments | [Typed replay](../lab/results/20261114-typed-observation/SUMMARY.md) · [Synthetic privacy utility](../lab/results/20261114-privacy-utility/SUMMARY.md) · [Production planning](../lab/results/20261115-research/SUMMARY.md) | Saved-output paired replay, synthetic projection contracts, and identity-verified devbox production-model planning; no authorized cloud or device evidence |
 | Memory benches | [LiteRT 20261108](../lab/memory/results/20261108/SUMMARY.md) · [Desktop 20261107](../lab/memory/results/20261107/SUMMARY.md) | Model-backed fact extraction and compaction; off by default, not device evidence |
 
 Read [architecture_depth.md](architecture_depth.md) before structural changes.

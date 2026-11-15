@@ -1,6 +1,6 @@
 # Privacy-preserving cloud planning and typed device execution
 
-Date: 2026-11-14 · Code baseline: `3cd5328f` · Status: **lab / debug experiment**
+Date: 2026-11-14–2026-11-15 · Code baseline: `6bf596c6` · Status: **lab / debug experiment**
 
 ## Purpose and current boundary
 
@@ -51,6 +51,15 @@ OpenAI-compatible endpoint. It compares exact milestones, predicates and destina
 rejection reason/index, structured plans, cloud calls, request bytes and wall time, plus fixed/broken between
 modes. No raw prompt, API key or full error body is written. No authorized endpoint was available for this
 batch, so the live suite is implemented but its result remains pending.
+
+`LocalCloudPlanningSuiteTest` runs the same exact comparison against the production E2B/E4B `.litertlm`
+files through the devbox LiteRT shim. It independently hashes each file, requires the serving `/api/tags`
+digest to match, and uses one tags snapshot for selection, verification and manifest metadata. The final
+three-case run produced 3/3 exact sequential and 3/3 exact branching plans for both models, with zero
+fixed/broken differences; per-case plans, bounded raw previews and timings are retained. The initial failed
+E2B output is preserved alongside the final report. This is real devbox CPU model evidence, not an authorized
+cloud endpoint, Android device or paired latency benchmark. See
+[`lab/results/20261115-research/SUMMARY.md`](../../lab/results/20261115-research/SUMMARY.md).
 
 ## 2. High-confidence typed observation candidates
 
@@ -107,8 +116,9 @@ contract outcomes, not model-quality or privacy-risk measurements. See
 
 ## 4. Next admission gates
 
-1. **Live cloud planning:** compare fully local, request-only sequential and request-only branching plans
-   on the same tune/holdout tasks. Record fixed/broken, plan coverage, cloud calls/bytes, cost per success
+1. **Live cloud planning:** the three-case production-file devbox comparison is complete, but an authorized
+   remote endpoint remains unavailable. Compare fully local, request-only sequential and request-only branching
+   plans on the same tune/holdout tasks. Record fixed/broken, plan coverage, cloud calls/bytes, cost per success
    and p95 latency. Do not start placement migration without a measured win.
 2. **Privacy value:** compare structured observations against consented full visual context on synthetic or
    explicitly authorized test data. If structured evidence is sufficient, do not open raw context. Progress
