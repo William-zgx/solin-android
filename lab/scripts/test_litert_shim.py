@@ -2,10 +2,13 @@
 """Stdlib regressions for LiteRT one-shot output and shim-owned cache lifecycle."""
 
 import importlib.util
+import io
 import os
 import tempfile
+import threading
 import types
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -94,6 +97,9 @@ class CacheLifecycleTest(unittest.TestCase):
         self.filesystem_guard = mock.patch.object(self.shim, "_validate_cache_filesystem")
         self.filesystem_guard.start()
         self.addCleanup(self.filesystem_guard.stop)
+        self.signal_guard = mock.patch.object(self.shim.signal, "signal")
+        self.signal_guard.start()
+        self.addCleanup(self.signal_guard.stop)
         FakeServer.instances.clear()
         self.environment = mock.patch.dict(
             os.environ,
@@ -116,19 +122,20 @@ class CacheLifecycleTest(unittest.TestCase):
     def main_args(self, cache_dir):
         return ["litert_shim.py", "--model-root", str(self.model_root), "--cache-dir", str(cache_dir)]
 
+    @contextmanager
+    def main_runtime(self, import_kwargs, server=FakeServer):
+        with mock.patch.object(self.shim, "_import_litert", **import_kwargs) as import_litert, \
+                mock.patch.object(self.shim, "ShimHTTPServer", server):
+            yield import_litert
+
     def test_main_removes_explicit_empty_cache_on_success_and_import_failure(self):
-        with mock.patch.object(self.shim.signal, "signal"), \
-                mock.patch.object(self.shim, "_validate_cache_filesystem"), \
-                mock.patch.object(self.shim, "_import_litert", return_value=object()), \
-                mock.patch.object(self.shim, "ShimHTTPServer", FakeServer):
+        with self.main_runtime({"return_value": object()}):
             cache = self.root / "successful-run"
             self.assertEqual(0, self.shim.main(self.main_args(cache)))
             self.assertFalse(cache.exists())
             self.assertTrue(FakeServer.instances[-1].closed)
 
-        with mock.patch.object(self.shim.signal, "signal"), \
-                mock.patch.object(self.shim, "_validate_cache_filesystem"), \
-                mock.patch.object(self.shim, "_import_litert", side_effect=RuntimeError("import failed")):
+        with self.main_runtime({"side_effect": RuntimeError("import failed")}):
             cache = self.root / "failed-run"
             with self.assertRaisesRegex(RuntimeError, "import failed"):
                 self.shim.main(self.main_args(cache))
@@ -142,19 +149,15 @@ class CacheLifecycleTest(unittest.TestCase):
                 shim._termination_signal(15, None)
 
         cache = self.root / "sigterm-run"
-        with mock.patch.object(self.shim.signal, "signal"), \
-                mock.patch.object(self.shim, "_validate_cache_filesystem"), \
-                mock.patch.object(self.shim, "_import_litert", return_value=object()), \
-                mock.patch.object(self.shim, "ShimHTTPServer", InterruptServer):
+        with self.main_runtime({"return_value": object()}, InterruptServer):
             self.assertEqual(0, self.shim.main(self.main_args(cache)))
         self.assertFalse(cache.exists())
 
     def test_main_filesystem_rejection_removes_precreated_empty_cache(self):
         cache = self.root / "rejected-run"
         cache.mkdir()
-        with mock.patch.object(self.shim.signal, "signal"), \
-                mock.patch.object(self.shim, "_validate_cache_filesystem", side_effect=RuntimeError("wrong filesystem")), \
-                mock.patch.object(self.shim, "_import_litert") as import_litert:
+        with mock.patch.object(self.shim, "_validate_cache_filesystem", side_effect=RuntimeError("wrong filesystem")), \
+                self.main_runtime({}) as import_litert:
             with self.assertRaises(SystemExit):
                 self.shim.main(self.main_args(cache))
         import_litert.assert_not_called()
@@ -162,15 +165,45 @@ class CacheLifecycleTest(unittest.TestCase):
 
     def test_server_waits_for_inflight_handlers(self):
         self.assertFalse(self.shim.ShimHTTPServer.daemon_threads)
-        self.assertTrue(self.shim.ShimHTTPServer.block_on_close)
+
+    def test_responses_close_idle_connections(self):
+        handler = object.__new__(self.shim.Handler)
+        handler.close_connection = False
+        handler.wfile = io.BytesIO()
+        with mock.patch.object(handler, "send_response"), \
+                mock.patch.object(handler, "send_header") as send_header, \
+                mock.patch.object(handler, "end_headers"):
+            handler._send(200, {"ok": True})
+        self.assertTrue(handler.close_connection)
+        send_header.assert_any_call("Connection", "close")
+
+    def test_auto_close_serializes_with_startup_pruning(self):
+        lease = self.shim._prepare_cache(self.args())
+        startup_lock = open(lease.startup_lock_path, "a+b")
+        self.shim.fcntl.flock(startup_lock.fileno(), self.shim.fcntl.LOCK_EX)
+        started = threading.Event()
+
+        def close_lease():
+            started.set()
+            lease.close()
+
+        thread = threading.Thread(target=close_lease)
+        try:
+            thread.start()
+            self.assertTrue(started.wait(1))
+            thread.join(0.05)
+            self.assertTrue(thread.is_alive())
+        finally:
+            startup_lock.close()
+            thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(lease.path.exists())
 
     def test_low_space_rejects_before_import_and_removes_owned_empty_cache(self):
         cache = self.root / "low-space"
         cache.mkdir()
-        with mock.patch.object(self.shim.signal, "signal"), \
-                mock.patch.object(self.shim, "_validate_cache_filesystem"), \
-                mock.patch.object(self.shim.shutil, "disk_usage", return_value=mock.Mock(free=0)), \
-                mock.patch.object(self.shim, "_import_litert") as import_litert:
+        with mock.patch.object(self.shim.shutil, "disk_usage", return_value=mock.Mock(free=0)), \
+                self.main_runtime({}) as import_litert:
             with self.assertRaises(SystemExit):
                 self.shim.main(self.main_args(cache))
         import_litert.assert_not_called()

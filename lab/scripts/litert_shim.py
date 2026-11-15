@@ -244,7 +244,6 @@ def _send_one_shot(conversation, user, max_output_tokens):
 class ShimHTTPServer(ThreadingHTTPServer):
     # server_close waits for in-flight model loads/writes before the run cache is removed.
     daemon_threads = False
-    block_on_close = True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -261,6 +260,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
 
@@ -382,16 +383,26 @@ DEFAULT_MIN_FREE_BYTES = 4 * 1024**3
 class CacheLease:
     """A locked, shim-owned run directory that is always removed when closed."""
 
-    def __init__(self, path, lock_handle):
+    def __init__(self, path, lock_handle, startup_lock_path=None):
         self.path = path
         self.lock_handle = lock_handle
+        self.startup_lock_path = startup_lock_path
 
     def close(self):
         if self.lock_handle is None:
             return
-        try:
+
+        def remove():
             if self.path.exists():
                 shutil.rmtree(self.path)
+
+        try:
+            if self.startup_lock_path is None:
+                remove()
+            else:
+                with open(self.startup_lock_path, "a+b") as startup_lock:
+                    fcntl.flock(startup_lock.fileno(), fcntl.LOCK_EX)
+                    remove()
         finally:
             self.lock_handle.close()
             self.lock_handle = None
@@ -480,7 +491,10 @@ def _prune_scratch(root, reserve, max_dirs, max_bytes):
     for path in root.iterdir():
         if path.is_symlink() or not path.is_dir() or not path.name.startswith(CACHE_PREFIX):
             continue
-        mtime = path.stat().st_mtime
+        try:
+            mtime = path.stat().st_mtime
+        except FileNotFoundError:
+            continue
         handle = _try_lock(path)
         if handle is None:
             active.append((path, _directory_size(path)))
@@ -495,7 +509,10 @@ def _prune_scratch(root, reserve, max_dirs, max_bytes):
                 kept_count += 1
                 kept_bytes += size
             else:
-                shutil.rmtree(path)
+                try:
+                    shutil.rmtree(path)
+                except FileNotFoundError:
+                    pass
     finally:
         for _, handle, _, _ in stale:
             handle.close()
@@ -537,10 +554,8 @@ def _prepare_cache(args):
             candidate = Path(args.cache_dir).expanduser().absolute()
             if candidate.exists() and (candidate.is_symlink() or not candidate.is_dir() or any(candidate.iterdir())):
                 raise ValueError("--cache-dir must be an empty shim-owned directory; existing files were preserved")
-            target = candidate if candidate.exists() else None
+            target = candidate
             _validate_cache_filesystem(candidate)
-            if target is None:
-                target = candidate
             target.parent.mkdir(parents=True, exist_ok=True)
             _require_free_space(target.parent, reserve, minimum_free)
             target.mkdir(exist_ok=True)
@@ -557,12 +572,11 @@ def _prepare_cache(args):
             active_usage = _prune_scratch(root, reserve, max_dirs, max_bytes)
             _require_free_space(root, reserve, minimum_free, active_usage)
             target = Path(tempfile.mkdtemp(prefix=CACHE_PREFIX, dir=root))
-            return CacheLease(target, _lock_empty_cache(target))
+            return CacheLease(target, _lock_empty_cache(target), root / ".startup.lock")
         finally:
             startup_lock.close()
     except FileExistsError:
         # A non-shim writer won the race after our first check; do not remove its files.
-        target = None
         raise
     except BaseException:
         if target is not None and target.exists():
