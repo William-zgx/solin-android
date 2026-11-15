@@ -21,8 +21,8 @@ for the coding-agent protocol.
 ## Current baseline
 
 Implementation and repository links were refreshed on 2026-11-15. The
-[current local main gate](validation_report.md#2026-11-15--production-model-planning-comparison)
-at `6bf596c6` passed on the integrated tree. The dated
+[current local main gate](validation_report.md#2026-11-15--litert-shim-cache-safety)
+at `2452f888` passed on the integrated tree. The dated
 [main CI convergence](validation_report.md#2026-11-04--main-ci-convergence) entry for `cb7e4918`
 retains the successful workflow and hosted emulator infrastructure skip as historical evidence;
 it is not device evidence for the current tree. The earlier Mika entry retains the APK hashes

@@ -35,13 +35,67 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 当前本地门禁 | `6bf596c6` 的完整本地验证与隐私扫描通过；JVM 为 3007 tests / 0 failures / 0 errors / 15 skipped。生产 E2B/E4B LiteRT 顺序与分支规划另经真实 devbox 运行为各 3/3；授权 live cloud 与物理设备仍 pending。 | [2026-11-15 — Production-model planning comparison](#2026-11-15--production-model-planning-comparison) |
+| 当前本地门禁 | `2452f888` 的完整本地验证与隐私扫描通过；JVM 为 3007 tests / 0 failures / 0 errors / 15 skipped，另有 21 项 LiteRT shim stdlib 回归。真实 E4B 写入中 SIGTERM 后缓存清理完成，`/tmp` 与 `/data00` scratch 均无残留。 | [2026-11-15 — LiteRT shim cache safety](#2026-11-15--litert-shim-cache-safety) |
 | 最近记录的全量 main CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。该条目是历史 CI 证据，不是当前提交的本地门禁结论。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
 | 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查；20261115 为生产 E2B/E4B 文件与服务摘要双重校验后的 3-case 顺序/分支规划比较。均不是设备或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) · [Planning comparison](#2026-11-15--production-model-planning-comparison) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-15 — LiteRT shim cache safety
+
+本轮覆盖项：修复 lab `litert_shim.py` 在 n37 根分区遗留多 GB 缓存的问题。自动运行缓存默认位于
+`~/.cache/solin-litert`（n37 的 `/data00`），显式 `--cache-dir` 只接管空目录；存在 `/data00` 时拒绝其他文件系统。
+成功、异常和 SIGTERM 均清理本次目录，HTTP 响应关闭空闲连接，非 daemon 请求线程和引擎锁防止加载中删除。
+scratch 启动锁串行化退出删除与启动回收，崩溃残留按活跃锁、数量和字节上限清理。启动空间预留覆盖全部模型
+及其他活跃运行的剩余写入；空间不足、非空目录、锁竞争或外部文件竞争均 fail closed，不删除外部数据。
+生产 App、LocalOnly、确认策略和设备行为未改变。
+
+相关提交：`6918292f`、`2abce153`、`2452f88885d377ce6925841b545adff306039e59`。独立 Claude Opus 5.5
+correctness 与 simplify 审查经过两轮集中修复后均明确 clean；审查发现并修复了加载中 SIGTERM、活跃运行预留、
+模型切换总缓存、空闲 keep-alive、启动/退出删除竞争和外部文件保护问题。
+
+验证命令：
+
+```bash
+python3 -I lab/scripts/test_litert_shim.py
+
+# 实际启动默认 scratch 的 shim，分别请求 E2B/E4B /api/chat；
+# 在 E4B xnnpack cache 文件变为非空后向 shim PID 发送 SIGTERM。
+SOLIN_LITERT_SCRATCH_ROOT=/data00/home/zouguoxue/.cache/solin-litert \
+SOLIN_LAB_LITERT_MODEL_ROOT=/data00/home/zouguoxue/edge-litert/models \
+LD_LIBRARY_PATH=/data00/home/zouguoxue/edge-litert/deb/root/usr/lib/x86_64-linux-gnu \
+/data00/home/zouguoxue/edge-litert/venv/bin/python -I lab/scripts/litert_shim.py --port 11437
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/data00/home/zouguoxue/android-font-verification/jdk21/bin:/tmp/t6tools/bin:$PATH \
+GRADLE_OPTS='-Dorg.gradle.jvmargs=-Xmx8g' scripts/verify_local.sh
+
+./gradlew :app:testDebugUnitTest --tests "com.bytedance.zgx.solin.docs.*" --rerun-tasks
+scripts/privacy_scan.sh
+find /tmp -maxdepth 1 -type d -name 'solin-litert-*' -print
+find /data00/home/zouguoxue/.cache/solin-litert -maxdepth 1 -type d -name 'solin-litert-*' -print
+```
+
+结果：
+
+- **21 项 stdlib 回归通过**，覆盖成功/import 失败/SIGTERM、低空间拒绝、`/data00` 绕过、非空/外部文件保护、
+  锁冲突、双进程活跃目录、全部模型预留、活跃运行空间、数量/字节保留、并发消失文件、空闲连接关闭和
+  close/prune 互斥。`scripts/tests/83_litert_shim.sh` 将该套件纳入正常 validation scripts。
+- 首次真实默认启动在 `/data00` 只有 4,621,782,960 bytes、低于当时 7,954,497,536 bytes 要求时拒绝运行，未留下
+  运行目录；未手工删除文件绕过。最终实现使用全部模型与活跃运行预留，默认值保持不变。
+- 最终同一 shim 的 E2B 与 E4B 请求均真实返回 `OK`。在 E4B cache 写入期间发送 SIGTERM 后请求完成、shim 退出，
+  本次目录被删除；最终 `/tmp` 和 scratch 的 `solin-litert-*` 均为 **0**。显式 `/tmp` 路径也在模型加载前被拒绝并清理，
+  强制终止残留由后续有界启动回收。证据为 `build/verification/litert-scratch-safety/cache-safety.properties`、
+  `final2-e2b-response.json` 和 `final2-e4b-response.json`。
+- worktree 内 validation scripts 通过，但 Spotless 在 Git worktree 元数据发现处失败，未跳过检查。三个提交先
+  fast-forward 到本地集成 `main`，随后主仓库不跳项的完整门禁通过：validation scripts、Spotless、
+  **3007 JVM tests / 0 failures / 0 errors / 15 skipped**、Lint、debug/androidTest/release 构建、releaseSmoke
+  与 artifact scan；隐私扫描和最终 `com.bytedance.zgx.solin.docs.* --rerun-tasks` 合同测试通过。
+- 未执行真机、模拟器或发布验收；main hosted CI 恢复仍是独立 P1，不能用本地门禁或本次合入声明其通过。
 
 ## 2026-11-15 — Production-model planning comparison
 
