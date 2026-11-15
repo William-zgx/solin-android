@@ -158,6 +158,10 @@ fun readJsonl(file: File): List<JSONObject> = file.readLines(Charsets.UTF_8)
 
 fun JSONArray?.stringList(): List<String> = if (this == null) emptyList() else (0 until length()).map { getString(it) }
 
+fun JSONArray.modelTagsByName(): Map<String, JSONObject> = (0 until length()).associate { index ->
+    getJSONObject(index).let { tag -> tag.optString("name") to tag }
+}
+
 fun JSONObject?.stringMap(): Map<String, String> {
     if (this == null) return emptyMap()
     val result = linkedMapOf<String, String>()
@@ -172,7 +176,12 @@ fun Map<String, String>.toJson(): JSONObject = JSONObject().also { json -> forEa
  * with an existing manifest so suites run in separate Gradle invocations share one file.
  */
 object LabManifest {
-    fun recordModels(client: OllamaClient, models: List<String>, outputFile: File? = null) = mutateManifest(outputFile) { manifest ->
+    fun recordModels(
+        client: OllamaClient,
+        models: List<String>,
+        outputFile: File? = null,
+        tags: JSONArray? = null
+    ) = mutateManifest(outputFile) { manifest ->
         manifest.put("runDate", LabEnv.runDate)
         manifest.put("ollamaVersion", runCatching { client.version() }.getOrDefault("unknown"))
         val head = gitHead()
@@ -184,11 +193,9 @@ object LabManifest {
         manifest.put("hostNote", LabEnv.hostNote)
         manifest.put("samplingOptions", OllamaClient.Options().toJson())
         val modelsJson = manifest.optJSONObject("models") ?: JSONObject()
-        val tags = runCatching { client.tags() }.getOrNull()
+        val tagsByName = (tags ?: runCatching { client.tags() }.getOrNull())?.modelTagsByName().orEmpty()
         models.forEach { model ->
-            val tag = tags?.let { array ->
-                (0 until array.length()).map { array.getJSONObject(it) }.firstOrNull { it.optString("name") == model }
-            }
+            val tag = tagsByName[model]
             modelsJson.put(
                 model,
                 JSONObject()
@@ -237,11 +244,10 @@ object LabManifest {
 }
 
 /** Models from [LabEnv.requestedModels] that Ollama actually has; the rest are logged as pending. */
-fun availableLabModels(client: OllamaClient): List<String> {
-    val installed = runCatching {
-        val tags = client.tags()
-        (0 until tags.length()).map { tags.getJSONObject(it).optString("name") }.toSet()
-    }.getOrDefault(emptySet())
+fun availableLabModels(client: OllamaClient): List<String> = availableLabModels(runCatching { client.tags() }.getOrNull())
+
+fun availableLabModels(tags: JSONArray?): List<String> {
+    val installed = tags?.modelTagsByName()?.keys.orEmpty()
     val (present, missing) = LabEnv.requestedModels.partition { it in installed }
     if (missing.isNotEmpty()) LabLog.info("models not installed (pending): $missing")
     return present

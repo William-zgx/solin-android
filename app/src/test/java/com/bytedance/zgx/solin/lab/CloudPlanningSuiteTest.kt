@@ -86,6 +86,17 @@ class CloudPlanningSuiteTest {
         assertFalse(rejected.getBoolean("accepted"))
         assertFalse(rejected.getBoolean("correct"))
         assertEquals("TrailingContent", rejected.getString("rejectionReason"))
+
+        val summary = comparisonSummary(
+            listOf(
+                JSONObject()
+                    .put("caseId", "taobao_search")
+                    .put("sequential", wrongResult)
+                    .put("branching", wrongBranch)
+            )
+        )
+        assertEquals("taobao_search", summary.getJSONArray("cases").getJSONObject(0).getString("caseId"))
+        assertFalse(summary.getJSONObject("metrics").has("cases"))
     }
 
     internal fun evaluate(
@@ -189,22 +200,34 @@ class CloudPlanningSuiteTest {
     }
 
     internal fun comparisonSummary(results: List<JSONObject>): JSONObject = JSONObject()
-        .put("fixedVsSequential", JSONArray(results.filter { result ->
-            result.getJSONObject("branching").getBoolean("correct") &&
-                !result.getJSONObject("sequential").getBoolean("correct")
-        }.map { it.getString("caseId") }))
-        .put("brokenVsSequential", JSONArray(results.filter { result ->
-            !result.getJSONObject("branching").getBoolean("correct") &&
-                result.getJSONObject("sequential").getBoolean("correct")
-        }.map { it.getString("caseId") }))
-        .put("metrics", JSONObject()
-            .put("sequential", metrics(results, "sequential"))
-            .put("branching", metrics(results, "branching"))
-        .put("cases", JSONArray(results)))
+        .put(
+            "fixedVsSequential",
+            JSONArray(
+                results.filter { result ->
+                    result.getJSONObject("branching").getBoolean("correct") &&
+                        !result.getJSONObject("sequential").getBoolean("correct")
+                }.map { it.getString("caseId") }
+            )
+        )
+        .put(
+            "brokenVsSequential",
+            JSONArray(
+                results.filter { result ->
+                    !result.getJSONObject("branching").getBoolean("correct") &&
+                        result.getJSONObject("sequential").getBoolean("correct")
+                }.map { it.getString("caseId") }
+            )
+        )
+        .put(
+            "metrics",
+            JSONObject()
+                .put("sequential", metrics(results, "sequential"))
+                .put("branching", metrics(results, "branching"))
+        )
+        .put("cases", JSONArray(results))
 
-    internal fun transportErrors(results: List<JSONObject>): List<JSONObject> =
-        results.flatMap { result -> listOf("sequential", "branching").map { mode -> result.getJSONObject(mode) } }
-            .filter { it.has("errorType") }
+    internal fun transportErrors(results: List<JSONObject>): List<JSONObject> = results.flatMap { result -> listOf("sequential", "branching").map { mode -> result.getJSONObject(mode) } }
+        .filter { it.has("errorType") }
 
     internal fun assertAtLeastOneCorrect(results: List<JSONObject>, model: String) {
         val errors = transportErrors(results)

@@ -2,9 +2,9 @@ package com.bytedance.zgx.solin.lab
 
 import com.bytedance.zgx.solin.common.toLowerHex
 import com.bytedance.zgx.solin.orchestration.collab.CloudMilestonePlanner
-import java.security.MessageDigest
 import java.io.File
 import java.nio.file.Files
+import java.security.MessageDigest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.json.JSONArray
@@ -22,11 +22,13 @@ class LocalCloudPlanningSuiteTest {
     fun productionLiteRtModelsCompareSequentialAndBranching() {
         requireLabOptIn("A")
         val client = OllamaClient()
-        val models = availableLabModels(client).filter { it in PRODUCTION_MODELS }
+        val tags = runCatching { client.tags() }.getOrNull()
+        val models = availableLabModels(tags).filter { it in PRODUCTION_MODELS }
         Assume.assumeTrue("no production LiteRT models available", models.isNotEmpty())
+        val servedTags = requireNotNull(tags)
         verifyProductionFiles(models)
-        verifyServingDigests(client, models)
-        LabManifest.recordModels(client, models)
+        verifyServingDigests(servedTags, models)
+        LabManifest.recordModels(client, models, tags = servedTags)
         val allCases = CloudPlanningSuiteTest.CASES
         val selectedCases = allCases
             .filter { case -> LabEnv.requestedCaseIds?.contains(case.id) != false }
@@ -46,11 +48,11 @@ class LocalCloudPlanningSuiteTest {
             val adapter = LocalLiteRtMilestonePlannerModel(client, model)
             val planner = CloudMilestonePlanner(adapter)
             val results = selectedCases.map { case ->
-                    JSONObject()
-                        .put("caseId", case.id)
-                        .put("sequential", evaluator.evaluate(planner, case, sequential = true) { adapter.lastRawOutput })
-                        .put("branching", evaluator.evaluate(planner, case, sequential = false) { adapter.lastRawOutput })
-                }
+                JSONObject()
+                    .put("caseId", case.id)
+                    .put("sequential", evaluator.evaluate(planner, case, sequential = true) { adapter.lastRawOutput })
+                    .put("branching", evaluator.evaluate(planner, case, sequential = false) { adapter.lastRawOutput })
+            }
             val report = evaluator.comparisonSummary(results)
                 .put("model", model)
                 .put("verifiedDigest", EXPECTED_MODELS.getValue(model).digest)
@@ -106,30 +108,20 @@ class LocalCloudPlanningSuiteTest {
 
     @Test
     fun servingDigestMustMatchVerifiedModel() {
-        MockWebServer().use { server ->
-            server.enqueue(
-                MockResponse.Builder().code(200).body(
-                    """{"models":[{"name":"litert/gemma-4-e2b","digest":"different"}]}"""
-                ).build()
-            )
-            server.start()
-            var rejected = false
-            try {
-                verifyServingDigests(OllamaClient(server.url("/").toString()), listOf("litert/gemma-4-e2b"))
-            } catch (_: IllegalArgumentException) {
-                rejected = true
-            }
-            assertTrue(rejected)
+        val tags = JSONArray("""[{"name":"litert/gemma-4-e2b","digest":"different"}]""")
+        var rejected = false
+        try {
+            verifyServingDigests(tags, listOf("litert/gemma-4-e2b"))
+        } catch (_: IllegalArgumentException) {
+            rejected = true
         }
+        assertTrue(rejected)
     }
 
-    private fun verifyServingDigests(client: OllamaClient, models: List<String>) {
-        val tags = client.tags()
+    private fun verifyServingDigests(tags: JSONArray, models: List<String>) {
+        val digests = tags.modelTagsByName().mapValues { (_, tag) -> tag.optString("digest") }
         models.forEach { model ->
-            val digest = (0 until tags.length()).map { tags.getJSONObject(it) }
-                .firstOrNull { it.optString("name") == model }
-                ?.optString("digest")
-            require(digest == EXPECTED_MODELS.getValue(model).digest) {
+            require(digests[model] == EXPECTED_MODELS.getValue(model).digest) {
                 "serving model digest mismatch for $model"
             }
         }
