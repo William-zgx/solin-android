@@ -93,9 +93,13 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [[ "$status" -ne 0 ]]; then
-            while IFS= read -r line; do
-              printf '::error::%s\n' "$line"
-            done < <(tail -n 40 "$LOG_FILE")
+            printf '::error::verify_local.sh failed with exit %s; see summary and artifacts\n' "$status"
+            {
+              echo '## verify_local.sh failure'
+              echo '```text'
+              tail -n 120 "$LOG_FILE"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$status"
 
@@ -128,7 +132,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-local-verification-evidence
-          path: build/verification/ci-local-verification
+          path: |
+            build/verification/ci-local-verification
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-*
 
   model-provenance:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
