@@ -3,6 +3,10 @@ package com.bytedance.zgx.solin.tool
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.ResponseBody
+import okio.BufferedSource
+import okio.ByteString.Companion.decodeHex
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
@@ -28,28 +32,63 @@ class WebSearchResponseLimitTest {
     }
 
     @Test
-    fun gzipBombIsLimitedOnDecompressedSize() {
-        val raw = Buffer()
-        GzipSink(raw).buffer().use { it.writeUtf8("a".repeat(MAX_WEB_SEARCH_RESPONSE_BYTES.toInt() + 1024)) }
+    fun gzipBodyIsLimitedOnDecompressedSizeWithAnExplicitFailure() {
         MockWebServer().use { server ->
-            server.enqueue(
-                MockResponse.Builder().code(200).addHeader("Content-Encoding", "gzip").body(raw).build(),
-            )
-            server.enqueue(
-                MockResponse.Builder().code(200).addHeader("Content-Encoding", "gzip").body(raw.clone()).build(),
-            )
+            server.enqueue(gzipResponse("a".repeat(MAX_WEB_SEARCH_RESPONSE_BYTES.toInt() + 1024)))
             server.start()
-            assertTrue(raw.size < 64 * 1024)
-            val provider = OkHttpWebSearchProvider(
-                client = OkHttpClient(),
-                instantAnswerBaseUrl = server.url("/instant").toString(),
-                htmlSearchBaseUrl = server.url("/html").toString(),
-                liteSearchBaseUrl = server.url("/lite").toString(),
-                clock = Clock.fixed(Instant.parse("2026-07-02T10:00:00Z"), ZoneOffset.UTC),
-            )
-            val result = provider.search(WebSearchRequest(query = "kotlin coroutine guide"))
-            assertFalse(result is WebSearchReadResult.Available)
+            OkHttpClient().newCall(Request.Builder().url(server.url("/")).build()).execute().use { response ->
+                val failure = runCatching { response.body.readBoundedText(MAX_WEB_SEARCH_RESPONSE_BYTES) }.exceptionOrNull()
+                assertTrue(failure is IOException)
+                assertEquals("Response too large", failure!!.message)
+            }
         }
+    }
+
+    @Test
+    fun validHtmlOverTheLimitIsRejectedWhileTheSameShapeUnderTheLimitIsAvailable() {
+        fun search(padding: Int): WebSearchReadResult =
+            MockWebServer().use { server ->
+                val html = """<html><body><div class="result"><h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fk">Kotlin guide</a></h2>""" +
+                    """<a class="result__snippet">Kotlin coroutine dispatcher guide</a></div><!--${"x".repeat(padding)}--></body></html>"""
+                server.enqueue(MockResponse.Builder().code(200).addHeader("Content-Type", "application/json").body("{}").build())
+                server.enqueue(gzipResponse(html, "text/html; charset=utf-8"))
+                server.start()
+                OkHttpWebSearchProvider(
+                    client = OkHttpClient(),
+                    instantAnswerBaseUrl = server.url("/instant").toString(),
+                    htmlSearchBaseUrl = server.url("/html").toString(),
+                    liteSearchBaseUrl = server.url("/lite").toString(),
+                    clock = Clock.fixed(Instant.parse("2026-07-02T10:00:00Z"), ZoneOffset.UTC),
+                ).search(WebSearchRequest(query = "kotlin coroutine dispatcher guide"))
+            }
+        assertTrue(search(1_000) is WebSearchReadResult.Available)
+        assertFalse(search(MAX_WEB_SEARCH_RESPONSE_BYTES.toInt() + 1024) is WebSearchReadResult.Available)
+    }
+
+    @Test
+    fun declaredContentLengthOverTheLimitFailsBeforeReading() {
+        val body = object : ResponseBody() {
+            override fun contentType() = null
+            override fun contentLength() = 101L
+            override fun source(): BufferedSource = throw AssertionError("body must not be read")
+        }
+        val failure = runCatching { body.readBoundedText(100) }.exceptionOrNull()
+        assertTrue(failure is IOException)
+    }
+
+    @Test
+    fun readBoundedTextHonorsUtf32Bom() {
+        val be = Buffer().write("0000feff".decodeHex()).write("h\u00e9llo".toByteArray(Charsets.UTF_32BE)).readByteString()
+        val le = Buffer().write("fffe0000".decodeHex()).write("h\u00e9llo".toByteArray(Charsets.UTF_32LE)).readByteString()
+        assertEquals("h\u00e9llo", be.toResponseBody("text/html; charset=utf-8".toMediaType()).readBoundedText(100))
+        assertEquals("h\u00e9llo", le.toResponseBody("text/html; charset=utf-8".toMediaType()).readBoundedText(100))
+    }
+
+    private fun gzipResponse(text: String, contentType: String = "text/plain"): MockResponse {
+        val raw = Buffer()
+        GzipSink(raw).buffer().use { it.writeUtf8(text) }
+        return MockResponse.Builder().code(200).addHeader("Content-Type", contentType)
+            .addHeader("Content-Encoding", "gzip").body(raw).build()
     }
 
     @Test

@@ -401,6 +401,19 @@ class DeterministicBoundaryTest(unittest.TestCase):
         self.assertEqual(0, runner.ground("共 256GB", ["存储 256GB 版"], "")["missing"])
         self.assertEqual(0, runner.ground("价格 1299", ["价格：1299，包邮"], "")["missing"])
 
+    def test_wrong_value_with_letter_unit_is_missing_not_ignored(self):
+        for answer, evidence, matching in (
+            ("144Hz", "120Hz", "144Hz"),
+            ("1080p", "720p", "1080p"),
+            ("100W", "65W", "100W"),
+            ("2.4GHz", "5GHz", "2.4GHz"),
+            ("3.5mm", "2.5mm", "3.5mm"),
+            ("144 Hz", "120 Hz", "144 Hz"),
+        ):
+            self.assertEqual({"facts": 1, "matched": 0, "missing": 1}, runner.ground(answer, [evidence], ""), answer)
+            self.assertEqual({"facts": 1, "matched": 1, "missing": 0}, runner.ground(answer, [matching], ""), answer)
+        self.assertEqual(runner.ground("144Hz", ["120Hz"], ""), runner.ground("144 Hz", ["120Hz"], ""))
+
 
 if __name__ == "__main__":
     unittest.main()
