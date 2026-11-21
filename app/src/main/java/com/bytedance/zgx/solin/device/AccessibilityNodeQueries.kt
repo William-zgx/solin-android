@@ -53,7 +53,22 @@ internal fun AccessibilityNodeInfo.findFocusedEditableForTyping(): Accessibility
     }?.node
 
 internal fun AccessibilityNodeInfo.isSafeEditableForTyping(): Boolean =
-    isEnabled && isEditable && !isPassword
+    isSafeEditableState(
+        enabled = isEnabled,
+        editable = isEditable,
+        password = isPassword,
+        visibleToUser = isVisibleToUser,
+        hasNonEmptyBounds = safeBounds() != null,
+    )
+
+/** Fail-closed typing gate: a hidden or zero-area editor is never a safe input target. */
+internal fun isSafeEditableState(
+    enabled: Boolean,
+    editable: Boolean,
+    password: Boolean,
+    visibleToUser: Boolean,
+    hasNonEmptyBounds: Boolean,
+): Boolean = enabled && editable && !password && visibleToUser && hasNonEmptyBounds
 
 /**
  * One live node considered as a click/type target, plus the transient id the model may address it by.

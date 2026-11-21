@@ -238,6 +238,8 @@ class SolinAccessibilityService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         // Unbind can happen without onDestroy (user toggles the service off, system rebinds later), and
         // it is the last point where we still have a live context to hand the clipboard back.
+        // Invalidate first so old leases cannot read or write; reconnect creates fresh ownership.
+        deviceControlTasks.invalidate(this)
         drainPendingClipboardOnTeardown()
         return super.onUnbind(intent)
     }
