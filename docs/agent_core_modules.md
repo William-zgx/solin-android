@@ -105,6 +105,8 @@ Current status:
   preserving result order without turning one child's failure into a batch-wide failure.
 - `web_search` uses typed evidence requests. `searchMode=general` stays on
   public search; `searchMode=weather_current` is the only weather endpoint.
+  Response bodies are streamed with a 2 MiB decompressed cap and early failure; BOM-aware decoding and
+  code-point-safe summary truncation avoid silently splitting text or exceeding the response contract.
   Public web results are carried as `PublicWebEvidencePack` /
   `PublicWebEvidenceItem` (`tool/PublicWebEvidence.kt`).
 - Phone-control tools return `LocalOnly` observations and structured
@@ -134,7 +136,11 @@ Current status:
   results; `tool/PhoneCompositeOperations.kt` owns `ui_collect`, `ui_find`, and
   `ui_set_wheel` orchestration through `TimeoutToolExecutionBoundary`
   (`tool/ToolExecutionBoundary.kt`); and
-  `skill/VerifiedPhoneRoutes.kt` owns session-memory route evidence. The
+  `skill/VerifiedPhoneRoutes.kt` owns session-memory route evidence.
+- `SolinAccessibilityService.onUnbind` invalidates the active device-control owner/lease before
+  clipboard restoration. Safe typing additionally requires visible-to-user, non-empty bounds,
+  current focus and the original node identity at pre-write and read-back checks. New JVM/source
+  contracts cover the guard ordering, but do not establish device behavior. The
   `VerifiedPhoneRouteReplanner` wrapper proposes one ordinary request at a time,
   so learning does not grant execution authority. Terminal search verification
   must reach the wrapper's observation hook before the loop completes.
@@ -383,6 +389,9 @@ Current status:
   cancellations. `stop()` advances a generation marker and cancels active
   calls; `runWithRetry` checks that marker both before call creation and after
   registration, so stopping during `newCall` cannot leave an uncancelled request.
+  `RemoteModelConfig.hasValidApiKey` requires printable ASCII before repository save, chat or
+  connectivity probe; CR/LF, NUL, control and non-ASCII characters fail closed without secret text in
+  errors. Invalid persisted keys are not silently retained, and no request is emitted for them.
   `RemoteChatRuntimeTest.stopDuringCallCreationCancelsBeforeExecution` pins this
   race without relying on timing.
 - `LocalEngine` (`runtime/LocalEngine.kt`) is the backend-neutral on-device

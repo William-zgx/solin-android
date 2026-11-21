@@ -1,6 +1,6 @@
 # Release Readiness
 
-Code baseline for this readiness refresh: `573b42a2fa03514f369c8dfd08c285757691c159`
+Code baseline for this readiness refresh: `4bb9461f`
 (2026-11-15). The current local gate is recorded below; the latest recorded hosted full CI
 remains the earlier `cb7e4918` run. This page is not the release checklist or evidence log.
 
@@ -58,7 +58,7 @@ Current implementation ownership and limitations live in
 
 | Area | Current evidence | Caveat |
 | --- | --- | --- |
-| Current local gate | `2452f888` passed `scripts/verify_local.sh`, including 21 LiteRT shim stdlib tests, 3007 JVM tests (15 skipped), Lint, debug/release builds and artifact checks; `scripts/privacy_scan.sh` passed. `573b42a2` separately repaired hosted CI by installing the project-pinned CMake and stabilizing native inputs. | Local JVM and devbox evidence is not hosted CI, emulator, physical-device, OEM, thermal, paired-benchmark or release approval evidence. |
+| Current local gate | `4bb9461f` has focused boundary regressions (41 benchmark tests plus response/API-key/input-safety suites), Spotless and privacy scan. Historical full gate `2452f888` passed 3007 JVM tests (15 skipped), Lint, debug/release builds and artifact checks. | Focused JVM and source-contract evidence is not full CI, emulator, physical-device, OEM, thermal, paired-benchmark or release approval evidence. New typing and lifecycle behavior still needs device acceptance. |
 | Mainline CI | [#169](https://github.com/William-zgx/solin-android/actions/runs/43721643118) on `573b42a2` passed `Verify` and AI behavior boundary checks, and uploaded local/AI evidence. The root cause was missing project-pinned CMake 3.31.6, now installed in all Android build jobs. | The overall run remains cancelled by existing emulator infrastructure, so this is verify-job evidence, not a full workflow pass or device acceptance. Protected signing/release jobs are not executed by a normal push. |
 | JVM and Lint | The matching local fix gate passed 2688 JVM tests with zero failures/errors/skips and Lint with zero errors. The registration-race regression failed on the previous implementation and passed after the fix. | This count is evidence for that commit, not a permanent minimum or device-behavior claim. |
 | AI behavior fixtures | CI fixture/boundary validation passed 40 cases across 7 categories and 6 MVP scenarios. | Fixture validation is not a fresh public-strict runtime trace or live-model task benchmark. |

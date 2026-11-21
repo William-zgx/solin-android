@@ -35,13 +35,54 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 当前本地门禁 | `2452f888` 的完整本地验证与隐私扫描通过；JVM 为 3007 tests / 0 failures / 0 errors / 15 skipped，另有 21 项 LiteRT shim stdlib 回归。真实 E4B 写入中 SIGTERM 后缓存清理完成，`/tmp` 与 `/data00` scratch 均无残留。 | [2026-11-15 — LiteRT shim cache safety](#2026-11-15--litert-shim-cache-safety) |
+| 当前本地门禁 | `4bb9461f` 的边界聚焦回归、Spotless 与隐私扫描通过；基准 41 tests，另有响应/API key/输入安全回归。历史完整门禁 `2452f888` 为 3007 tests / 0 failures / 0 errors / 15 skipped，真实设备行为仍未验收。 | [2026-11-21 — Deterministic boundaries and input lifecycle](#2026-11-21--deterministic-boundaries-and-input-lifecycle) |
 | 当前 main CI verify | `573b42a2` 的 [#169](https://github.com/William-zgx/solin-android/actions/runs/43721643118) `Verify` 与 AI behavior boundary 均 success，local/AI evidence artifacts 已上传；总体因既有 emulator 基础设施 cancelled，不能写成完整工作流通过。 | [2026-11-15 — Main CI build repair](#2026-11-15--main-ci-build-repair) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
 | 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查；20261115 为生产 E2B/E4B 文件与服务摘要双重校验后的 3-case 顺序/分支规划比较。均不是设备或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) · [Planning comparison](#2026-11-15--production-model-planning-comparison) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-21 — Deterministic boundaries and input lifecycle
+
+本轮覆盖项：选择性借鉴 Mika 的确定性算法与测试意图，不整体搬迁。Web 搜索响应改为流式 2 MiB 解压上限、
+BOM 感知解码和真正 code point 截断；API key 在 repository 保存、chat 和 connectivity probe 前统一要求可打印
+ASCII，CR/LF、NUL、控制及非 ASCII 字符 fail closed，不泄露 key 或静默发请求。手机基准拒绝空匹配答案正则、
+归一零宽格式字符，并保持数字 token 边界与 `144Hz` 等字母单位答案的接地。`onUnbind` 复用现有 owner/lease
+失效路径，安全输入增加可见性、非空 bounds、当前焦点和原节点身份检查。未改 LocalOnly、确认、出网或关键动作合同。
+
+相关提交：`0f503824`、`6d4b44da`、`67010e6d`、`e5ca1e2f`、`5f143abf`、`017f8068`、`30337c8e`，以及
+独立格式提交 `4bb9461f`。独立 Claude Opus 5.5 最终复核确认两组均 clean；审查中修复了尾换行 key、BOM、
+code point 计数、持久化 key 校验顺序，以及 NUMBER_RE 误删字母单位答案数字的问题。
+
+验证命令与证据：
+
+```bash
+python3 -I scripts/tests/test_run_phone_task_benchmark.py
+./gradlew :app:testDebugUnitTest --offline \
+  --tests '*RemoteApiKeyValidationTest' --tests '*WebSearchResponseLimitTest' \
+  --tests '*WebSearchProviderTest' --tests '*RemoteModelConfigTest' \
+  --tests '*RemoteChatRuntimeTest' --tests '*RemoteModelConnectivityProbeTest' \
+  --tests '*RemoteModelRepository*Test' --tests '*EditableTypingSafetyTest' \
+  --tests '*SolinAccessibilityServiceBehaviorTest'
+./gradlew spotlessApply spotlessCheck
+scripts/privacy_scan.sh
+```
+
+结果：
+
+- 手机基准 **41 项测试通过**，包括空匹配、零宽/BOM、hash/字母数字 ID 拒绝，以及 `144Hz`、`1080p`、`100W`、
+  `2.4GHz`、`3.5mm` 和带空格变体的错误数字必须记为 missing。没有引入模型 judge、算式或相对日期推导。
+- 响应上限测试证明真实 gzip 超限抛 `Response too large`，同一有效页面在限额内可读、超限额不可读，声明
+  Content-Length 超限时在读 body 前失败，UTF-16/UTF-32 BOM 正常解码，摘要按 code point 截断。
+- API key 测试证明非法 key 在保存、chat 和 probe 前被拒绝且请求数为 0；`saveConfigWithoutApiKey` 对旧持久化
+  非法 key 也失败且不写入。普通首尾空格行为保持不变，错误信息不含 key 内容。
+- `EditableTypingSafetyTest` 4/4、`SolinAccessibilityServiceBehaviorTest` 23/23、相关 coordinator 测试 9/9 通过。
+  `onUnbind` 在 clipboard drain 前失效旧 owner/lease，重连获得新所有权；安全谓词在写前和读回都生效。
+- Spotless 与隐私扫描通过。大格式差异被隔离为 `4bb9461f` style 提交，不混入语义提交。
+- **证据限制：** B 组没有真实 AccessibilityNodeInfo、服务调用或设备执行；source-contract 只证明 guard 调用顺序，
+  `isVisibleToUser` 与 `safeBounds()` 的生产接线经源码复核，设备行为仍待硬件验收。未重复已覆盖的全量 CI，
+  未构建 APK、跑真机模型或创建 Release/tag。
 
 ## 2026-11-15 — Main CI build repair
 

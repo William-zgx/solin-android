@@ -21,8 +21,8 @@ for the coding-agent protocol.
 ## Current baseline
 
 Implementation and repository links were refreshed on 2026-11-15. The
-[current main CI verify](validation_report.md#2026-11-15--main-ci-build-repair)
-at `573b42a2` passed on the integrated tree. The dated
+[current boundary verification](validation_report.md#2026-11-21--deterministic-boundaries-and-input-lifecycle)
+at `4bb9461f` passed on the integrated tree. The dated
 [main CI convergence](validation_report.md#2026-11-04--main-ci-convergence) entry for `cb7e4918`
 retains the successful workflow and hosted emulator infrastructure skip as historical evidence;
 it is not device evidence for the current tree. The earlier Mika entry retains the APK hashes
