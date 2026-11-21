@@ -40,7 +40,8 @@ private val SUBMIT_SEARCH_OCR_TEXT_HINTS = listOf(
 ).map { value -> value.normalizedLookupKey() }
 
 /**
- * The currently-focused editable node, restricted to safe fields (enabled, editable, non-password).
+ * The currently-focused editable node, restricted to safe fields (enabled, editable, non-password,
+ * visible to the user, with non-empty screen bounds).
  *
  * Enter/Delete deliberately require an ACTUALLY focused editable and never fall back to an arbitrary
  * first editable on screen: pressing Enter on an unintended field can submit a form, and Delete
@@ -52,13 +53,14 @@ internal fun AccessibilityNodeInfo.findFocusedEditableForTyping(): Accessibility
         candidate.node.isSafeEditableForTyping() && candidate.node.isFocused
     }?.node
 
+/** Safe typing target: enabled, editable, non-password, visible to the user, non-empty bounds. */
 internal fun AccessibilityNodeInfo.isSafeEditableForTyping(): Boolean =
     isSafeEditableState(
         enabled = isEnabled,
         editable = isEditable,
         password = isPassword,
         visibleToUser = isVisibleToUser,
-        hasNonEmptyBounds = safeBounds() != null,
+        hasNonEmptyBounds = { safeBounds() != null },
     )
 
 /** Fail-closed typing gate: a hidden or zero-area editor is never a safe input target. */
@@ -67,8 +69,8 @@ internal fun isSafeEditableState(
     editable: Boolean,
     password: Boolean,
     visibleToUser: Boolean,
-    hasNonEmptyBounds: Boolean,
-): Boolean = enabled && editable && !password && visibleToUser && hasNonEmptyBounds
+    hasNonEmptyBounds: () -> Boolean,
+): Boolean = enabled && editable && !password && visibleToUser && hasNonEmptyBounds()
 
 /**
  * One live node considered as a click/type target, plus the transient id the model may address it by.

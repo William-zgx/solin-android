@@ -13,7 +13,7 @@ class EditableTypingSafetyTest {
         password: Boolean = false,
         visible: Boolean = true,
         bounds: Boolean = true,
-    ) = isSafeEditableState(enabled, editable, password, visible, bounds)
+    ) = isSafeEditableState(enabled, editable, password, visible) { bounds }
 
     @Test
     fun visibleFocusedEditorWithBoundsIsSafe() {
