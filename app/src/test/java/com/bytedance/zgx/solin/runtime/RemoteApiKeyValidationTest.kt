@@ -19,7 +19,7 @@ class RemoteApiKeyValidationTest {
         "sk-\u0000a",
         "sk-\u0007a",
         "sk-é",
-        "sk-a",
+        String(charArrayOf(0xFEFF.toChar())) + "sk-a",
         "sk-​a",
         "sk-\u007Fa",
         "sk-a\tb",
