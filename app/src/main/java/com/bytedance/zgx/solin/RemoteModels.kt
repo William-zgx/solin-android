@@ -5,7 +5,7 @@ import java.net.URI
 enum class InferenceMode {
     Local,
     Auto,
-    Remote,
+    Remote
 }
 
 enum class RemoteModelConnectivityStatus(val label: String) {
@@ -13,7 +13,7 @@ enum class RemoteModelConnectivityStatus(val label: String) {
     Checking("测试中"),
     Reachable("可达"),
     AuthenticationFailed("鉴权失败"),
-    Unreachable("不可达"),
+    Unreachable("不可达")
 }
 
 data class RemoteModelConfig(
@@ -26,7 +26,7 @@ data class RemoteModelConfig(
     val supportsToolCalls: Boolean = false,
     val contextWindowTokens: Int? = null,
     val profileRevision: String = "",
-    val connectivityStatus: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Unknown,
+    val connectivityStatus: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Unknown
 ) {
     val isConfigured: Boolean
         get() = modelName.isNotBlank() && hasAllowedTransport() && hasValidApiKey
@@ -49,21 +49,20 @@ data class RemoteModelConfig(
             uri.scheme.equals("http", ignoreCase = true) && uri.host.isLocalDebugHost()
         } == true
 
-    fun normalized(): RemoteModelConfig =
-        copy(
-            baseUrl = baseUrl.trim().trimEnd('/'),
-            modelName = modelName.trim(),
-            apiKey = apiKey.trim { it == ' ' },
-            supportsVisionInput = supportsVisionInput,
-            supportsToolCalls = supportsToolCalls,
-            contextWindowTokens = contextWindowTokens?.takeIf { it > 0 },
-            profileRevision = profileRevision.trim(),
-            connectivityStatus = if (connectivityStatus == RemoteModelConnectivityStatus.Checking) {
-                RemoteModelConnectivityStatus.Unknown
-            } else {
-                connectivityStatus
-            },
-        )
+    fun normalized(): RemoteModelConfig = copy(
+        baseUrl = baseUrl.trim().trimEnd('/'),
+        modelName = modelName.trim(),
+        apiKey = apiKey.trim { it == ' ' },
+        supportsVisionInput = supportsVisionInput,
+        supportsToolCalls = supportsToolCalls,
+        contextWindowTokens = contextWindowTokens?.takeIf { it > 0 },
+        profileRevision = profileRevision.trim(),
+        connectivityStatus = if (connectivityStatus == RemoteModelConnectivityStatus.Checking) {
+            RemoteModelConnectivityStatus.Unknown
+        } else {
+            connectivityStatus
+        }
+    )
 
     private fun hasAllowedTransport(): Boolean {
         val uri = parsedUri() ?: return false
@@ -74,52 +73,47 @@ data class RemoteModelConfig(
         }
     }
 
-    private fun parsedUri(): URI? =
-        runCatching { URI(baseUrl.trim()) }.getOrNull()
+    private fun parsedUri(): URI? = runCatching { URI(baseUrl.trim()) }.getOrNull()
 }
 
 data class RemoteConnectivitySnapshot(
     val configRevision: String,
     val status: RemoteModelConnectivityStatus,
     val checkedAtElapsedRealtimeMs: Long,
-    val ttlMs: Long = 60_000L,
+    val ttlMs: Long = 60_000L
 ) {
-    fun isFresh(nowElapsedRealtimeMs: Long): Boolean =
-        nowElapsedRealtimeMs - checkedAtElapsedRealtimeMs in 0 until ttlMs
+    fun isFresh(nowElapsedRealtimeMs: Long): Boolean = nowElapsedRealtimeMs - checkedAtElapsedRealtimeMs in 0 until ttlMs
 }
 
-fun RemoteModelConfig.modelProfile(): ModelProfile =
-    normalized().let { normalized ->
-        ModelCatalog.remoteVisionProfile.copy(
-            id = "remote-openai-compatible-${normalized.modelName.ifBlank { "unconfigured" }}",
-            displayName = normalized.modelName.ifBlank { "远程模型" },
-            inputModalities = if (normalized.supportsVisionInput) {
-                setOf(ModelInputModality.Text, ModelInputModality.Vision)
-            } else {
-                setOf(ModelInputModality.Text)
-            },
-            features = if (normalized.supportsVisionInput) {
-                setOf(ModelFeature.TextGeneration, ModelFeature.VisionInput)
-            } else {
-                setOf(ModelFeature.TextGeneration)
-            },
-            tokenBudget = normalized.contextWindowTokens,
-        )
-    }
+fun RemoteModelConfig.modelProfile(): ModelProfile = normalized().let { normalized ->
+    ModelCatalog.remoteVisionProfile.copy(
+        id = "remote-openai-compatible-${normalized.modelName.ifBlank { "unconfigured" }}",
+        displayName = normalized.modelName.ifBlank { "远程模型" },
+        inputModalities = if (normalized.supportsVisionInput) {
+            setOf(ModelInputModality.Text, ModelInputModality.Vision)
+        } else {
+            setOf(ModelInputModality.Text)
+        },
+        features = if (normalized.supportsVisionInput) {
+            setOf(ModelFeature.TextGeneration, ModelFeature.VisionInput)
+        } else {
+            setOf(ModelFeature.TextGeneration)
+        },
+        tokenBudget = normalized.contextWindowTokens
+    )
+}
 
-internal fun String?.isLocalDebugHost(): Boolean =
-    this == "localhost" ||
-        this == "127.0.0.1" ||
-        this == "::1" ||
-        this == "[::1]" ||
-        this == "10.0.2.2"
+internal fun String?.isLocalDebugHost(): Boolean = this == "localhost" ||
+    this == "127.0.0.1" ||
+    this == "::1" ||
+    this == "[::1]" ||
+    this == "10.0.2.2"
 
-fun InferenceMode.label(): String =
-    when (this) {
-        InferenceMode.Local -> "本地"
-        InferenceMode.Auto -> "自动"
-        InferenceMode.Remote -> "远程"
-    }
+fun InferenceMode.label(): String = when (this) {
+    InferenceMode.Local -> "本地"
+    InferenceMode.Auto -> "自动"
+    InferenceMode.Remote -> "远程"
+}
 
 internal fun RemoteModelConfig.destinationHostLabel(): String {
     val normalized = normalized()

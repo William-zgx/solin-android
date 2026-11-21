@@ -7,21 +7,21 @@ import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import kotlin.coroutines.resume
 
 interface RemoteModelConnectivityProbe {
     suspend fun check(config: RemoteModelConfig): RemoteModelConnectivityStatus
@@ -31,7 +31,7 @@ class OkHttpRemoteModelConnectivityProbe(
     private val callFactory: Call.Factory = OkHttpClient.Builder()
         .connectTimeout(SolinConstants.Network.PROBE_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(SolinConstants.Network.PROBE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .build(),
+        .build()
 ) : RemoteModelConnectivityProbe {
     override suspend fun check(config: RemoteModelConfig): RemoteModelConnectivityStatus {
         val normalized = config.normalized()
@@ -84,7 +84,7 @@ class OkHttpRemoteModelConnectivityProbe(
 }
 
 private fun kotlinx.coroutines.CancellableContinuation<RemoteModelConnectivityStatus>.resumeProbe(
-    status: RemoteModelConnectivityStatus,
+    status: RemoteModelConnectivityStatus
 ) {
     if (isActive) resume(status)
 }
@@ -93,14 +93,14 @@ class RemoteConnectivityRefreshCoordinator(
     private val remoteModelStore: RemoteModelStore,
     private val probe: RemoteModelConnectivityProbe,
     private val scope: CoroutineScope,
-    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val lock = Any()
     private var inFlight: InFlight? = null
 
     fun refresh(
         config: RemoteModelConfig,
-        force: Boolean = false,
+        force: Boolean = false
     ): Deferred<RemoteConnectivitySnapshot?> {
         val captured = config.normalized()
         val revision = captured.profileRevision
@@ -142,6 +142,6 @@ class RemoteConnectivityRefreshCoordinator(
 
     private data class InFlight(
         val revision: String,
-        val deferred: Deferred<RemoteConnectivitySnapshot?>,
+        val deferred: Deferred<RemoteConnectivitySnapshot?>
     )
 }

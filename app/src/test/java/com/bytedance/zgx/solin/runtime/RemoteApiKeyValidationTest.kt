@@ -19,17 +19,16 @@ class RemoteApiKeyValidationTest {
         "sk-\u0000a",
         "sk-\u0007a",
         "sk-é",
-        "﻿sk-a",
+        "sk-a",
         "sk-​a",
         "sk-\u007Fa",
         "sk-a\tb",
         "sk-1\n",
         "\r\nsk-1",
-        "sk-1\t",
+        "sk-1\t"
     )
 
-    private fun config(key: String, baseUrl: String = "https://api.example.com/v1") =
-        RemoteModelConfig(baseUrl, "model-a", apiKey = key)
+    private fun config(key: String, baseUrl: String = "https://api.example.com/v1") = RemoteModelConfig(baseUrl, "model-a", apiKey = key)
 
     @Test
     fun invalidKeysAreRejectedNotSanitized() {

@@ -1,10 +1,10 @@
 package com.bytedance.zgx.solin.device
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
 class EditableTypingSafetyTest {
     private fun safe(
@@ -12,7 +12,7 @@ class EditableTypingSafetyTest {
         editable: Boolean = true,
         password: Boolean = false,
         visible: Boolean = true,
-        bounds: Boolean = true,
+        bounds: Boolean = true
     ) = isSafeEditableState(enabled, editable, password, visible) { bounds }
 
     @Test
@@ -34,7 +34,7 @@ class EditableTypingSafetyTest {
         // Source contract (JVM cannot construct AccessibilityNodeInfo); not device coverage.
         val source = listOf(
             File("src/main/java/com/bytedance/zgx/solin/device/SolinAccessibilityService.kt"),
-            File("app/src/main/java/com/bytedance/zgx/solin/device/SolinAccessibilityService.kt"),
+            File("app/src/main/java/com/bytedance/zgx/solin/device/SolinAccessibilityService.kt")
         ).first { it.isFile }.readText()
 
         val unbind = source.substringAfter("override fun onUnbind")
@@ -50,7 +50,7 @@ class EditableTypingSafetyTest {
         val preWriteGuard = inputBody.indexOf("editableNode.isSafeEditableForTyping()")
         val readBackGuard = inputBody.indexOf(
             "editableNode.isSafeEditableForTyping()",
-            verify,
+            verify
         )
         assertTrue(write >= 0 && paste >= 0 && verify >= 0)
         assertTrue(preWriteGuard in 0 until minOf(write, paste))
@@ -61,7 +61,7 @@ class EditableTypingSafetyTest {
         // Earlier gate (before the inputWindow capture) also guards the node.
         assertTrue(
             source.substringBefore("val inputWindow = editableNode.windowId")
-                .contains("!editableNode.refresh() || !editableNode.isSafeEditableForTyping()"),
+                .contains("!editableNode.refresh() || !editableNode.isSafeEditableForTyping()")
         )
     }
 
@@ -77,7 +77,7 @@ class EditableTypingSafetyTest {
 
         assertFalse(coordinator.isCurrentOwner(owner))
         assertFalse(
-            runCatching { oldTask.submitUiSideEffect { writes += 1 } }.isSuccess,
+            runCatching { oldTask.submitUiSideEffect { writes += 1 } }.isSuccess
         )
         assertEquals(0, writes)
         val replacement = Any()

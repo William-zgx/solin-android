@@ -1,25 +1,25 @@
 package com.bytedance.zgx.solin.tool
 
+import java.io.IOException
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.ResponseBody
-import okio.BufferedSource
-import okio.ByteString.Companion.decodeHex
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
+import okio.BufferedSource
+import okio.ByteString.Companion.decodeHex
 import okio.GzipSink
 import okio.buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.IOException
-import java.time.Clock
-import java.time.Instant
-import java.time.ZoneOffset
 
 class WebSearchResponseLimitTest {
     @Test
@@ -46,21 +46,20 @@ class WebSearchResponseLimitTest {
 
     @Test
     fun validHtmlOverTheLimitIsRejectedWhileTheSameShapeUnderTheLimitIsAvailable() {
-        fun search(padding: Int): WebSearchReadResult =
-            MockWebServer().use { server ->
-                val html = """<html><body><div class="result"><h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fk">Kotlin guide</a></h2>""" +
-                    """<a class="result__snippet">Kotlin coroutine dispatcher guide</a></div><!--${"x".repeat(padding)}--></body></html>"""
-                server.enqueue(MockResponse.Builder().code(200).addHeader("Content-Type", "application/json").body("{}").build())
-                server.enqueue(gzipResponse(html, "text/html; charset=utf-8"))
-                server.start()
-                OkHttpWebSearchProvider(
-                    client = OkHttpClient(),
-                    instantAnswerBaseUrl = server.url("/instant").toString(),
-                    htmlSearchBaseUrl = server.url("/html").toString(),
-                    liteSearchBaseUrl = server.url("/lite").toString(),
-                    clock = Clock.fixed(Instant.parse("2026-07-02T10:00:00Z"), ZoneOffset.UTC),
-                ).search(WebSearchRequest(query = "kotlin coroutine dispatcher guide"))
-            }
+        fun search(padding: Int): WebSearchReadResult = MockWebServer().use { server ->
+            val html = """<html><body><div class="result"><h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fk">Kotlin guide</a></h2>""" +
+                """<a class="result__snippet">Kotlin coroutine dispatcher guide</a></div><!--${"x".repeat(padding)}--></body></html>"""
+            server.enqueue(MockResponse.Builder().code(200).addHeader("Content-Type", "application/json").body("{}").build())
+            server.enqueue(gzipResponse(html, "text/html; charset=utf-8"))
+            server.start()
+            OkHttpWebSearchProvider(
+                client = OkHttpClient(),
+                instantAnswerBaseUrl = server.url("/instant").toString(),
+                htmlSearchBaseUrl = server.url("/html").toString(),
+                liteSearchBaseUrl = server.url("/lite").toString(),
+                clock = Clock.fixed(Instant.parse("2026-07-02T10:00:00Z"), ZoneOffset.UTC)
+            ).search(WebSearchRequest(query = "kotlin coroutine dispatcher guide"))
+        }
         assertTrue(search(1_000) is WebSearchReadResult.Available)
         assertFalse(search(MAX_WEB_SEARCH_RESPONSE_BYTES.toInt() + 1024) is WebSearchReadResult.Available)
     }

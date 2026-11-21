@@ -5,6 +5,13 @@ import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
 import com.bytedance.zgx.solin.logging.cleanMessage
+import java.io.IOException
+import java.net.URLDecoder
+import java.time.Clock
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.util.concurrent.TimeUnit
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -13,16 +20,9 @@ import okhttp3.ResponseBody
 import okio.Buffer
 import okio.ByteString.Companion.decodeHex
 import okio.Options
-import org.jsoup.Jsoup
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
-import java.net.URLDecoder
-import java.time.Clock
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneOffset
-import java.util.concurrent.TimeUnit
+import org.jsoup.Jsoup
 
 private const val MAX_WEB_SEARCH_SUMMARY_CHARS = 1_200
 private const val MAX_WEB_SEARCH_RESULTS_JSON_CHARS = 4_000
@@ -34,30 +34,31 @@ private const val WEB_SEARCH_USER_AGENT = "Solin/0.1 Android WebSearch"
 private const val WEB_SEARCH_AUDIT_MODEL_NAME = "web_search"
 private val currentFreshnessTermRegex =
     Regex(
-        """(?i)(最新|目前|当前|现在|近期|最近|今日|今天|今年|当下|热搜|热点|热门|火热|榜单|排行|排名|趋势|\blatest\b|\bcurrent\b|\bcurrently\b|\brecent\b|\btrending\b|\bhottest\b|\bpopular\b|\branking\b|\brankings\b|\bleaderboard\b|\btoday\b|\bnow\b)""",
+        """(?i)(最新|目前|当前|现在|近期|最近|今日|今天|今年|当下|热搜|热点|热门|火热|榜单|排行|排名|趋势|\blatest\b|\bcurrent\b|\bcurrently\b|\brecent\b|\btrending\b|\bhottest\b|\bpopular\b|\branking\b|\brankings\b|\bleaderboard\b|\btoday\b|\bnow\b)"""
     )
+
 // Request, question and freshness filler, stripped only at segment edges (never inside a word).
 // 的 is only dropped before a following segment ("最火热的 AI"), never from the last one (目的).
 private val cjkSearchFillers = CjkEdgeFillers(
     leading = listOf(
         "搜索一下", "搜一下", "查一下", "看一下", "帮我看看", "帮我查查", "帮我", "帮忙", "请问", "给我", "告诉我",
         "网页搜索", "网络搜索", "互联网搜索", "上网搜索", "网上搜索", "上网查", "网上查", "百度一下", "搜索", "查询",
-        "查找", "分别", "目前", "当前", "现在", "当下",
+        "查找", "分别", "目前", "当前", "现在", "当下"
     ),
     trailing = listOf(
         "分别是什么", "是什么", "有哪些", "怎么样", "如何", "多少", "一下", "分别", "目前", "当前", "现在", "当下",
-        "吗", "呢",
-    ),
+        "吗", "呢"
+    )
 )
 private val cjkSearchNonFinalParticles = listOf("的")
 private val weatherLocationFillerWords = listOf(
     "天气", "气温", "温度", "温差", "降雨", "下雨", "预报", "怎么样", "如何", "多少", "现在", "今天", "今晚", "明天",
     "查询", "查一下", "搜一下", "帮我", "一下", "有没有", "会不会", "没有", "没", "吗", "嘛", "么", "了", "呢", "呀",
-    "啊", "有", "会", "是", "的", "更高", "更低", "更热", "更冷",
+    "啊", "有", "会", "是", "的", "更高", "更低", "更热", "更冷"
 )
 private val weatherLocationFillers = CjkEdgeFillers(
     leading = weatherLocationFillerWords,
-    trailing = weatherLocationFillerWords,
+    trailing = weatherLocationFillerWords
 )
 
 interface WebSearchProvider {
@@ -74,23 +75,22 @@ data class WebSearchRequest(
     val query: String,
     val searchMode: WebSearchMode = WebSearchMode.General,
     val freshness: WebSearchFreshness = searchMode.defaultFreshness,
-    val maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS,
+    val maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS
 )
 
 internal fun inferWebSearchFreshness(
     query: String,
     searchMode: WebSearchMode,
-    currentYear: Int = LocalDate.now(ZoneOffset.UTC).year,
-): WebSearchFreshness =
-    when {
-        searchMode == WebSearchMode.WeatherCurrent -> WebSearchFreshness.Current
-        query.hasCurrentFreshnessIntent(currentYear) -> WebSearchFreshness.Current
-        else -> searchMode.defaultFreshness
-    }
+    currentYear: Int = LocalDate.now(ZoneOffset.UTC).year
+): WebSearchFreshness = when {
+    searchMode == WebSearchMode.WeatherCurrent -> WebSearchFreshness.Current
+    query.hasCurrentFreshnessIntent(currentYear) -> WebSearchFreshness.Current
+    else -> searchMode.defaultFreshness
+}
 
 enum class WebSearchMode(val schemaValue: String) {
     General("general"),
-    WeatherCurrent("weather_current"),
+    WeatherCurrent("weather_current")
     ;
 
     val defaultFreshness: WebSearchFreshness
@@ -100,29 +100,27 @@ enum class WebSearchMode(val schemaValue: String) {
         }
 
     companion object {
-        fun fromSchemaValue(value: String?): WebSearchMode? =
-            when (value?.trim()?.takeIf { it.isNotBlank() } ?: General.schemaValue) {
-                General.schemaValue -> General
-                WeatherCurrent.schemaValue -> WeatherCurrent
-                else -> null
-            }
+        fun fromSchemaValue(value: String?): WebSearchMode? = when (value?.trim()?.takeIf { it.isNotBlank() } ?: General.schemaValue) {
+            General.schemaValue -> General
+            WeatherCurrent.schemaValue -> WeatherCurrent
+            else -> null
+        }
     }
 }
 
 enum class WebSearchFreshness(val schemaValue: String) {
     AnyTime("any_time"),
-    Current("current"),
+    Current("current")
 
     ;
 
     companion object {
-        fun fromSchemaValue(value: String?): WebSearchFreshness? =
-            when (value?.trim()?.takeIf { it.isNotBlank() }) {
-                null -> null
-                AnyTime.schemaValue -> AnyTime
-                Current.schemaValue -> Current
-                else -> null
-            }
+        fun fromSchemaValue(value: String?): WebSearchFreshness? = when (value?.trim()?.takeIf { it.isNotBlank() }) {
+            null -> null
+            AnyTime.schemaValue -> AnyTime
+            Current.schemaValue -> Current
+            else -> null
+        }
     }
 }
 
@@ -135,11 +133,11 @@ sealed class WebSearchReadResult {
         val searchMode: WebSearchMode = WebSearchMode.General,
         val retrievedAt: Instant = Instant.now(),
         val freshness: WebSearchFreshness = searchMode.defaultFreshness,
-        val maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS,
+        val maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS
     ) : WebSearchReadResult()
 
     data class Failed(
-        val reason: String,
+        val reason: String
     ) : WebSearchReadResult()
 }
 
@@ -158,7 +156,7 @@ class OkHttpWebSearchProvider(
      * already record theirs; a web search carries the query off-device too. Null keeps the provider
      * usable in tests, but production always wires it (SolinAppContainer).
      */
-    private val auditSink: RemoteSendAuditSink? = null,
+    private val auditSink: RemoteSendAuditSink? = null
 ) : WebSearchProvider {
     override fun search(request: WebSearchRequest): WebSearchReadResult {
         val cleanedQuery = request.query.trim()
@@ -173,10 +171,10 @@ class OkHttpWebSearchProvider(
                 inferWebSearchFreshness(
                     query = cleanedQuery,
                     searchMode = request.searchMode,
-                    currentYear = Instant.now(clock).atZone(ZoneOffset.UTC).year,
+                    currentYear = Instant.now(clock).atZone(ZoneOffset.UTC).year
                 )
             },
-            maxResults = request.maxResults.coerceIn(1, MAX_WEB_SEARCH_MAX_RESULTS),
+            maxResults = request.maxResults.coerceIn(1, MAX_WEB_SEARCH_MAX_RESULTS)
         )
         val retrievedAt = Instant.now(clock)
         return when (normalizedRequest.searchMode) {
@@ -202,7 +200,7 @@ class OkHttpWebSearchProvider(
                     "没有找到可直接引用的搜索证据"
                 } else {
                     "$pageReason；备用即时摘要搜索失败：$instantReason"
-                },
+                }
             )
         }
         val instantAnswer = searchInstantAnswer(request, retrievedAt)
@@ -220,7 +218,7 @@ class OkHttpWebSearchProvider(
                 "没有找到可直接引用的搜索证据"
             } else {
                 "$instantReason；备用网页搜索失败：$pageReason"
-            },
+            }
         )
     }
 
@@ -252,8 +250,8 @@ class OkHttpWebSearchProvider(
                         .addQueryParameter("format", "json")
                         .build()
                         .toString(),
-                    queryLength = locationQuery.length,
-                ),
+                    queryLength = locationQuery.length
+                )
             )
         }.getOrElse { throwable ->
             throw IOException("地点解析失败：${throwable.cleanMessage()}")
@@ -274,13 +272,13 @@ class OkHttpWebSearchProvider(
                         .addQueryParameter("longitude", longitude.toString())
                         .addQueryParameter(
                             "current",
-                            "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m",
+                            "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m"
                         )
                         .addQueryParameter("timezone", "auto")
                         .build()
                         .toString(),
-                    queryLength = locationQuery.length,
-                ),
+                    queryLength = locationQuery.length
+                )
             )
         }.getOrElse { throwable ->
             throw IOException("天气查询失败：${throwable.cleanMessage()}")
@@ -291,7 +289,7 @@ class OkHttpWebSearchProvider(
         val locationName = listOfNotNull(
             location.optString("name").takeIf { it.isNotBlank() },
             location.optString("admin1").takeIf { it.isNotBlank() },
-            location.optString("country").takeIf { it.isNotBlank() },
+            location.optString("country").takeIf { it.isNotBlank() }
         ).distinct().joinToString(" · ")
         WeatherSnapshot(
             requestedLocation = locationQuery,
@@ -300,14 +298,14 @@ class OkHttpWebSearchProvider(
             longitude = longitude,
             timezone = forecastJson.optString("timezone"),
             current = current,
-            units = units,
+            units = units
         )
     }
 
     private fun singleWeatherResult(
         request: WebSearchRequest,
         retrievedAt: Instant,
-        snapshot: WeatherSnapshot,
+        snapshot: WeatherSnapshot
     ): WebSearchReadResult {
         val current = snapshot.current
         val units = snapshot.units
@@ -343,19 +341,19 @@ class OkHttpWebSearchProvider(
             resultsJson = request.evidenceJson(
                 retrievedAt = retrievedAt,
                 sources = openMeteoSources(),
-                results = JSONArray().put(snapshot.toJsonObject()),
+                results = JSONArray().put(snapshot.toJsonObject())
             ),
             searchMode = request.searchMode,
             retrievedAt = retrievedAt,
             freshness = request.freshness,
-            maxResults = request.maxResults,
+            maxResults = request.maxResults
         )
     }
 
     private fun weatherEvidenceResult(
         request: WebSearchRequest,
         retrievedAt: Instant,
-        snapshots: List<WeatherSnapshot>,
+        snapshots: List<WeatherSnapshot>
     ): WebSearchReadResult {
         val locationArray = JSONArray()
         snapshots.forEach { snapshot ->
@@ -370,12 +368,12 @@ class OkHttpWebSearchProvider(
             resultsJson = request.evidenceJson(
                 retrievedAt = retrievedAt,
                 sources = openMeteoSources(),
-                results = locationArray,
+                results = locationArray
             ),
             searchMode = request.searchMode,
             retrievedAt = retrievedAt,
             freshness = request.freshness,
-            maxResults = request.maxResults,
+            maxResults = request.maxResults
         )
     }
 
@@ -392,8 +390,8 @@ class OkHttpWebSearchProvider(
                         .build()
                         .toString(),
                     accept = "application/json",
-                    queryLength = submittedQuery.length,
-                ),
+                    queryLength = submittedQuery.length
+                )
             )
         }.getOrElse { throwable ->
             return WebSearchReadResult.Failed("搜索失败：${throwable.cleanMessage()}")
@@ -405,8 +403,8 @@ class OkHttpWebSearchProvider(
                     WebSearchItem(
                         title = json.optString("Heading").ifBlank { request.query },
                         snippet = abstractText,
-                        url = json.optString("AbstractURL"),
-                    ),
+                        url = json.optString("AbstractURL")
+                    )
                 )
             }
             addAll(json.optJSONArray("RelatedTopics").relatedTopicItems())
@@ -431,12 +429,12 @@ class OkHttpWebSearchProvider(
                 retrievedAt = retrievedAt,
                 sources = duckDuckGoSources(),
                 results = resultArray,
-                submittedQuery = submittedQuery,
+                submittedQuery = submittedQuery
             ),
             searchMode = request.searchMode,
             retrievedAt = retrievedAt,
             freshness = request.freshness,
-            maxResults = request.maxResults,
+            maxResults = request.maxResults
         )
     }
 
@@ -451,7 +449,7 @@ class OkHttpWebSearchProvider(
                         .build()
                         .toString(),
                     accept = "text/html,application/xhtml+xml",
-                    queryLength = submittedQuery.length,
+                    queryLength = submittedQuery.length
                 )
             }.getOrElse { throwable ->
                 failures += "${endpoint.sourceId}: ${throwable.cleanMessage()}"
@@ -460,7 +458,7 @@ class OkHttpWebSearchProvider(
             val results = html.duckDuckGoHtmlItems(
                 maxResults = request.maxResults,
                 baseUri = endpoint.baseUri,
-                sourceId = endpoint.sourceId,
+                sourceId = endpoint.sourceId
             )
             if (results.isEmpty()) {
                 failures += "${endpoint.sourceId}: no evidence"
@@ -471,7 +469,7 @@ class OkHttpWebSearchProvider(
                 retrievedAt = retrievedAt,
                 endpoint = endpoint,
                 results = results,
-                submittedQuery = submittedQuery,
+                submittedQuery = submittedQuery
             )
         }
         return if (failures.all { it.endsWith(": no evidence") }) {
@@ -481,28 +479,27 @@ class OkHttpWebSearchProvider(
         }
     }
 
-    private fun duckDuckGoPageEndpoints(): List<DuckDuckGoPageEndpoint> =
-        listOf(
-            DuckDuckGoPageEndpoint(
-                sourceId = "duckduckgo_html",
-                name = "DuckDuckGo HTML Search",
-                baseUrl = htmlSearchBaseUrl,
-                baseUri = "https://html.duckduckgo.com/",
-            ),
-            DuckDuckGoPageEndpoint(
-                sourceId = "duckduckgo_lite",
-                name = "DuckDuckGo Lite Search",
-                baseUrl = liteSearchBaseUrl,
-                baseUri = "https://lite.duckduckgo.com/",
-            ),
+    private fun duckDuckGoPageEndpoints(): List<DuckDuckGoPageEndpoint> = listOf(
+        DuckDuckGoPageEndpoint(
+            sourceId = "duckduckgo_html",
+            name = "DuckDuckGo HTML Search",
+            baseUrl = htmlSearchBaseUrl,
+            baseUri = "https://html.duckduckgo.com/"
+        ),
+        DuckDuckGoPageEndpoint(
+            sourceId = "duckduckgo_lite",
+            name = "DuckDuckGo Lite Search",
+            baseUrl = liteSearchBaseUrl,
+            baseUri = "https://lite.duckduckgo.com/"
         )
+    )
 
     private fun duckDuckGoPageResult(
         request: WebSearchRequest,
         retrievedAt: Instant,
         endpoint: DuckDuckGoPageEndpoint,
         results: List<WebSearchItem>,
-        submittedQuery: String,
+        submittedQuery: String
     ): WebSearchReadResult {
         val summary = results.joinToString(separator = "\n") { item ->
             if (item.snippet.isBlank()) {
@@ -523,12 +520,12 @@ class OkHttpWebSearchProvider(
                 retrievedAt = retrievedAt,
                 sources = duckDuckGoPageSources(endpoint),
                 results = resultArray,
-                submittedQuery = submittedQuery,
+                submittedQuery = submittedQuery
             ),
             searchMode = request.searchMode,
             retrievedAt = retrievedAt,
             freshness = request.freshness,
-            maxResults = request.maxResults,
+            maxResults = request.maxResults
         )
     }
 
@@ -559,8 +556,8 @@ class OkHttpWebSearchProvider(
             RemoteSendAuditEvent(
                 decision = RemoteSendDecision.Confirmed,
                 modelName = WEB_SEARCH_AUDIT_MODEL_NAME,
-                summary = "${MobileActionFunctions.WEB_SEARCH} 已发送：host=$host，queryChars=$queryLength",
-            ),
+                summary = "${MobileActionFunctions.WEB_SEARCH} 已发送：host=$host，queryChars=$queryLength"
+            )
         )
     }
 }
@@ -569,7 +566,7 @@ private data class DuckDuckGoPageEndpoint(
     val sourceId: String,
     val name: String,
     val baseUrl: String,
-    val baseUri: String,
+    val baseUri: String
 )
 
 private data class WebSearchItem(
@@ -577,15 +574,14 @@ private data class WebSearchItem(
     val snippet: String,
     val url: String,
     val kind: String = "instant_answer",
-    val sourceId: String = "duckduckgo",
+    val sourceId: String = "duckduckgo"
 ) {
-    fun toJsonObject(): JSONObject =
-        JSONObject()
-            .put("kind", kind)
-            .put("sourceId", sourceId)
-            .put("title", title)
-            .put("snippet", snippet.boundedText(500))
-            .put("url", url)
+    fun toJsonObject(): JSONObject = JSONObject()
+        .put("kind", kind)
+        .put("sourceId", sourceId)
+        .put("title", title)
+        .put("snippet", snippet.boundedText(500))
+        .put("url", url)
 }
 
 private data class WeatherSnapshot(
@@ -595,21 +591,20 @@ private data class WeatherSnapshot(
     val longitude: Double,
     val timezone: String,
     val current: JSONObject,
-    val units: JSONObject,
+    val units: JSONObject
 ) {
     val shortName: String = displayName.substringBefore(" · ").ifBlank { requestedLocation }
 
-    fun toJsonObject(): JSONObject =
-        JSONObject()
-            .put("kind", WebSearchMode.WeatherCurrent.schemaValue)
-            .put("sourceId", "open_meteo")
-            .put("requestedLocation", requestedLocation)
-            .put("location", displayName)
-            .put("latitude", latitude)
-            .put("longitude", longitude)
-            .put("timezone", timezone)
-            .put("currentUnits", units)
-            .put("current", current)
+    fun toJsonObject(): JSONObject = JSONObject()
+        .put("kind", WebSearchMode.WeatherCurrent.schemaValue)
+        .put("sourceId", "open_meteo")
+        .put("requestedLocation", requestedLocation)
+        .put("location", displayName)
+        .put("latitude", latitude)
+        .put("longitude", longitude)
+        .put("timezone", timezone)
+        .put("currentUnits", units)
+        .put("current", current)
 }
 
 internal fun String.weatherLocationQueries(): List<String> {
@@ -618,9 +613,9 @@ internal fun String.weatherLocationQueries(): List<String> {
         .replace(Regex("""(?i)\b(?:and|vs|versus|between|compare|difference)\b"""), "|")
         .replace(
             Regex(
-                """(比较|对比|相差|气温差|温度差|温差|差多少|差了多少|哪个更热|哪个更冷|哪一个更热|哪一个更冷|谁更热|谁更冷)""",
+                """(比较|对比|相差|气温差|温度差|温差|差多少|差了多少|哪个更热|哪个更冷|哪一个更热|哪一个更冷|谁更热|谁更冷)"""
             ),
-            "|",
+            "|"
         )
         .replace(Regex("""(?<=.)比(?=.)"""), "|")
         .replace(Regex("""[、,，/;；]"""), "|")
@@ -636,31 +631,29 @@ internal fun String.weatherLocationQueries(): List<String> {
         .take(2)
 }
 
-private fun String.cleanWeatherLocationCandidate(): String =
-    trim()
-        .replace(Regex("""(?i)\b(?:weather|temperature|rain|forecast|today|now|currently)\b"""), " ")
-        .stripWeatherFillerSegments(weatherLocationFillers)
-        .replace(Regex("""\s*(?:高|低|冷|热)\s*$"""), " ")
-        .stripWeatherFillerSegments(weatherLocationFillers)
+private fun String.cleanWeatherLocationCandidate(): String = trim()
+    .replace(Regex("""(?i)\b(?:weather|temperature|rain|forecast|today|now|currently)\b"""), " ")
+    .stripWeatherFillerSegments(weatherLocationFillers)
+    .replace(Regex("""\s*(?:高|低|冷|热)\s*$"""), " ")
+    .stripWeatherFillerSegments(weatherLocationFillers)
 
-private fun Int.weatherDescription(): String =
-    when (this) {
-        0 -> "晴"
-        1, 2 -> "少云"
-        3 -> "阴"
-        45, 48 -> "雾"
-        51, 53, 55 -> "毛毛雨"
-        56, 57 -> "冻毛毛雨"
-        61, 63, 65 -> "雨"
-        66, 67 -> "冻雨"
-        71, 73, 75 -> "雪"
-        77 -> "雪粒"
-        80, 81, 82 -> "阵雨"
-        85, 86 -> "阵雪"
-        95 -> "雷暴"
-        96, 99 -> "雷暴伴冰雹"
-        else -> "未知天气代码 $this"
-    }
+private fun Int.weatherDescription(): String = when (this) {
+    0 -> "晴"
+    1, 2 -> "少云"
+    3 -> "阴"
+    45, 48 -> "雾"
+    51, 53, 55 -> "毛毛雨"
+    56, 57 -> "冻毛毛雨"
+    61, 63, 65 -> "雨"
+    66, 67 -> "冻雨"
+    71, 73, 75 -> "雪"
+    77 -> "雪粒"
+    80, 81, 82 -> "阵雨"
+    85, 86 -> "阵雪"
+    95 -> "雷暴"
+    96, 99 -> "雷暴伴冰雹"
+    else -> "未知天气代码 $this"
+}
 
 private fun JSONArray?.relatedTopicItems(): List<WebSearchItem> {
     if (this == null) return emptyList()
@@ -672,7 +665,7 @@ private fun JSONArray?.relatedTopicItems(): List<WebSearchItem> {
             items += WebSearchItem(
                 title = item.optString("FirstURL").substringAfterLast('/').replace('_', ' '),
                 snippet = text,
-                url = item.optString("FirstURL"),
+                url = item.optString("FirstURL")
             )
         }
         items += item.optJSONArray("Topics").relatedTopicItems()
@@ -683,7 +676,7 @@ private fun JSONArray?.relatedTopicItems(): List<WebSearchItem> {
 private fun String.duckDuckGoHtmlItems(
     maxResults: Int,
     baseUri: String,
-    sourceId: String,
+    sourceId: String
 ): List<WebSearchItem> {
     val document = Jsoup.parse(this, baseUri)
     val resultBlocks = document.select("div.result, div.web-result, article.result")
@@ -692,7 +685,7 @@ private fun String.duckDuckGoHtmlItems(
             ?: return@mapNotNull null
         anchor.toDuckDuckGoWebSearchItem(
             snippetContainer = block,
-            sourceId = sourceId,
+            sourceId = sourceId
         )
     }.distinctBy { item -> item.url.ifBlank { item.title } }
         .take(maxResults)
@@ -703,7 +696,7 @@ private fun String.duckDuckGoHtmlItems(
                 snippetContainer = anchor.parents().firstOrNull { parent ->
                     parent.selectFirst(".result__snippet, .result-snippet, .snippet") != null
                 },
-                sourceId = sourceId,
+                sourceId = sourceId
             )
         }
         .distinctBy { item -> item.url.ifBlank { item.title } }
@@ -712,12 +705,12 @@ private fun String.duckDuckGoHtmlItems(
 
 private fun org.jsoup.nodes.Element.toDuckDuckGoWebSearchItem(
     snippetContainer: org.jsoup.nodes.Element?,
-    sourceId: String,
+    sourceId: String
 ): WebSearchItem? {
     val title = text().trim()
     val url = attr("href").decodeDuckDuckGoResultUrl()
     val snippet = snippetContainer?.selectFirst(
-        "a.result__snippet, .result__snippet, .result-snippet, .result__body, .snippet",
+        "a.result__snippet, .result__snippet, .result-snippet, .result__body, .snippet"
     )?.text()?.trim().orEmpty()
     return if (title.isBlank() || url.isBlank()) {
         null
@@ -727,7 +720,7 @@ private fun org.jsoup.nodes.Element.toDuckDuckGoWebSearchItem(
             snippet = snippet,
             url = url,
             kind = "web_result",
-            sourceId = sourceId,
+            sourceId = sourceId
         )
     }
 }
@@ -770,40 +763,36 @@ private fun WebSearchRequest.duckDuckGoSubmittedQuery(retrievedAt: Instant): Str
     return (listOf(searchQuery) + additions).joinToString(" ")
 }
 
-private fun String.hasCurrentFreshnessIntent(currentYear: Int): Boolean =
-    currentFreshnessTermRegex.containsMatchIn(this) ||
-        containsWholeYear(currentYear)
+private fun String.hasCurrentFreshnessIntent(currentYear: Int): Boolean = currentFreshnessTermRegex.containsMatchIn(this) ||
+    containsWholeYear(currentYear)
 
 internal fun String.optimizedWebSearchKeywords(): String {
     val optimized = trim().keywordizeSearchQuery(cjkSearchFillers, cjkSearchNonFinalParticles)
     return optimized.ifBlank { trim() }
 }
 
-private fun String.containsWholeYear(year: Int): Boolean =
-    Regex("""(?<!\d)$year(?!\d)""").containsMatchIn(this)
+private fun String.containsWholeYear(year: Int): Boolean = Regex("""(?<!\d)$year(?!\d)""").containsMatchIn(this)
 
-private fun String.containsCjk(): Boolean =
-    any { character -> character in '\u4E00'..'\u9FFF' }
+private fun String.containsCjk(): Boolean = any { character -> character in '\u4E00'..'\u9FFF' }
 
 private fun WebSearchRequest.evidenceJson(
     retrievedAt: Instant,
     sources: JSONArray,
     results: JSONArray,
-    submittedQuery: String = query,
+    submittedQuery: String = query
 ): String {
-    fun serialize(resultCount: Int): String =
-        JSONObject()
-            .put("schemaVersion", WEB_SEARCH_EVIDENCE_SCHEMA_VERSION)
-            .put("kind", "web_search_evidence")
-            .put("query", query)
-            .put("submittedQuery", submittedQuery)
-            .put("searchMode", searchMode.schemaValue)
-            .put("retrievedAt", retrievedAt.toString())
-            .put("freshness", freshness.schemaValue)
-            .put("maxResults", maxResults)
-            .put("sources", sources)
-            .put("results", JSONArray((0 until resultCount).map(results::get)))
-            .toString()
+    fun serialize(resultCount: Int): String = JSONObject()
+        .put("schemaVersion", WEB_SEARCH_EVIDENCE_SCHEMA_VERSION)
+        .put("kind", "web_search_evidence")
+        .put("query", query)
+        .put("submittedQuery", submittedQuery)
+        .put("searchMode", searchMode.schemaValue)
+        .put("retrievedAt", retrievedAt.toString())
+        .put("freshness", freshness.schemaValue)
+        .put("maxResults", maxResults)
+        .put("sources", sources)
+        .put("results", JSONArray((0 until resultCount).map(results::get)))
+        .toString()
     // resultsJson is declared application/json, so drop trailing results instead of cutting
     // the serialized string, which would fail output-schema validation.
     for (count in results.length() downTo 0) {
@@ -813,38 +802,35 @@ private fun WebSearchRequest.evidenceJson(
     return serialize(0).boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS)
 }
 
-private fun openMeteoSources(): JSONArray =
-    JSONArray()
-        .put(
-            JSONObject()
-                .put("id", "open_meteo_geocoding")
-                .put("name", "Open-Meteo Geocoding API")
-                .put("url", "https://geocoding-api.open-meteo.com/v1/search"),
-        )
-        .put(
-            JSONObject()
-                .put("id", "open_meteo")
-                .put("name", "Open-Meteo Forecast API")
-                .put("url", "https://api.open-meteo.com/v1/forecast"),
-        )
+private fun openMeteoSources(): JSONArray = JSONArray()
+    .put(
+        JSONObject()
+            .put("id", "open_meteo_geocoding")
+            .put("name", "Open-Meteo Geocoding API")
+            .put("url", "https://geocoding-api.open-meteo.com/v1/search")
+    )
+    .put(
+        JSONObject()
+            .put("id", "open_meteo")
+            .put("name", "Open-Meteo Forecast API")
+            .put("url", "https://api.open-meteo.com/v1/forecast")
+    )
 
-private fun duckDuckGoSources(): JSONArray =
-    JSONArray()
-        .put(
-            JSONObject()
-                .put("id", "duckduckgo")
-                .put("name", "DuckDuckGo Instant Answer API")
-                .put("url", "https://api.duckduckgo.com/"),
-        )
+private fun duckDuckGoSources(): JSONArray = JSONArray()
+    .put(
+        JSONObject()
+            .put("id", "duckduckgo")
+            .put("name", "DuckDuckGo Instant Answer API")
+            .put("url", "https://api.duckduckgo.com/")
+    )
 
-private fun duckDuckGoPageSources(endpoint: DuckDuckGoPageEndpoint): JSONArray =
-    JSONArray()
-        .put(
-            JSONObject()
-                .put("id", endpoint.sourceId)
-                .put("name", endpoint.name)
-                .put("url", endpoint.baseUrl),
-        )
+private fun duckDuckGoPageSources(endpoint: DuckDuckGoPageEndpoint): JSONArray = JSONArray()
+    .put(
+        JSONObject()
+            .put("id", endpoint.sourceId)
+            .put("name", endpoint.name)
+            .put("url", endpoint.baseUrl)
+    )
 
 // Order matters: the UTF-32LE BOM starts with the UTF-16LE BOM.
 private val WEB_SEARCH_BOM_OPTIONS = Options.of(
@@ -852,7 +838,7 @@ private val WEB_SEARCH_BOM_OPTIONS = Options.of(
     "feff".decodeHex(),
     "fffe0000".decodeHex(),
     "fffe".decodeHex(),
-    "0000feff".decodeHex(),
+    "0000feff".decodeHex()
 )
 
 /**

@@ -36,7 +36,7 @@ private val SUBMIT_SEARCH_OCR_TEXT_HINTS = listOf(
     "search",
     "go",
     "enter",
-    "done",
+    "done"
 ).map { value -> value.normalizedLookupKey() }
 
 /**
@@ -48,20 +48,18 @@ private val SUBMIT_SEARCH_OCR_TEXT_HINTS = listOf(
  * mutates that field's text — acting on a field the user did not focus is a mis-operation. Password
  * fields are excluded so a system-key press can never disturb credential input.
  */
-internal fun AccessibilityNodeInfo.findFocusedEditableForTyping(): AccessibilityNodeInfo? =
-    findNodeCandidate { candidate ->
-        candidate.node.isSafeEditableForTyping() && candidate.node.isFocused
-    }?.node
+internal fun AccessibilityNodeInfo.findFocusedEditableForTyping(): AccessibilityNodeInfo? = findNodeCandidate { candidate ->
+    candidate.node.isSafeEditableForTyping() && candidate.node.isFocused
+}?.node
 
 /** Safe typing target: enabled, editable, non-password, visible to the user, non-empty bounds. */
-internal fun AccessibilityNodeInfo.isSafeEditableForTyping(): Boolean =
-    isSafeEditableState(
-        enabled = isEnabled,
-        editable = isEditable,
-        password = isPassword,
-        visibleToUser = isVisibleToUser,
-        hasNonEmptyBounds = { safeBounds() != null },
-    )
+internal fun AccessibilityNodeInfo.isSafeEditableForTyping(): Boolean = isSafeEditableState(
+    enabled = isEnabled,
+    editable = isEditable,
+    password = isPassword,
+    visibleToUser = isVisibleToUser,
+    hasNonEmptyBounds = { safeBounds() != null }
+)
 
 /** Fail-closed typing gate: a hidden or zero-area editor is never a safe input target. */
 internal fun isSafeEditableState(
@@ -69,7 +67,7 @@ internal fun isSafeEditableState(
     editable: Boolean,
     password: Boolean,
     visibleToUser: Boolean,
-    hasNonEmptyBounds: () -> Boolean,
+    hasNonEmptyBounds: () -> Boolean
 ): Boolean = enabled && editable && !password && visibleToUser && hasNonEmptyBounds()
 
 /**
@@ -81,7 +79,7 @@ internal fun isSafeEditableState(
 internal data class NodeCandidate(
     val node: AccessibilityNodeInfo,
     val id: String,
-    val label: String,
+    val label: String
 ) {
     /**
      * Score for this node against [target], or null when it is not a usable target.
@@ -93,7 +91,7 @@ internal data class NodeCandidate(
      */
     fun targetMatchScore(
         query: RuntimeTargetQuery,
-        profile: AppInteractionProfile? = null,
+        profile: AppInteractionProfile? = null
     ): Int? {
         if (!node.isEnabled) return null
         val screenNode = node.toScreenNode(id = id)
@@ -112,7 +110,7 @@ internal data class NodeCandidate(
             // via [activateCandidate]; the offline resolver has no parent to walk, so this reach is
             // supplied here. Lazy because the walk costs binder round-trips and only the SubmitSearch
             // branch consults it.
-            effectivelyClickable = { node.isClickable || node.clickableSelfOrAncestor() != null },
+            effectivelyClickable = { node.isClickable || node.clickableSelfOrAncestor() != null }
         )
     }
 }
@@ -133,7 +131,7 @@ internal fun screenNodeId(
     node: AccessibilityNodeInfo,
     salt: String?,
     normalizedText: String? = node.text.normalizedNodeText(),
-    normalizedContentDescription: String? = node.contentDescription.normalizedNodeText(),
+    normalizedContentDescription: String? = node.contentDescription.normalizedNodeText()
 ): String {
     val base = "n${index}_${node.fingerprint(normalizedText, normalizedContentDescription).shortStableHash()}"
     return if (salt.isNullOrBlank()) base else "${base}_$salt"
@@ -142,7 +140,7 @@ internal fun screenNodeId(
 internal fun transientNodeIdTargetMatchScore(
     candidateId: String,
     target: String,
-    normalizedTarget: String = target.normalizedLookupKey(),
+    normalizedTarget: String = target.normalizedLookupKey()
 ): Int? {
     val rawTarget = target.trim()
     if (rawTarget == candidateId) return 1_000
@@ -154,7 +152,7 @@ internal fun transientNodeIdTargetMatchScore(
 }
 
 internal fun AccessibilityNodeInfo.findNodeCandidate(
-    predicate: (NodeCandidate) -> Boolean,
+    predicate: (NodeCandidate) -> Boolean
 ): NodeCandidate? {
     var found: NodeCandidate? = null
     walkNodeCandidates { candidate ->
@@ -182,9 +180,9 @@ private fun AccessibilityNodeInfo.walkNodeCandidates(visitor: (NodeCandidate) ->
                 node = node,
                 salt = null,
                 normalizedText = text,
-                normalizedContentDescription = contentDescription,
+                normalizedContentDescription = contentDescription
             ),
-            label = node.nodeSearchLabel(text, contentDescription),
+            label = node.nodeSearchLabel(text, contentDescription)
         )
         if (node.countsTowardScreenNodeIndex(text, contentDescription)) meaningfulIndex += 1
         visitor(candidate)
@@ -193,9 +191,8 @@ private fun AccessibilityNodeInfo.walkNodeCandidates(visitor: (NodeCandidate) ->
 
 internal fun AccessibilityNodeInfo.findTargetCandidate(
     target: String,
-    predicate: (NodeCandidate) -> Boolean = { true },
-): NodeCandidate? =
-    findTargetCandidates(target = target, predicate = predicate, limit = 1).firstOrNull()
+    predicate: (NodeCandidate) -> Boolean = { true }
+): NodeCandidate? = findTargetCandidates(target = target, predicate = predicate, limit = 1).firstOrNull()
 
 /**
  * The dismiss control of a transient overlay, if this window has one.
@@ -207,18 +204,17 @@ internal fun AccessibilityNodeInfo.findTargetCandidate(
  * strict predicate (short, standalone, near-exact affordance) can only ever refuse more taps, never
  * more — the fail-closed direction.
  */
-internal fun AccessibilityNodeInfo.findTransientOverlayDismissCandidate(): NodeCandidate? =
-    findNodeCandidate { candidate ->
-        candidate.node.isEnabled &&
-            (
-                candidate.node.isClickable ||
-                    candidate.node.clickableSelfOrAncestor() != null ||
-                    candidate.node.safeBounds() != null
-                ) &&
-            // Deliberately NOT `candidate.label`: that wide label appends viewIdResourceName and the
-            // class name, so no real node could ever satisfy the strict predicate's exact/short match.
-            candidate.node.overlayLabel().isOverlayDismissLabel()
-    }
+internal fun AccessibilityNodeInfo.findTransientOverlayDismissCandidate(): NodeCandidate? = findNodeCandidate { candidate ->
+    candidate.node.isEnabled &&
+        (
+            candidate.node.isClickable ||
+                candidate.node.clickableSelfOrAncestor() != null ||
+                candidate.node.safeBounds() != null
+            ) &&
+        // Deliberately NOT `candidate.label`: that wide label appends viewIdResourceName and the
+        // class name, so no real node could ever satisfy the strict predicate's exact/short match.
+        candidate.node.overlayLabel().isOverlayDismissLabel()
+}
 
 /**
  * The visible label used for overlay judgments: text, else contentDescription.
@@ -226,8 +222,7 @@ internal fun AccessibilityNodeInfo.findTransientOverlayDismissCandidate(): NodeC
  * Matches `ScreenNode.overlayLabel()` on the guards side so both overlay predicates see the same string
  * for the same node.
  */
-private fun AccessibilityNodeInfo.overlayLabel(): String =
-    text.normalizedNodeText() ?: contentDescription.normalizedNodeText() ?: ""
+private fun AccessibilityNodeInfo.overlayLabel(): String = text.normalizedNodeText() ?: contentDescription.normalizedNodeText() ?: ""
 
 /**
  * Live-node mirror of `ScreenStateSnapshot.hasDangerousActionControl`: the same per-node rule and the
@@ -238,7 +233,7 @@ internal fun AccessibilityNodeInfo.hasDangerousActionControlNode(): Boolean {
     walkScreenNodes(
         maxWalkCount = MAX_SCREEN_STATE_NODE_WALK,
         // Pure predicate; nothing is retained past the visit.
-        recycleVisitedNodes = true,
+        recycleVisitedNodes = true
     ) { node ->
         if (node.toScreenNode(id = "").hasDangerousActionControl()) found = true
         !found
@@ -260,27 +255,27 @@ internal fun List<AccessibilityNodeInfo>.tapCheckNodes(): Pair<List<ScreenNode>,
         complete = root.walkScreenNodes(
             maxWalkCount = MAX_TAP_CHECK_NODE_WALK,
             // Copied into ScreenNode values; nothing live is retained past the visit.
-            recycleVisitedNodes = true,
+            recycleVisitedNodes = true
         ) { node ->
             if (node.isVisibleToUser) nodes += node.toScreenNode(id = "")
             true
-        } && complete
+        } &&
+            complete
     }
     return nodes to complete
 }
 
 /** The node a named tap resolved to and the clickable node that receives it, for [CriticalTapGuard]. */
-internal fun AccessibilityNodeInfo?.tappedNodes(): List<TappedNode> =
-    listOfNotNull(this, this?.clickableSelfOrAncestor()).map { node ->
-        TappedNode(node.toScreenNode(id = ""), node.viewIdResourceName)
-    }
+internal fun AccessibilityNodeInfo?.tappedNodes(): List<TappedNode> = listOfNotNull(this, this?.clickableSelfOrAncestor()).map { node ->
+    TappedNode(node.toScreenNode(id = ""), node.viewIdResourceName)
+}
 
 internal fun AccessibilityNodeInfo.looksLikeSearchBlockingOverlay(): Boolean {
     var markerCount = 0
     walkScreenNodes(
         maxWalkCount = MAX_SCREEN_STATE_NODE_WALK,
         // Counts label matches only; nothing is retained past the visit.
-        recycleVisitedNodes = true,
+        recycleVisitedNodes = true
     ) { node ->
         if (node.overlayLabel().hasBlockingOverlayMarker()) {
             markerCount += 1
@@ -293,7 +288,7 @@ internal fun AccessibilityNodeInfo.looksLikeSearchBlockingOverlay(): Boolean {
 internal fun AccessibilityNodeInfo.findTargetCandidates(
     target: String,
     predicate: (NodeCandidate) -> Boolean = { true },
-    limit: Int = 5,
+    limit: Int = 5
 ): List<NodeCandidate> {
     val candidates = mutableListOf<Pair<NodeCandidate, Int>>()
     val profile = AppInteractionProfiles.forPackage(packageName?.toString())
@@ -312,7 +307,7 @@ internal fun AccessibilityNodeInfo.findTargetCandidates(
 }
 
 internal fun AccessibilityNodeInfo.findSearchSubmitCandidate(
-    anchorEditable: AccessibilityNodeInfo?,
+    anchorEditable: AccessibilityNodeInfo?
 ): NodeCandidate? {
     val profile = AppInteractionProfiles.forPackage(packageName?.toString())
     val rootBounds = safeBounds()
@@ -327,7 +322,7 @@ internal fun AccessibilityNodeInfo.findSearchSubmitCandidate(
                 candidate to (
                     candidate.targetMatchScore(
                         query = RuntimeTargetQuery(target, rootBounds),
-                        profile = profile,
+                        profile = profile
                     ) ?: 0
                     )
             }
@@ -376,7 +371,7 @@ internal fun AccessibilityNodeInfo.walkScreenNodes(
     maxWalkCount: Int,
     timeBudgetMillis: Long = SCREEN_STATE_WALK_BUDGET_MILLIS,
     recycleVisitedNodes: Boolean = false,
-    visitor: (AccessibilityNodeInfo) -> Boolean,
+    visitor: (AccessibilityNodeInfo) -> Boolean
 ): Boolean {
     val root = this
     val pending = ArrayDeque<AccessibilityNodeInfo>()
@@ -441,29 +436,27 @@ internal fun AccessibilityNodeInfo.walkScreenNodes(
 internal fun AccessibilityNodeInfo.toScreenNode(
     id: String,
     normalizedText: String? = text.normalizedNodeText(),
-    normalizedContentDescription: String? = contentDescription.normalizedNodeText(),
-): ScreenNode =
-    ScreenNode(
-        id = id,
-        text = normalizedText.orEmpty(),
-        contentDescription = normalizedContentDescription.orEmpty(),
-        className = className?.toString().orEmpty(),
-        bounds = safeBounds(),
-        clickable = isClickable,
-        editable = isEditable,
-        scrollable = isScrollable,
-        enabled = isEnabled,
-    )
+    normalizedContentDescription: String? = contentDescription.normalizedNodeText()
+): ScreenNode = ScreenNode(
+    id = id,
+    text = normalizedText.orEmpty(),
+    contentDescription = normalizedContentDescription.orEmpty(),
+    className = className?.toString().orEmpty(),
+    bounds = safeBounds(),
+    clickable = isClickable,
+    editable = isEditable,
+    scrollable = isScrollable,
+    enabled = isEnabled
+)
 
 internal fun AccessibilityNodeInfo.isMeaningfulScreenNode(
     normalizedText: String?,
-    normalizedContentDescription: String?,
-): Boolean =
-    isClickable ||
-        isEditable ||
-        isScrollable ||
-        normalizedText != null ||
-        normalizedContentDescription != null
+    normalizedContentDescription: String?
+): Boolean = isClickable ||
+    isEditable ||
+    isScrollable ||
+    normalizedText != null ||
+    normalizedContentDescription != null
 
 /**
  * Whether this node consumes a [screenNodeId] index.
@@ -475,24 +468,22 @@ internal fun AccessibilityNodeInfo.isMeaningfulScreenNode(
  */
 private fun AccessibilityNodeInfo.countsTowardScreenNodeIndex(
     normalizedText: String?,
-    normalizedContentDescription: String?,
-): Boolean =
-    isVisibleToUser && !isPassword && isMeaningfulScreenNode(normalizedText, normalizedContentDescription)
+    normalizedContentDescription: String?
+): Boolean = isVisibleToUser && !isPassword && isMeaningfulScreenNode(normalizedText, normalizedContentDescription)
 
 internal fun AccessibilityNodeInfo.nodeSearchLabel(
     normalizedText: String? = text.normalizedNodeText(),
-    normalizedContentDescription: String? = contentDescription.normalizedNodeText(),
-): String =
-    runtimeNodeSearchLabel(
-        text = normalizedText,
-        contentDescription = normalizedContentDescription,
-        viewIdResourceName = viewIdResourceName,
-        className = className?.toString(),
-    )
+    normalizedContentDescription: String? = contentDescription.normalizedNodeText()
+): String = runtimeNodeSearchLabel(
+    text = normalizedText,
+    contentDescription = normalizedContentDescription,
+    viewIdResourceName = viewIdResourceName,
+    className = className?.toString()
+)
 
 internal fun AccessibilityNodeInfo.fingerprint(
     normalizedText: String? = text.normalizedNodeText(),
-    normalizedContentDescription: String? = contentDescription.normalizedNodeText(),
+    normalizedContentDescription: String? = contentDescription.normalizedNodeText()
 ): String {
     val bounds = safeBounds()
     return listOf(
@@ -506,14 +497,13 @@ internal fun AccessibilityNodeInfo.fingerprint(
         bounds?.bottom?.toString().orEmpty(),
         isClickable.toString(),
         isEditable.toString(),
-        isScrollable.toString(),
+        isScrollable.toString()
     ).joinToString("|")
 }
 
-internal fun String.shortStableHash(): String =
-    fold(0) { acc, char -> (acc * 31) + char.code }
-        .toUInt()
-        .toString(radix = 36)
+internal fun String.shortStableHash(): String = fold(0) { acc, char -> (acc * 31) + char.code }
+    .toUInt()
+    .toString(radix = 36)
 
 internal fun AccessibilityNodeInfo.safeBounds(): ScreenBounds? {
     val rect = Rect()
@@ -523,7 +513,7 @@ internal fun AccessibilityNodeInfo.safeBounds(): ScreenBounds? {
         left = rect.left,
         top = rect.top,
         right = rect.right,
-        bottom = rect.bottom,
+        bottom = rect.bottom
     )
 }
 
@@ -554,11 +544,10 @@ internal fun UiOcrGroundingHint.matchesSubmitSearchText(): Boolean {
     return normalizedText in SUBMIT_SEARCH_OCR_TEXT_HINTS
 }
 
-internal fun AccessibilityNodeInfo.clickableSelfOrAncestor(): AccessibilityNodeInfo? =
-    selfOrAncestor { node -> node.isEnabled && node.isClickable }
+internal fun AccessibilityNodeInfo.clickableSelfOrAncestor(): AccessibilityNodeInfo? = selfOrAncestor { node -> node.isEnabled && node.isClickable }
 
 private inline fun AccessibilityNodeInfo.selfOrAncestor(
-    predicate: (AccessibilityNodeInfo) -> Boolean,
+    predicate: (AccessibilityNodeInfo) -> Boolean
 ): AccessibilityNodeInfo? {
     var current: AccessibilityNodeInfo? = this
     repeat(MAX_SELF_OR_ANCESTOR_WALK_DEPTH) {
@@ -606,25 +595,21 @@ private fun ScreenBounds.searchBarTapX(): Int {
  * Derived from the locale rather than a node property because [AccessibilityNodeInfo] exposes no layout
  * direction; the default locale is what the app hierarchy resolves its own direction from in practice.
  */
-private fun isRtlLayout(): Boolean =
-    TextUtils.getLayoutDirectionFromLocale(Locale.getDefault()) == View.LAYOUT_DIRECTION_RTL
+private fun isRtlLayout(): Boolean = TextUtils.getLayoutDirectionFromLocale(Locale.getDefault()) == View.LAYOUT_DIRECTION_RTL
 
 /** Density-correct px for [BROWSER_SEARCH_BAR_TAP_Y_OFFSET_DP]. */
-private fun browserSearchBarTapYOffsetPx(): Int =
-    (BROWSER_SEARCH_BAR_TAP_Y_OFFSET_DP * Resources.getSystem().displayMetrics.density)
-        .toInt()
-        .coerceAtLeast(1)
+private fun browserSearchBarTapYOffsetPx(): Int = (BROWSER_SEARCH_BAR_TAP_Y_OFFSET_DP * Resources.getSystem().displayMetrics.density)
+    .toInt()
+    .coerceAtLeast(1)
 
 private fun isNonActionableSearchBarLabel(
     normalizedLabel: String,
     clickable: Boolean,
-    editable: Boolean,
-): Boolean =
-    !clickable && !editable && (normalizedLabel == "搜索栏" || normalizedLabel.startsWith("搜索栏"))
+    editable: Boolean
+): Boolean = !clickable && !editable && (normalizedLabel == "搜索栏" || normalizedLabel.startsWith("搜索栏"))
 
-internal fun AccessibilityNodeInfo.performImeSearchAction(): Boolean =
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-        performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+internal fun AccessibilityNodeInfo.performImeSearchAction(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+    performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
 
 /**
  * The label the platform reports for this node's IME action, when it reports one.
@@ -643,11 +628,10 @@ internal fun AccessibilityNodeInfo.imeActionLabelOrNull(): String? {
 private val imeActionLabelKeys = listOf(
     "AccessibilityNodeInfo.imeActionLabel",
     "imeActionLabel",
-    "actionLabel",
+    "actionLabel"
 )
 
-internal fun AccessibilityNodeInfo.scrollableSelfOrAncestor(): AccessibilityNodeInfo? =
-    selfOrAncestor { node -> node.isEnabled && node.isScrollable }
+internal fun AccessibilityNodeInfo.scrollableSelfOrAncestor(): AccessibilityNodeInfo? = selfOrAncestor { node -> node.isEnabled && node.isScrollable }
 
 internal fun AccessibilityNodeInfo.scrollableSelfOrDescendant(): AccessibilityNodeInfo? {
     if (isEnabled && isScrollable) return this
@@ -656,9 +640,8 @@ internal fun AccessibilityNodeInfo.scrollableSelfOrDescendant(): AccessibilityNo
 
 private val NODE_TEXT_WHITESPACE = Regex("\\s+")
 
-internal fun CharSequence?.normalizedNodeText(): String? =
-    this
-        ?.toString()
-        ?.replace(NODE_TEXT_WHITESPACE, " ")
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
+internal fun CharSequence?.normalizedNodeText(): String? = this
+    ?.toString()
+    ?.replace(NODE_TEXT_WHITESPACE, " ")
+    ?.trim()
+    ?.takeIf { it.isNotBlank() }

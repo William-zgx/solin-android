@@ -9,8 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RemoteModelRepositoryApiKeyValidationTest {
-    private fun config(key: String) =
-        RemoteModelConfig("https://api.example.com/v1", "model-a", apiKey = key)
+    private fun config(key: String) = RemoteModelConfig("https://api.example.com/v1", "model-a", apiKey = key)
 
     @Test
     fun saveConfigRejectsInvalidKeysWithoutStoringOrLeakingThem() {
