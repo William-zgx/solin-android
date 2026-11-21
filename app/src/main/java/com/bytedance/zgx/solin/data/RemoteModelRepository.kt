@@ -121,8 +121,8 @@ class RemoteModelRepository(
             runCatching {
                 check(configStateValid) { "Remote config state is unavailable" }
                 val current = loadPersistedConfigLocked(migrateLegacySecret = false)
-                require(config.normalized().hasValidApiKey) { "Remote API key contains invalid characters" }
                 val requested = config.copy(apiKey = current.apiKey).normalized()
+                require(requested.hasValidApiKey) { "Remote API key contains invalid characters" }
                 if (current.apiKey.isNotEmpty() && !requested.hasSameConnectivityTarget(current)) {
                     error("Remote target cannot change without an explicit API key")
                 }

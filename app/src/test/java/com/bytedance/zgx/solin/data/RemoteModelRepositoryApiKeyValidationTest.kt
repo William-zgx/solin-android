@@ -25,9 +25,19 @@ class RemoteModelRepositoryApiKeyValidationTest {
     }
 
     @Test
-    fun saveConfigWithoutApiKeyRejectsInvalidKeyInRequest() {
-        val repository = RemoteModelRepository(FakeSettingsStore(), InMemorySecretStore())
-        assertTrue(repository.saveConfigWithoutApiKey(config("sk-1\n")).isFailure)
+    fun saveConfigWithoutApiKeyRejectsInvalidPersistedKeyAndWritesNothing() {
+        val settings = FakeSettingsStore()
+        val secrets = InMemorySecretStore()
+        secrets.saveString("remote_model_api_key", "sk-1\r\nX: 1").getOrThrow()
+        val writesBefore = secrets.writeCount
+        val repository = RemoteModelRepository(settings, secrets)
+
+        val result = repository.saveConfigWithoutApiKey(config(""))
+
+        assertTrue(result.isFailure)
+        assertFalse(result.exceptionOrNull()?.message.orEmpty().contains("sk-"))
+        assertEquals(writesBefore, secrets.writeCount)
+        assertEquals(0, settings.saveCount)
     }
 
     @Test
