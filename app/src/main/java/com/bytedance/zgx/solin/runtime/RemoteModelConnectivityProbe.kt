@@ -35,6 +35,7 @@ class OkHttpRemoteModelConnectivityProbe(
 ) : RemoteModelConnectivityProbe {
     override suspend fun check(config: RemoteModelConfig): RemoteModelConnectivityStatus {
         val normalized = config.normalized()
+        if (!normalized.hasValidApiKey) return RemoteModelConnectivityStatus.AuthenticationFailed
         if (!normalized.isConfigured) return RemoteModelConnectivityStatus.Unknown
         val request = try {
             Request.Builder()

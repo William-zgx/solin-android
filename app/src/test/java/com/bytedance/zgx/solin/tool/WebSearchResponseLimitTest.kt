@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.tool
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
 import okio.GzipSink
@@ -52,10 +53,18 @@ class WebSearchResponseLimitTest {
     }
 
     @Test
-    fun boundedTextDoesNotSplitSurrogatePairs() {
-        val text = "ab" + "😀" + "cd"
-        assertEquals("ab...", text.boundedText(3))
-        assertEquals("ab😀...", text.boundedText(4))
+    fun boundedTextCountsCodePointsAndDoesNotSplitSurrogatePairs() {
+        val text = "ab\uD83D\uDE00cd"
+        assertEquals("ab\uD83D\uDE00...", text.boundedText(3))
+        assertEquals("ab\uD83D\uDE00c...", text.boundedText(4))
+        assertEquals(text, text.boundedText(5))
         assertEquals("abc", "abc".boundedText(3))
+    }
+
+    @Test
+    fun readBoundedTextHonorsUtf16Bom() {
+        val bytes = Buffer().writeByte(0xFE).writeByte(0xFF).write("h\u00e9llo".toByteArray(Charsets.UTF_16BE)).readByteString()
+        val body = bytes.toResponseBody("text/html; charset=utf-8".toMediaType())
+        assertEquals("h\u00e9llo", body.readBoundedText(100))
     }
 }

@@ -11,6 +11,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.ResponseBody
 import okio.Buffer
+import okio.ByteString.Companion.decodeHex
+import okio.Options
 import org.jsoup.Jsoup
 import org.json.JSONArray
 import org.json.JSONObject
@@ -844,6 +846,15 @@ private fun duckDuckGoPageSources(endpoint: DuckDuckGoPageEndpoint): JSONArray =
                 .put("url", endpoint.baseUrl),
         )
 
+// Order matters: the UTF-32LE BOM starts with the UTF-16LE BOM.
+private val WEB_SEARCH_BOM_OPTIONS = Options.of(
+    "efbbbf".decodeHex(),
+    "feff".decodeHex(),
+    "fffe0000".decodeHex(),
+    "fffe".decodeHex(),
+    "0000feff".decodeHex(),
+)
+
 /**
  * Reads the (already decompressed) body and fails as soon as it exceeds [maxBytes], so an
  * oversized or zip-bomb response is abandoned instead of buffered whole. Never logs content.
@@ -857,13 +868,20 @@ internal fun ResponseBody.readBoundedText(maxBytes: Long): String {
         if (source.read(buffer, 8_192L) == -1L) break
         if (buffer.size > maxBytes) throw IOException("Response too large")
     }
-    return buffer.readString(contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8)
+    // Same BOM handling as ResponseBody.string(): a BOM overrides the declared charset.
+    val charset = when (buffer.select(WEB_SEARCH_BOM_OPTIONS)) {
+        0 -> Charsets.UTF_8
+        1 -> Charsets.UTF_16BE
+        2 -> Charsets.UTF_32LE
+        3 -> Charsets.UTF_16LE
+        4 -> Charsets.UTF_32BE
+        else -> contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
+    }
+    return buffer.readString(charset)
 }
 
-/** Truncates to [maxChars] UTF-16 units without splitting a surrogate pair. */
+/** Truncates to [maxChars] Unicode code points, so a surrogate pair is never split. */
 internal fun String.boundedText(maxChars: Int): String {
-    if (length <= maxChars) return this
-    var end = maxChars
-    if (end > 0 && this[end - 1].isHighSurrogate() && this[end].isLowSurrogate()) end--
-    return substring(0, end).trimEnd() + "..."
+    if (codePointCount(0, length) <= maxChars) return this
+    return substring(0, offsetByCodePoints(0, maxChars)).trimEnd() + "..."
 }

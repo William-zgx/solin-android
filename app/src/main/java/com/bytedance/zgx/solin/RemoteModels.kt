@@ -32,13 +32,13 @@ data class RemoteModelConfig(
         get() = modelName.isNotBlank() && hasAllowedTransport() && hasValidApiKey
 
     /**
-     * Fail-closed credential check on the trimmed key: only printable ASCII (0x20..0x7E) is
-     * accepted. CR/LF, NUL, other control characters, BOM and zero-width or other non-ASCII
+     * Fail-closed credential check: only surrounding spaces are trimmed (so a CR/LF or tab at
+     * either end is rejected, not trimmed away); the rest must be printable ASCII (0x20..0x7E). CR/LF, NUL, other control characters, BOM and zero-width or other non-ASCII
      * characters are rejected, never silently stripped, so storage, revision and the
      * Authorization header always see the exact same value.
      */
     val hasValidApiKey: Boolean
-        get() = apiKey.trim().all { it.code in 0x20..0x7E }
+        get() = apiKey.trim { it == ' ' }.all { it.code in 0x20..0x7E }
 
     val hasKnownConnectivityFailure: Boolean
         get() = connectivityStatus == RemoteModelConnectivityStatus.AuthenticationFailed ||
@@ -53,7 +53,7 @@ data class RemoteModelConfig(
         copy(
             baseUrl = baseUrl.trim().trimEnd('/'),
             modelName = modelName.trim(),
-            apiKey = apiKey.trim(),
+            apiKey = apiKey.trim { it == ' ' },
             supportsVisionInput = supportsVisionInput,
             supportsToolCalls = supportsToolCalls,
             contextWindowTokens = contextWindowTokens?.takeIf { it > 0 },

@@ -23,6 +23,9 @@ class RemoteApiKeyValidationTest {
         "sk-​a",
         "sk-\u007Fa",
         "sk-a\tb",
+        "sk-1\n",
+        "\r\nsk-1",
+        "sk-1\t",
     )
 
     private fun config(key: String, baseUrl: String = "https://api.example.com/v1") =
@@ -40,8 +43,8 @@ class RemoteApiKeyValidationTest {
 
     @Test
     fun ordinarySurroundingWhitespaceIsTrimmedAndEmptyKeyIsAllowed() {
-        assertTrue(config("  sk-1 \n").isConfigured)
-        assertEquals("sk-1", config("  sk-1 \n").normalized().apiKey)
+        assertTrue(config("  sk-1  ").isConfigured)
+        assertEquals("sk-1", config("  sk-1  ").normalized().apiKey)
         assertTrue(config("").isConfigured)
     }
 
@@ -69,7 +72,7 @@ class RemoteApiKeyValidationTest {
             val baseUrl = server.url("/v1").toString().trimEnd('/')
             badKeys.forEach { key ->
                 val status = OkHttpRemoteModelConnectivityProbe().check(config(key, baseUrl))
-                assertEquals(RemoteModelConnectivityStatus.Unknown, status)
+                assertEquals(RemoteModelConnectivityStatus.AuthenticationFailed, status)
             }
             assertEquals(0, server.requestCount)
         }
