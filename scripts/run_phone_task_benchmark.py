@@ -238,9 +238,12 @@ def _task_errors(task):
             errors.append(f"unknown placeholder {{{key}}}")
     if isinstance(expect.get("answerRegex"), str):
         try:
-            re.compile(substitute(expect["answerRegex"], {key: "x" for key in used}, escape=True))
+            compiled = re.compile(substitute(expect["answerRegex"], {key: "x" for key in used}, escape=True))
         except (re.error, KeyError) as error:
             errors.append(f"answerRegex does not compile: {error}")
+        else:
+            if _matches_empty(compiled):
+                errors.append("answerRegex can match an empty string")
 
     category = task["category"]
     if category == "read" and READ_ONLY_PHRASE not in str(task["prompt"]):
@@ -330,22 +333,36 @@ DATE_PATTERNS = (
     ("time", re.compile(r"(?<!\d)(\d{1,2})\s*点\s*(\d{1,2})\s*分")),
 )
 NUMBER_RE = re.compile(
-    r"(?P<cur>[¥$€£])?\s*(?<![\d.A-Za-z])(?P<num>\d+(?:\.\d+)?)(?!\.?\d)\s*(?P<scale>[万亿])?"
-    r"\s*(?P<unit>%|元|块|分钟|小时|秒|天|GB|MB|KB|TB|mAh|°C|℃|度|公里|km|米)?",
+    r"(?P<cur>[¥$€£])?\s*(?<![\d.A-Za-z_])(?P<num>\d+(?:\.\d+)?)(?!\.?\d)\s*(?P<scale>[万亿])?"
+    r"\s*(?P<unit>%|元|块|分钟|小时|秒|天|GB|MB|KB|TB|mAh|°C|℃|度|公里|km|米)?(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
 SCALES = {"万": Decimal(10_000), "亿": Decimal(100_000_000)}
 
 
+def _strip_invisible(text):
+    """Drops format characters (zero-width space/joiners, BOM, soft hyphen, bidi marks)."""
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+
+
+def _nfkc(text):
+    return _strip_invisible(unicodedata.normalize("NFKC", _strip_invisible(text or "")))
+
+
+def _matches_empty(compiled):
+    """True when the pattern can match an empty span, so it would pass any answer as evidence."""
+    return any(m.start() == m.end() for probe in ("", "a", "1", " ", "a1 -") for m in compiled.finditer(probe))
+
+
 def squash(text):
-    """NFKC, no whitespace, lower case: the form every text comparison uses."""
-    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", text or "")).lower()
+    """NFKC, no invisible characters or whitespace, lower case: the form every text comparison uses."""
+    return re.sub(r"\s+", "", _nfkc(text)).lower()
 
 
 def _prepare(text):
     # Thousands separators go first, on ASCII commas only, so a full-width list comma
     # ("129，199") is not mistaken for one once NFKC turns it into ",".
-    return unicodedata.normalize("NFKC", re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text or ""))
+    return _nfkc(re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", _strip_invisible(text or "")))
 
 
 def _canon(num, scale=None):
@@ -411,7 +428,13 @@ def ground(answer, evidence, prompt=""):
 
 
 def answer_matches_regex(answer, pattern):
-    return re.search(pattern, unicodedata.normalize("NFKC", answer or "")) is not None
+    try:
+        compiled = re.compile(pattern)
+    except re.error:
+        return False
+    if _matches_empty(compiled):
+        return False
+    return compiled.search(_nfkc(answer)) is not None
 
 
 def answer_contains_all(answer, needles):

@@ -9,6 +9,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody
+import okio.Buffer
 import org.jsoup.Jsoup
 import org.json.JSONArray
 import org.json.JSONObject
@@ -22,6 +24,7 @@ import java.util.concurrent.TimeUnit
 
 private const val MAX_WEB_SEARCH_SUMMARY_CHARS = 1_200
 private const val MAX_WEB_SEARCH_RESULTS_JSON_CHARS = 4_000
+internal const val MAX_WEB_SEARCH_RESPONSE_BYTES = 2L * 1024 * 1024
 private const val WEB_SEARCH_EVIDENCE_SCHEMA_VERSION = 1
 internal const val DEFAULT_WEB_SEARCH_MAX_RESULTS = 3
 internal const val MAX_WEB_SEARCH_MAX_RESULTS = 5
@@ -539,7 +542,7 @@ class OkHttpWebSearchProvider(
             if (!safeResponse.isSuccessful) {
                 throw IOException("HTTP ${safeResponse.code}")
             }
-            return safeResponse.body.string()
+            return safeResponse.body.readBoundedText(MAX_WEB_SEARCH_RESPONSE_BYTES)
         }
     }
 
@@ -841,5 +844,26 @@ private fun duckDuckGoPageSources(endpoint: DuckDuckGoPageEndpoint): JSONArray =
                 .put("url", endpoint.baseUrl),
         )
 
-private fun String.boundedText(maxChars: Int): String =
-    if (length <= maxChars) this else take(maxChars).trimEnd() + "..."
+/**
+ * Reads the (already decompressed) body and fails as soon as it exceeds [maxBytes], so an
+ * oversized or zip-bomb response is abandoned instead of buffered whole. Never logs content.
+ */
+internal fun ResponseBody.readBoundedText(maxBytes: Long): String {
+    val declared = contentLength()
+    if (declared > maxBytes) throw IOException("Response too large")
+    val buffer = Buffer()
+    val source = source()
+    while (true) {
+        if (source.read(buffer, 8_192L) == -1L) break
+        if (buffer.size > maxBytes) throw IOException("Response too large")
+    }
+    return buffer.readString(contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8)
+}
+
+/** Truncates to [maxChars] UTF-16 units without splitting a surrogate pair. */
+internal fun String.boundedText(maxChars: Int): String {
+    if (length <= maxChars) return this
+    var end = maxChars
+    if (end > 0 && this[end - 1].isHighSurrogate() && this[end].isLowSurrogate()) end--
+    return substring(0, end).trimEnd() + "..."
+}

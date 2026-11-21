@@ -265,6 +265,7 @@ class OkHttpRemoteChatRuntime(
         handleResponse: suspend ProducerScope<T>.(response: Response, markEmitted: () -> Unit) -> Unit
     ): Flow<T> = callbackFlow {
         val normalized = config.normalized()
+        require(normalized.hasValidApiKey) { "远程模型 API Key 含非法字符" }
         require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
         // Captured before the IO worker starts so a stop() racing the worker launch is not lost.
         val generation = stopGeneration.value

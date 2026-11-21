@@ -369,5 +369,38 @@ class DeviceSequenceTest(unittest.TestCase):
         self.assertEqual(("app_unresolved", "calculator"), (result["skipReason"], result["capability"]))
 
 
+class DeterministicBoundaryTest(unittest.TestCase):
+    def _regex_error(self, pattern):
+        data = load_task_file()
+        task = next(t for t in data["tasks"] if t["id"] == "impossible_feb30")
+        task["expect"]["answerRegex"] = pattern
+        with self.assertRaises(ValueError) as raised:
+            runner.validate_tasks(data)
+        return str(raised.exception)
+
+    def test_empty_matching_answer_regexes_are_rejected(self):
+        for pattern in (r"\d*", "x|", "^$", "(?=a)", "a?", ""):
+            self.assertIn("empty string", self._regex_error(pattern), pattern)
+
+    def test_empty_matching_regex_never_matches_at_runtime(self):
+        self.assertFalse(runner.answer_matches_regex("anything 123", r"\d*"))
+        self.assertFalse(runner.answer_matches_regex("anything", "x|"))
+        self.assertTrue(runner.answer_matches_regex("a 123", r"\d+"))
+
+    def test_zero_width_and_bom_are_removed_before_matching(self):
+        self.assertTrue(runner.answer_matches_regex("5\u200b6\ufeff088", "56088"))
+        self.assertTrue(runner.answer_contains_all("周\u200d杰\u00ad伦", ["周杰伦"]))
+        grounding = runner.ground("价格 1\u200b299元", ["1299元"], "")
+        self.assertEqual(0, grounding["missing"])
+
+    def test_numbers_inside_hashes_and_ids_are_not_evidence(self):
+        for evidence in ("commit 3f2a999b1c", "id ab123456", "order_123456", "A123456Z", "x1299y"):
+            grounding = runner.ground("价格 123456 元" if "123456" in evidence else "价格 1299 元", [evidence], "")
+            self.assertEqual(1, grounding["missing"], evidence)
+        self.assertEqual(0, runner.ground("价格 1299 元", ["售价 1299 元"], "")["missing"])
+        self.assertEqual(0, runner.ground("共 256GB", ["存储 256GB 版"], "")["missing"])
+        self.assertEqual(0, runner.ground("价格 1299", ["价格：1299，包邮"], "")["missing"])
+
+
 if __name__ == "__main__":
     unittest.main()
