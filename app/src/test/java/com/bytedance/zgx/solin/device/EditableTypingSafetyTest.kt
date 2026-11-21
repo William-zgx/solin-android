@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class EditableTypingSafetyTest {
     private fun safe(
@@ -29,16 +30,39 @@ class EditableTypingSafetyTest {
     }
 
     @Test
-    fun collapsedNodeBetweenGateAndWriteProducesNoWrite() {
-        // Mirrors the write path: the gate is re-evaluated on the refreshed original node
-        // immediately before ACTION_SET_TEXT, so a node that collapsed or hid gets zero writes.
-        var writes = 0
-        fun guardedWrite(visible: Boolean, bounds: Boolean) {
-            if (safe(visible = visible, bounds = bounds)) writes += 1
-        }
-        guardedWrite(visible = true, bounds = false)
-        guardedWrite(visible = false, bounds = true)
-        assertEquals(0, writes)
+    fun serviceSourceContractOrdersUnbindInvalidationAndTypingGuards() {
+        // Source contract (JVM cannot construct AccessibilityNodeInfo); not device coverage.
+        val source = listOf(
+            File("src/main/java/com/bytedance/zgx/solin/device/SolinAccessibilityService.kt"),
+            File("app/src/main/java/com/bytedance/zgx/solin/device/SolinAccessibilityService.kt"),
+        ).first { it.isFile }.readText()
+
+        val unbind = source.substringAfter("override fun onUnbind")
+            .substringBefore("override fun onDestroy")
+        val invalidateAt = unbind.indexOf("deviceControlTasks.invalidate(this)")
+        assertTrue(invalidateAt >= 0)
+        assertTrue(invalidateAt < unbind.indexOf("drainPendingClipboardOnTeardown()"))
+
+        val inputBody = source.substringAfter("val inputWindow = editableNode.windowId")
+        val write = inputBody.indexOf("setTextDirectly(editableNode, text)")
+        val paste = inputBody.indexOf("pasteTextIntoEditable(editableNode, text)")
+        val verify = inputBody.indexOf("verifyWrittenText(")
+        val preWriteGuard = inputBody.indexOf("editableNode.isSafeEditableForTyping()")
+        val readBackGuard = inputBody.indexOf(
+            "editableNode.isSafeEditableForTyping()",
+            verify,
+        )
+        assertTrue(write >= 0 && paste >= 0 && verify >= 0)
+        assertTrue(preWriteGuard in 0 until minOf(write, paste))
+        assertTrue(inputBody.substring(preWriteGuard, write).contains("isFocused"))
+        assertTrue(readBackGuard > verify)
+        // The pre-write guard sits between prepareEditableForTextInput and the first write.
+        assertTrue(inputBody.indexOf("prepareEditableForTextInput(editableNode)") < preWriteGuard)
+        // Earlier gate (before the inputWindow capture) also guards the node.
+        assertTrue(
+            source.substringBefore("val inputWindow = editableNode.windowId")
+                .contains("!editableNode.refresh() || !editableNode.isSafeEditableForTyping()"),
+        )
     }
 
     @Test
