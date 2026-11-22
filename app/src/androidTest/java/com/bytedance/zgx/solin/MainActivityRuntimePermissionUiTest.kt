@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
@@ -22,6 +23,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import com.bytedance.zgx.solin.data.RemoteModelRepository
 import java.util.regex.Pattern
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -246,7 +248,22 @@ class MainActivityRuntimePermissionUiTest {
                         }
                     }
             }.getOrElse { "semantics dump failed: ${it.javaClass.simpleName}" }
-            error.addSuppressed(AssertionError("SolinUiDump-$tag\n$dump"))
+            val remoteState = runCatching {
+                val repository = RemoteModelRepository(targetContext)
+                val config = repository.loadConfig()
+                "mode=${repository.loadMode()} configured=${config.isConfigured} " +
+                    "revisionPresent=${config.profileRevision.isNotBlank()} model=${config.modelName} " +
+                    "base=${config.baseUrl}"
+            }.getOrElse { "remote state failed: ${it.javaClass.simpleName}" }
+            runCatching {
+                instrumentation.sendStatus(
+                    0,
+                    Bundle().apply {
+                        putString("SolinUiDump-$tag", dump)
+                        putString("SolinRemoteState-$tag", remoteState)
+                    }
+                )
+            }
             throw error
         }
     }
