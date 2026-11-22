@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.device
 
+import android.app.KeyguardManager
+import com.bytedance.zgx.solin.multimodal.RawScreenshotReadResult
 import java.lang.ref.WeakReference
 import java.util.concurrent.Future
 
@@ -12,6 +14,60 @@ internal enum class DeviceControlTaskCancellationReason {
 }
 
 /**
+ * Lock-screen truth for foreground device control. Threat: reading the lock screen or acting on it
+ * (credentials, notifications shown over it, unlock gestures) while the user is away.
+ * Fail-closed: only a successful "both false" read is [Unlocked]; anything unreadable is [Unknown].
+ * Never cached: every observation, action and terminal submission asks again.
+ */
+internal enum class DeviceLockState { Unlocked, Locked, Unknown }
+
+/** Reads [DeviceLockState] now. May block on binder IPC; never call while holding the lease lock. */
+internal fun classifyDeviceLock(keyguardLocked: () -> Boolean, deviceLocked: () -> Boolean): DeviceLockState {
+    val keyguard = runCatching(keyguardLocked).getOrNull()
+    val device = runCatching(deviceLocked).getOrNull()
+    return when {
+        keyguard == true || device == true -> DeviceLockState.Locked
+        keyguard == false && device == false -> DeviceLockState.Unlocked
+        else -> DeviceLockState.Unknown
+    }
+}
+
+internal fun KeyguardManager?.deviceLockState(): DeviceLockState = if (this == null) {
+    DeviceLockState.Unknown
+} else {
+    classifyDeviceLock(::isKeyguardLocked, ::isDeviceLocked)
+}
+
+/** A submission was refused because the device is not provably unlocked; nothing was submitted. */
+internal class DeviceLockedException(val state: DeviceLockState) : IllegalStateException()
+
+private const val LOCKED_REASON = "设备已锁屏，已停止屏幕控制"
+private const val UNKNOWN_LOCK_REASON = "无法确认设备已解锁，已停止屏幕控制"
+
+private fun DeviceLockState.refusalReason(): String? = when (this) {
+    DeviceLockState.Unlocked -> null
+    DeviceLockState.Locked -> LOCKED_REASON
+    DeviceLockState.Unknown -> UNKNOWN_LOCK_REASON
+}
+
+private fun DeviceLockState.refusalKind(): UiActionFailureKind = if (this == DeviceLockState.Locked) {
+    UiActionFailureKind.PageChanged
+} else {
+    UiActionFailureKind.SnapshotUnknown
+}
+
+internal fun DeviceLockState.screenStateRefusal(): ScreenStateReadResult.Failed? = refusalReason()?.let { ScreenStateReadResult.Failed(it, refusalKind()) }
+
+internal fun DeviceLockState.screenTextRefusal(): CurrentScreenTextReadResult.Failed? = refusalReason()?.let { CurrentScreenTextReadResult.Failed(it) }
+
+internal fun DeviceLockState.screenshotRefusal(): RawScreenshotReadResult.Failed? = refusalReason()?.let { RawScreenshotReadResult.Failed(it) }
+
+/** Non-retryable: waiting on the user to unlock is not something the loop can fix by retrying. */
+internal fun DeviceLockState.uiActionRefusal(): UiActionReadResult.Failed? = refusalReason()?.let {
+    UiActionReadResult.Failed(reason = it, retryable = false, failureKind = refusalKind())
+}
+
+/**
  * Serializes device-control leases against accessibility-service lifecycle changes.
  *
  * The lock guards lease bookkeeping ONLY. Nothing that can block — no binder IPC, no gesture dispatch,
@@ -20,7 +76,9 @@ internal enum class DeviceControlTaskCancellationReason {
  * IPC would stall a lifecycle callback into an ANR. Every entry point therefore follows lock → validate
  * → mark → unlock → act.
  */
-internal class DeviceControlTaskCoordinator {
+internal class DeviceControlTaskCoordinator(
+    private val lockProbe: () -> DeviceLockState,
+) {
     private val lock = Any()
     private var generation = 0L
     private var activeOwner: WeakReference<Any>? = null
@@ -55,6 +113,9 @@ internal class DeviceControlTaskCoordinator {
         }
         futures.forEach { future -> future.cancel(true) }
     }
+
+    /** Fresh probe; a throwing probe is [DeviceLockState.Unknown]. */
+    fun lockState(): DeviceLockState = runCatching(lockProbe).getOrDefault(DeviceLockState.Unknown)
 
     fun startTask(): Lease? =
         synchronized(lock) {
@@ -103,6 +164,8 @@ internal class DeviceControlTaskCoordinator {
          * non-retryable.
          */
         internal fun <T> submitUiSideEffect(action: () -> T): T {
+            requireActive()
+            requireUnlocked()
             synchronized(lock) {
                 requireActiveLocked()
                 submittedUiSideEffect = true
@@ -116,7 +179,14 @@ internal class DeviceControlTaskCoordinator {
          */
         internal fun <T> submitUiRead(action: () -> T): T {
             requireActive()
+            requireUnlocked()
             return action()
+        }
+
+        /** Fresh probe per submission, outside the lock (binder IPC); refuses before anything is marked. */
+        private fun requireUnlocked() {
+            val state = lockState()
+            if (state != DeviceLockState.Unlocked) throw DeviceLockedException(state)
         }
 
         internal fun runIfActive(action: () -> Unit): Boolean {

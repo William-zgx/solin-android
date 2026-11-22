@@ -67,7 +67,7 @@ class EditableTypingSafetyTest {
 
     @Test
     fun unbindInvalidationRejectsOldLeaseAndReconnectGetsFreshOwnership() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         val owner = Any()
         coordinator.connect(owner)
         val oldTask = requireNotNull(coordinator.startTask())

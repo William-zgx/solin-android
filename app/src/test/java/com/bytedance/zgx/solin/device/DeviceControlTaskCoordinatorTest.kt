@@ -8,7 +8,7 @@ import org.junit.Test
 class DeviceControlTaskCoordinatorTest {
     @Test
     fun reconnectPreventsQueuedTaskFromSubmittingUiSideEffect() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         val firstOwner = Any()
         val replacementOwner = Any()
         coordinator.connect(firstOwner)
@@ -27,7 +27,7 @@ class DeviceControlTaskCoordinatorTest {
 
     @Test
     fun interruptPreventsExecutingTaskFromSubmittingLaterUiSideEffect() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         val owner = Any()
         coordinator.connect(owner)
         val executingTask = requireNotNull(coordinator.startTask())
@@ -52,7 +52,7 @@ class DeviceControlTaskCoordinatorTest {
 
     @Test
     fun reconnectCancelsOldTaskAndAllowsReplacementTask() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         val firstOwner = Any()
         val replacementOwner = Any()
         coordinator.connect(firstOwner)
@@ -74,7 +74,7 @@ class DeviceControlTaskCoordinatorTest {
 
     @Test
     fun reconnectPreventsOldTaskFromPublishingProgress() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         val firstOwner = Any()
         val replacementOwner = Any()
         coordinator.connect(firstOwner)
@@ -93,7 +93,7 @@ class DeviceControlTaskCoordinatorTest {
 
     @Test
     fun timeoutBeforeUiSubmissionRemainsRetryable() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         val owner = Any()
         coordinator.connect(owner)
         val task = requireNotNull(coordinator.startTask())
@@ -107,7 +107,7 @@ class DeviceControlTaskCoordinatorTest {
 
     @Test
     fun lifecycleCancellationIsNotRetryableEvenBeforeUiSubmission() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         val owner = Any()
         coordinator.connect(owner)
         val task = requireNotNull(coordinator.startTask())
@@ -122,7 +122,7 @@ class DeviceControlTaskCoordinatorTest {
 
     @Test
     fun timeoutAfterUiSubmissionIsNotRetryable() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         coordinator.connect(Any())
         val task = requireNotNull(coordinator.startTask())
         task.submitUiSideEffect {}
@@ -136,7 +136,7 @@ class DeviceControlTaskCoordinatorTest {
 
     @Test
     fun timeoutAfterUiReadOnlySubmissionRemainsRetryable() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         coordinator.connect(Any())
         val task = requireNotNull(coordinator.startTask())
         var reads = 0
@@ -151,7 +151,7 @@ class DeviceControlTaskCoordinatorTest {
 
     @Test
     fun interruptPreventsUiReadSubmission() {
-        val coordinator = DeviceControlTaskCoordinator()
+        val coordinator = DeviceControlTaskCoordinator { DeviceLockState.Unlocked }
         val owner = Any()
         coordinator.connect(owner)
         val task = requireNotNull(coordinator.startTask())

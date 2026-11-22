@@ -28,6 +28,8 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Base64
+import com.bytedance.zgx.solin.device.DeviceLockState
+import com.bytedance.zgx.solin.device.deviceLockState
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -353,7 +355,7 @@ object BackgroundPhoneHelper {
 
         private fun displayId(task: ActivityManager.RunningTaskInfo): Int = Class.forName("android.app.TaskInfo").getField("displayId").getInt(task)
 
-        private fun locked() = runCatching { context.getSystemService(KeyguardManager::class.java).isDeviceLocked }.getOrDefault(true)
+        private fun locked() = runCatching { context.getSystemService(KeyguardManager::class.java) }.getOrNull().deviceLockState() != DeviceLockState.Unlocked
 
         override fun close() {
             if (closed) return
