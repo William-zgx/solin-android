@@ -18088,3 +18088,8 @@ git diff --check
   不变。普通 Remote 请求与审计不含目录，未放宽 RemoteEligible 信任。规范与质量评审通过，
   完整 JVM **3078 tests / 0 failures / 0 errors / 15 skipped**，androidTest 编译、Spotless、
   隐私扫描通过；owner privacy doc 与 candidate/evidence SHA 已同步，人工审批状态不变，hosted 结果待下一次 run。
+- Hosted [#187](https://github.com/William-zgx/solin-android/actions/runs/45019096827)（`756a65b9`）：
+  Verify 通过，Remote placement 已到 `dispatch=Idle attempt=1`。landscape、Skill、SpecialAccess
+  全部通过，只剩综合测试在切回旧会话时未看到记忆回答。最终选择器 `e016a5b3` + `67251cc4`
+  使用真实 `session_row_` 前缀与合并标题文本点击 drawer row，而非虚构 sheet tag 或底层聊天消息，
+  Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过；完整结果待下一次 run。
