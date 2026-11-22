@@ -173,6 +173,7 @@ class MainActivitySmokeTest {
         composeRule.waitForText("本地提醒与后台任务")
         composeRule.waitForText("远程公开证据查询")
         composeRule.waitForText("用户控制")
+        composeRule.scrollToModelManagerText("用户控制").performClick()
         composeRule.waitForText("可清空长期记忆", substring = true)
         composeRule.waitForText("删除当前会话", substring = true)
         composeRule.waitForText("清除远程服务地址", substring = true)
@@ -273,7 +274,10 @@ class MainActivitySmokeTest {
         }
     }
 
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.scrollToModelManagerText(text: String) = onNode(hasText(text) and hasAnyAncestor(hasTestTag("model_manager_sheet"))).performScrollTo()
+    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.scrollToModelManagerText(
+        text: String,
+        substring: Boolean = false,
+    ) = onNode(hasText(text, substring = substring) and hasAnyAncestor(hasTestTag("model_manager_sheet"))).performScrollTo()
 
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.openDrawerItem(tag: String) {
         onNodeWithTag("top_session_button").performClick()
