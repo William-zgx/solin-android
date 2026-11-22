@@ -14,11 +14,19 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_BODY
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Owns the platform [SpeechRecognizer] for composer voice input and forwards its callbacks into
- * [SolinViewModel]. Each start opens a new [VoiceInputSessionGate] session so late callbacks from a
- * cancelled or replaced session are dropped. Destroys the recognizer with the activity.
+ * [SolinViewModel]. Each start opens a new [VoiceRecognitionSession] generation so late callbacks
+ * from a cancelled, timed-out or replaced generation are dropped. Destroys the recognizer with the
+ * activity and cancels any active generation when the activity stops.
  *
  * On-device first: when the platform reports an on-device recognizer (API 31+) it is used
  * directly; otherwise the system recognizer is asked to prefer offline recognition. Because that
@@ -36,7 +44,19 @@ internal class VoiceRecognitionCoordinator(
 ) : DefaultLifecycleObserver {
     private var speechRecognizer: SpeechRecognizer? = null
     private var speechRecognizerRoute: VoiceRecognizerRoute? = null
-    private val sessions = VoiceInputSessionGate()
+    private val watchdogScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val session = VoiceRecognitionSession(
+        scope = watchdogScope,
+        sink = object : VoiceCaptureSink {
+            override fun captureStarted() = viewModel().startVoiceInputCapture()
+            override fun captureFinished() = viewModel().finishVoiceInputCapture()
+            override fun level(rmsDb: Float) = viewModel().updateVoiceInputLevel(rmsDb = rmsDb)
+            override fun partial(transcript: String) = viewModel().updateVoiceInputPartialTranscript(transcript)
+            override fun transcript(transcript: String) = viewModel().acceptVoiceTranscript(transcript)
+            override fun unavailable(message: String) = viewModel().reportVoiceInputUnavailable(message)
+        },
+        cancelRecognizer = { speechRecognizer?.cancel() },
+    )
     private val audioPermissionLauncher = activity.registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -52,6 +72,8 @@ internal class VoiceRecognitionCoordinator(
     }
 
     fun start() {
+        // A new generation needs a terminal state plus another explicit user start.
+        if (session.isActive) return
         if (!activity.hasRuntimePermission(Manifest.permission.RECORD_AUDIO)) {
             viewModel().reportVoiceInputUnavailable("需要授权麦克风权限")
             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -74,8 +96,6 @@ internal class VoiceRecognitionCoordinator(
             viewModel().reportVoiceInputUnavailable("语音输入启动失败")
             return
         }
-        val sessionId = sessions.startSession()
-        recognizer.setRecognitionListener(recognitionListener(sessionId))
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         voiceRecognitionIntentExtras().forEach { (key, value) ->
             when (value) {
@@ -84,42 +104,19 @@ internal class VoiceRecognitionCoordinator(
                 is String -> intent.putExtra(key, value)
             }
         }
-        viewModel().startVoiceInputCapture()
-        runCatching { recognizer.startListening(intent) }
-            .onFailure {
-                if (sessions.isActive(sessionId)) {
-                    sessions.clearIfActive(sessionId)
-                    viewModel().reportVoiceInputUnavailable("语音输入启动失败")
-                }
-            }
+        session.start(
+            installListener = { generation -> recognizer.setRecognitionListener(recognitionListener(generation)) },
+            startListening = { recognizer.startListening(intent) },
+        )
     }
 
     fun finish() {
-        val sessionId = sessions.activeSessionId
         val recognizer = speechRecognizer
-        if (recognizer == null || !sessions.isActive(sessionId)) {
-            sessions.clearIfActive(sessionId)
-            viewModel().reportVoiceInputUnavailable("语音输入已中断")
-            return
-        }
-        runCatching { recognizer.stopListening() }
-            .onSuccess {
-                if (sessions.isActive(sessionId)) {
-                    viewModel().finishVoiceInputCapture()
-                }
-            }
-            .onFailure {
-                if (sessions.isActive(sessionId)) {
-                    sessions.clearIfActive(sessionId)
-                    viewModel().reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
-                }
-            }
+        session.finish(stopListening = recognizer?.let { r -> { r.stopListening() } })
     }
 
     fun cancel() {
-        sessions.cancelActiveSession()
-        runCatching { speechRecognizer?.cancel() }
-        viewModel().reportVoiceInputUnavailable("语音输入已取消")
+        session.cancel()
     }
 
     private fun isOnDeviceRecognitionAvailable(): Boolean =
@@ -164,66 +161,172 @@ internal class VoiceRecognitionCoordinator(
         }
     }
 
-    override fun onDestroy(owner: LifecycleOwner) {
-        val hadActiveVoiceSession = sessions.activeSessionId != 0L
-        sessions.cancelActiveSession()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-        speechRecognizerRoute = null
-        if (hadActiveVoiceSession && isViewModelReady()) {
-            viewModel().reportVoiceInputUnavailable("语音输入已因界面重建或关闭而停止")
-        }
+    override fun onStop(owner: LifecycleOwner) {
+        // Never keep the microphone request open while the UI is not visible; onResume does not reopen it.
+        session.stopForLifecycle("语音输入已因离开界面而停止")
     }
 
-    private fun recognitionListener(sessionId: Long): RecognitionListener =
+    override fun onDestroy(owner: LifecycleOwner) {
+        session.destroy(
+            releaseRecognizer = {
+                speechRecognizer?.destroy()
+                speechRecognizer = null
+                speechRecognizerRoute = null
+            },
+            canReport = isViewModelReady,
+        )
+        watchdogScope.cancel()
+    }
+
+    private fun recognitionListener(generation: Long): RecognitionListener =
         object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                if (sessions.isActive(sessionId)) {
-                    viewModel().startVoiceInputCapture()
-                }
-            }
+            override fun onReadyForSpeech(params: Bundle?) = session.onReady(generation)
 
             override fun onBeginningOfSpeech() = Unit
 
-            override fun onRmsChanged(rmsdB: Float) {
-                if (sessions.isActive(sessionId)) {
-                    viewModel().updateVoiceInputLevel(rmsDb = rmsdB)
-                }
-            }
+            override fun onRmsChanged(rmsdB: Float) = session.onLevel(generation, rmsdB)
 
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-            override fun onEndOfSpeech() {
-                if (sessions.isActive(sessionId)) {
-                    viewModel().finishVoiceInputCapture()
-                }
-            }
+            override fun onEndOfSpeech() = session.onEndOfSpeech(generation)
 
-            override fun onError(error: Int) {
-                if (!sessions.isActive(sessionId)) return
-                sessions.clearIfActive(sessionId)
-                viewModel().reportVoiceInputUnavailable(error.voiceInputErrorMessage())
-            }
+            override fun onError(error: Int) = session.onError(generation, error.voiceInputErrorMessage())
 
-            override fun onResults(results: Bundle?) {
-                if (!sessions.isActive(sessionId)) return
-                sessions.clearIfActive(sessionId)
-                val transcript = results?.recognizedSpeechText()
-                if (transcript.isNullOrBlank()) {
-                    viewModel().reportVoiceInputUnavailable("未识别到语音")
-                } else {
-                    viewModel().acceptVoiceTranscript(transcript)
-                }
-            }
+            override fun onResults(results: Bundle?) = session.onResults(generation, results?.recognizedSpeechText())
 
             override fun onPartialResults(partialResults: Bundle?) {
-                if (sessions.isActive(sessionId)) {
-                    partialResults?.recognizedSpeechText()?.let(viewModel()::updateVoiceInputPartialTranscript)
-                }
+                partialResults?.recognizedSpeechText()?.let { session.onPartial(generation, it) }
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         }
+}
+
+/** Capture state sink; the coordinator forwards it to [SolinViewModel]. */
+internal interface VoiceCaptureSink {
+    fun captureStarted()
+
+    fun captureFinished()
+
+    fun level(rmsDb: Float)
+
+    fun partial(transcript: String)
+
+    fun transcript(transcript: String)
+
+    fun unavailable(message: String)
+}
+
+/** Conservative absolute bound for listening plus post-stop transcription of one generation. */
+internal const val VOICE_RECOGNITION_DEADLINE_MS = 60_000L
+
+/**
+ * Main-thread state machine for one explicit voice generation. Threat: a recognizer that never
+ * reports a terminal callback would leave the microphone request and UI capture state open
+ * indefinitely. Results, error, cancel, timeout and lifecycle stop are competing terminal
+ * transitions; the first to clear the generation wins and later ones are ignored. The single
+ * deadline is absolute: RMS, partials and [finish] never extend it, and there is no auto restart.
+ * Never logs transcripts, partials or audio.
+ */
+internal class VoiceRecognitionSession(
+    private val scope: CoroutineScope,
+    private val sink: VoiceCaptureSink,
+    private val cancelRecognizer: () -> Unit,
+    private val deadlineMs: Long = VOICE_RECOGNITION_DEADLINE_MS,
+) {
+    private val gate = VoiceInputSessionGate()
+    private var watchdog: Job? = null
+
+    val isActive: Boolean get() = gate.activeSessionId != 0L
+
+    /** Returns false (and does nothing) while a generation is already active. */
+    fun start(installListener: (Long) -> Unit, startListening: () -> Unit): Boolean {
+        if (isActive) return false
+        val generation = gate.startSession()
+        installListener(generation)
+        sink.captureStarted()
+        watchdog = scope.launch {
+            delay(deadlineMs)
+            onDeadline(generation)
+        }
+        runCatching(startListening).onFailure {
+            if (claim(generation)) sink.unavailable("语音输入启动失败")
+        }
+        return true
+    }
+
+    /** Non-terminal: the generation keeps waiting for results under the same deadline. */
+    fun finish(stopListening: (() -> Unit)?) {
+        val generation = gate.activeSessionId
+        if (generation == 0L || stopListening == null) {
+            claim(generation)
+            sink.unavailable("语音输入已中断")
+            return
+        }
+        runCatching(stopListening)
+            .onSuccess { if (gate.isActive(generation)) sink.captureFinished() }
+            .onFailure { if (claim(generation)) sink.unavailable("当前设备没有可用语音识别服务") }
+    }
+
+    fun cancel() {
+        claim(gate.activeSessionId)
+        runCatching(cancelRecognizer)
+        sink.unavailable("语音输入已取消")
+    }
+
+    fun stopForLifecycle(message: String) {
+        if (claim(gate.activeSessionId)) {
+            runCatching(cancelRecognizer)
+            sink.unavailable(message)
+        }
+    }
+
+    fun destroy(releaseRecognizer: () -> Unit, canReport: () -> Boolean) {
+        val hadActive = claim(gate.activeSessionId)
+        runCatching(releaseRecognizer)
+        if (hadActive && canReport()) sink.unavailable("语音输入已因界面重建或关闭而停止")
+    }
+
+    fun onReady(generation: Long) {
+        if (gate.isActive(generation)) sink.captureStarted()
+    }
+
+    fun onLevel(generation: Long, rmsDb: Float) {
+        if (gate.isActive(generation)) sink.level(rmsDb)
+    }
+
+    fun onEndOfSpeech(generation: Long) {
+        if (gate.isActive(generation)) sink.captureFinished()
+    }
+
+    fun onPartial(generation: Long, transcript: String) {
+        if (gate.isActive(generation)) sink.partial(transcript)
+    }
+
+    fun onError(generation: Long, message: String) {
+        if (claim(generation)) sink.unavailable(message)
+    }
+
+    fun onResults(generation: Long, transcript: String?) {
+        if (!claim(generation)) return
+        if (transcript.isNullOrBlank()) sink.unavailable("未识别到语音") else sink.transcript(transcript)
+    }
+
+    private fun onDeadline(generation: Long) {
+        // Re-check the generation: a queued deadline must not fire after another terminal won.
+        if (!claim(generation)) return
+        runCatching(cancelRecognizer)
+        sink.unavailable("语音输入超时")
+    }
+
+    /** Claims the terminal transition for [generation]; true for exactly one caller. */
+    private fun claim(generation: Long): Boolean {
+        if (!gate.isActive(generation)) return false
+        gate.clearIfActive(generation)
+        watchdog?.cancel()
+        watchdog = null
+        return true
+    }
 }
 
 /** Which platform recognizer composer voice input uses. */
