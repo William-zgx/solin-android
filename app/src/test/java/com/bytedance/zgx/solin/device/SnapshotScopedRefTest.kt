@@ -123,8 +123,15 @@ class SnapshotScopedRefTest {
         val service = File(root, "SolinAccessibilityService.kt").readText()
         assertTrue(service.contains("error is SnapshotRefException"))
         assertTrue(service.contains("failureKind = error.failureKind"))
-        assertTrue(service.contains("findTargetCandidate(target, snapshot = before)"))
-        assertTrue(service.contains("if (scopedRef) null else tapOcrGroundingHint"))
+        // The published observation, not the fresh evidence `before`, is what scoped refs validate against.
+        assertTrue(service.contains("runCatching { operation(lastPublishedSnapshot) }"))
+        assertTrue(service.contains("service.lastPublishedSnapshot = result.snapshot"))
+        assertEquals(2, Regex("lastPublishedSnapshot = null").findAll(service).count())
+        assertTrue(service.contains("findTargetCandidate(target, snapshot = published)"))
+        assertEquals(2, Regex("if \\(scopedRef\\) null else tapOcrGroundingHint").findAll(service).count())
+        assertTrue(service.contains("!scopedRef || candidate.node.isClickable"))
+        assertTrue(service.contains("candidate.node.isScrollable\n            }?.node"))
+        assertTrue(service.contains("failureKind = UiActionFailureKind.SnapshotUnknown"))
         assertTrue(service.contains("CriticalControlTapRefused"))
         val queries = File(root, "AccessibilityNodeQueries.kt").readText()
         assertTrue(queries.contains("SnapshotRefs.requireSameBounds(scoped, screenNode.bounds)"))
@@ -146,5 +153,16 @@ class SnapshotScopedRefTest {
             assertTrue(kind.schemaValue, registry.contains(quoted))
             assertTrue(kind.schemaValue, schema.contains(quoted))
         }
+    }
+
+    @Test
+    fun publishedObservationIdIsAcceptedByTheNextAction() {
+        // The id the model saw is the id validated: same snapshot object, so no ref_retired.
+        val published = snapshot
+        val ref = "${published.id}/${node.id}"
+        assertEquals(node, SnapshotRefs.validate(SnapshotRefs.parse(ref)!!, published, "com.example.app"))
+        // A fresh evidence snapshot has a new id; validating against it is what used to retire every ref.
+        val fresh = published.copy(id = "screen_1701_deadbeef")
+        assertEquals(UiActionFailureKind.RefRetired, failure { SnapshotRefs.validate(SnapshotRefs.parse(ref)!!, fresh, "com.example.app") })
     }
 }
