@@ -195,7 +195,8 @@ class RoomRunPlacementBindingStore(
         if (runState.isTerminal()) {
             return notRestorable(RunPlacementRecoveryRejection.TerminalRun)
         }
-        if (binding.bootCount != context.bootCount) {
+        // Unknown current boot (negative) never matches a stored generation, including sentinel 0.
+        if (context.bootCount < 0L || binding.bootCount != context.bootCount) {
             return notRestorable(RunPlacementRecoveryRejection.BootChanged)
         }
         val age = context.elapsedRealtimeMillis - binding.boundAtElapsedRealtimeMillis
@@ -422,7 +423,8 @@ class RoomRunPlacementBindingStore(
         persisted == this &&
             !runState.isTerminal() &&
             schemaVersion == RUN_PLACEMENT_BINDING_SCHEMA_VERSION &&
-            bootCount == context.bootCount &&
+            // Process-local claim: unknown (negative) boot normalizes exactly as in fromDecision.
+            bootCount == context.bootCount.toBindingBootCount() &&
             age in 0L..RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS &&
             (placement != RunPlacement.Remote || remoteProfileRevision == context.remoteProfileRevision) &&
             snapshot.steps.haveConsistentPlacementTrace(this)

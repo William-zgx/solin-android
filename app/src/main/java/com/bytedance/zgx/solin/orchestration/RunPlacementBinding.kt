@@ -73,7 +73,7 @@ data class RunPlacementBinding(
             localState = decision.diagnostics.localState,
             remoteState = decision.diagnostics.remoteState,
             remoteProfileRevision = remoteProfileRevision.takeIf { decision.placement == RunPlacement.Remote },
-            bootCount = bootCount,
+            bootCount = bootCount.toBindingBootCount(),
             boundAtElapsedRealtimeMillis = boundAtElapsedRealtimeMillis,
         )
     }
@@ -270,3 +270,11 @@ internal fun String?.isCanonicalRemoteProfileRevision(): Boolean {
 }
 
 private const val CANONICAL_UUID_LENGTH = 36
+
+/**
+ * New-run boot generation: a negative platform boot count means "unknown" (for example
+ * Settings.Global.BOOT_COUNT is absent) and is stored as the sentinel 0. Used for new bindings and
+ * the same-process dispatch snapshot only; recovery must reject an unknown current boot raw, so the
+ * sentinel never matches a real boot generation after a restart.
+ */
+internal fun Long.toBindingBootCount(): Long = coerceAtLeast(0L)

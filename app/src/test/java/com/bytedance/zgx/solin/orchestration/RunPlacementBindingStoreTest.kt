@@ -236,6 +236,71 @@ class RunPlacementBindingStoreTest {
     }
 
     @Test
+    fun newRemoteBindingNormalizesUnknownPlatformBootCountToZero() {
+        val decision = PlacementDecision.Chosen(
+            policyVersion = 1,
+            preference = com.bytedance.zgx.solin.InferenceMode.Remote,
+            primaryReason = PlacementReasonCode.USER_FORCED_REMOTE,
+            diagnostics = PlacementDiagnostics(
+                complexity = RequestComplexity.Simple,
+                resourceBand = com.bytedance.zgx.solin.resource.StableResourceBand.Normal,
+                stableLowMemory = false,
+                latestLowMemory = false,
+                localHardBlocked = false,
+                thermalPressure = com.bytedance.zgx.solin.resource.ThermalPressure.Normal,
+                localState = CandidateState.Unavailable,
+                remoteState = CandidateState.Eligible,
+            ),
+            placement = RunPlacement.Remote,
+        )
+
+        val binding = RunPlacementBinding.fromDecision(
+            runId = "run-unknown-boot",
+            decision = decision,
+            remoteProfileRevision = TEST_REMOTE_REVISION,
+            bootCount = -1L,
+            boundAtElapsedRealtimeMillis = 1_000L,
+        )
+
+        assertEquals(0L, binding.bootCount)
+    }
+
+    @Test
+    fun recoveryNeverTreatsUnknownCurrentBootAsStoredZeroGeneration() = runTest {
+        assertRecoveryRejected(
+            expected = RunPlacementRecoveryRejection.BootChanged,
+            contextTransform = { context -> context.copy(bootCount = -1L) },
+            mutate = { dao, runId -> dao.mutateBinding(runId) { it.copy(bootCount = 0L) } },
+        )
+    }
+
+    @Test
+    fun unknownBootNewRunClaimsDispatchButRecoveryStaysBootChanged() = runTest {
+        val unknownBoot = RunPlacementRecoveryContext(
+            bootCount = -1L,
+            elapsedRealtimeMillis = 2_000L,
+            remoteProfileRevision = TEST_REMOTE_REVISION,
+        )
+        val dao = FakeRunPlacementBindingDao()
+        val store = store(dao) { unknownBoot }
+        assertTrue(store.createCriticalRun(testRun("run-unknown-boot-claim")))
+        val permit = (store.bindAndReserve(
+            testBinding("run-unknown-boot-claim", RunPlacement.Remote, bootCount = 0L),
+        ) as BindAndReserveResult.Bound).permit
+
+        val started = store.claimForDispatch(permit, testReceipt(RunPlacement.Remote))
+            as ClaimInvocationResult.Started
+        assertTrue(store.finishInvocation(started.invocation))
+        makePendingRecoveryEligible(dao, "run-unknown-boot-claim")
+
+        val inspection = store(dao) { unknownBoot }.inspectForRecovery("run-unknown-boot-claim", unknownBoot)
+        assertEquals(
+            RunPlacementRecoveryRejection.BootChanged,
+            (inspection as RecoveryInspection.NotRestorable).rejection,
+        )
+    }
+
+    @Test
     fun recoveryRejectsBootTtlRevisionSchemaStartedPendingTerminalAndTraceMismatch() = runTest {
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.BootChanged,
