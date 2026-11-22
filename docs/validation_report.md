@@ -18069,3 +18069,11 @@ git diff --check
   并在 after 中失败； readiness 同时要求 expected baseUrl，避免动态端口提前通过。诊断扩为
   最近 5 个 run、最新 binding 及 live connectivity/placement reason，不含 runId、prompt、revision
   或 key。Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过；实际通过情况待下一次 run。
+- Hosted [#184](https://github.com/William-zgx/solin-android/actions/runs/45011862462)（`a848506b`）：
+  Verify 成功，`liveConnectivity=Reachable`、`binding=true placement=Remote`、
+  `activeRunPlacementReason=USER_FORCED_REMOTE`。RuntimePermission 与 privacy 全部通过，Room 未崩溃。
+  剩余失败停在 disclosure/确认交互，dispatch=Pending，说明确认未真正接受，而非 placement 失败。
+- F10 `09ca9508` + `2f16b690`：SpecialAccess 分别断言打开系统设置文案和主确认禁用；
+  图片权限数据边界按真实展开流程断言；剪贴板使用 `action_title_text`；`/v1/models` 返回真实
+  模型列表 JSON。共享多 run/确认状态诊断并移除自由 statusText，Skill 行失败额外输出实际行文本，
+  不放宽断言或改变确认行为。Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过。
