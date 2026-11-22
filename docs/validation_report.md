@@ -18053,3 +18053,11 @@ git diff --check
   异常正文。PART90 输出 `PART90_OK`，相关 placement/recovery/coordinator 测试通过，Opus 5.5 clean。
   最终完整 JVM **3072 tests / 0 failures / 0 errors / 15 skipped**，androidTest 编译、Spotless、
   隐私扫描通过；下一次 artifact 才确定具体 reserve 原因。
+- Hosted [#182](https://github.com/William-zgx/solin-android/actions/runs/45006833587)（`e874549b`）：
+  首次 emulator 在约 3 分钟时 device offline，未进入测试；仅重跑失败 job 后，远程请求已实际
+  到达 mock server，证明 boot-count dispatch 打通。新的直接失败为 `assertNoPost` 误拦
+  `GET /v1/models` connectivity probe，以及 mock SSE 写响应时客户端断管导致进程崩溃。
+- Mock server `438e994b` + `de645c82`：`awaitPost`/`assertNoPost` 只把真正的 POST 当作发送，
+  不再误拦 GET probe；单个连接仅对 `SocketException` 断连结束处理，其他异常仍失败，响应和
+  原始断言不变。Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过。未以吞异常宣称
+  远程通过，实际结果待下一次 hosted run。
