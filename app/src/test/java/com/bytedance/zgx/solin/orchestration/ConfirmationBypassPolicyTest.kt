@@ -217,6 +217,18 @@ class ConfirmationBypassPolicyTest {
     }
 
     @Test
+    fun symbolOnlyTextAfterAPrivateReadMustBeInTheUserRequest() {
+        val runId = readPrivateDataRun("把剪贴板里的内容发给小王")
+        fun typing(text: String) = ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+        fun sharing(text: String) = ToolRequest(toolName = MobileActionFunctions.SHARE_TEXT, arguments = mapOf("text" to text))
+
+        assertEquals(CriticalApprovalReason.TypedTextNotFromUser, policy.criticalApprovalReason(runId, typing("♥")))
+        assertEquals(CriticalApprovalReason.TextHandedToExternalApp, policy.criticalApprovalReason(runId, sharing("♥")))
+        val explicit = readPrivateDataRun("输入♥")
+        assertNull(policy.criticalApprovalReason(explicit, typing("♥")))
+    }
+
+    @Test
     fun typedNumbersAndWordsMustAppearAsWholeTokens() {
         val runId = readPrivateDataRun("给10086发短信说查询话费")
         fun typing(text: String) = ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))

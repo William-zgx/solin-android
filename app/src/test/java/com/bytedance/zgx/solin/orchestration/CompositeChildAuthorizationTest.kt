@@ -62,4 +62,12 @@ class CompositeChildAuthorizationTest {
         assertTrue(policy.canAuthorizeCompositeChild(id, parent,
             child(MobileActionFunctions.UI_TYPE_TEXT, mapOf("text" to "9"))))
     }
+
+    @Test fun symbolOnlyChildTextCannotBeAuthorized() {
+        val id = activeRun()
+        assertFalse(policy.canAuthorizeCompositeChild(id, parent,
+            child(MobileActionFunctions.UI_TYPE_TEXT, mapOf("text" to "♥"))))
+        assertTrue(policy.canAuthorizeCompositeChild(id, parent,
+            child(MobileActionFunctions.UI_TYPE_TEXT, mapOf("text" to "9"))))
+    }
 }

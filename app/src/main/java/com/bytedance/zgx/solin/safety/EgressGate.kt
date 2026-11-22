@@ -63,13 +63,14 @@ internal class EgressGate(
     }
 }
 
-private class UserTextPieces(val asciiTokens: Set<String>, val otherCodePoints: Set<Int>)
+private class UserTextPieces(val normalized: String, val asciiTokens: Set<String>, val otherCodePoints: Set<Int>)
 
 private val asciiLetterOrDigitRun = Regex("[a-z]+|[0-9]+")
 
 private fun userTextPieces(text: String): UserTextPieces {
     val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase()
     return UserTextPieces(
+        normalized = normalized,
         asciiTokens = asciiLetterOrDigitRun.findAll(normalized).map { it.value }.toSet(),
         otherCodePoints = buildSet {
             var index = 0
@@ -88,11 +89,16 @@ private fun userTextPieces(text: String): UserTextPieces {
  * Every ASCII letter/digit run must be a whole token of the run input, and every non-ASCII letter or
  * digit (including supplementary-plane characters) must occur in that input. Case, punctuation and
  * whitespace are ignored, so reordered user wording still counts while new private content cannot
- * pass through empty token sets.
+ * pass through empty token sets; symbol-only text must occur verbatim in that input.
  */
 private fun isTextFromUser(userInput: String, text: String): Boolean = isTextFromUser(userTextPieces(userInput), text)
 
 private fun isTextFromUser(input: UserTextPieces, text: String): Boolean {
     val typed = userTextPieces(text)
+    if (typed.asciiTokens.isEmpty() && typed.otherCodePoints.isEmpty()) {
+        // Empty token sets prove nothing; symbol-only text must appear verbatim in the run input.
+        val symbols = typed.normalized.trim()
+        return symbols.isEmpty() || input.normalized.contains(symbols)
+    }
     return input.asciiTokens.containsAll(typed.asciiTokens) && input.otherCodePoints.containsAll(typed.otherCodePoints)
 }

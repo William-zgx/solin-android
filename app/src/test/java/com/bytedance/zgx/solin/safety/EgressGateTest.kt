@@ -119,15 +119,48 @@ class EgressGateTest {
         assertTrue(result.isEmpty())
     }
 
-    @Test
-    fun symbolOnlyTextKeepsLegacyMatching() {
-        val result = gate.evaluate(
-            shareText,
-            request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "♥")),
-            context = { EgressRunContext(true, "") }
-        )
+    private fun share(text: String, input: String) = gate.evaluate(
+        shareText,
+        request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to text)),
+        context = { EgressRunContext(true, input) }
+    )
 
-        assertTrue(result.isEmpty())
+    private fun typed(text: String, input: String) = gate.evaluate(
+        typeText,
+        request(toolName = MobileActionFunctions.UI_TYPE_TEXT),
+        typedText = text,
+        context = { EgressRunContext(true, input) }
+    )
+
+    @Test
+    fun symbolOnlyTextNotInRunInputIsNotFromUser() {
+        assertEquals(setOf(EgressTrigger.TextHandedToExternalApp), share("♥", ""))
+        assertEquals(setOf(EgressTrigger.TextHandedToExternalApp), share("♥", "分享给小王"))
+        assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), typed("♥", ""))
+        assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), typed("♥", "输入 hello"))
+        assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), typed("♥", "输入 ♦"))
+    }
+
+    @Test
+    fun explicitlyUserSuppliedSymbolOnlyTextStaysEligible() {
+        assertTrue(share("♥", "把 ♥ 分享给小王").isEmpty())
+        assertTrue(typed("♥", "输入♥").isEmpty())
+        assertTrue(typed("♥", "输入 ♥ 然后别发送").isEmpty())
+    }
+
+    @Test
+    fun wordsWithPunctuationAndMultipleArgumentsStayCorrect() {
+        assertTrue(share("你好！！", "你好").isEmpty())
+        // Text containing letters/digits keeps the legacy whole-token matching; symbols are ignored.
+        assertTrue(share("hello ♥", "hello").isEmpty())
+        assertTrue(typed("上海\u00A0酒店", "上海 酒店").isEmpty())
+        assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), typed("hello wor", "hello world"))
+        val multi = gate.evaluate(
+            shareText,
+            request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "hello", "subject" to "♥")),
+            context = { EgressRunContext(true, "hello") }
+        )
+        assertEquals(setOf(EgressTrigger.TextHandedToExternalApp), multi)
     }
 
     @Test
