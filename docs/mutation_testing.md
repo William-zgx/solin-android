@@ -44,8 +44,7 @@ paired device benchmarks, migration tests, privacy review or release approval.
   tokens) and trigger conditions (network private-read, external-app any-taint).
 
 The focused run covers `PersistedEnumTest`, `StrictJsonScanTest` and
-`com.bytedance.zgx.solin.safety.EgressGateTest`. The campaign now registers 12 mutants and makes 13
-focused launches including the baseline. It remains opt-in and is not part of `verify_local.sh` or CI.
+`com.bytedance.zgx.solin.safety.EgressGateTest`. The campaign makes one focused launch per registered mutant plus the baseline. It remains opt-in and is not part of `verify_local.sh` or CI.
 No total for the expanded campaign is recorded here until it completes; reports stay under the ignored
 `build/verification/mutation` directory and are not committed.
 

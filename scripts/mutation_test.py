@@ -185,7 +185,10 @@ def run_campaign(run_command=subprocess.run, repo=REPO, report_path=None, popen_
                 for mutation in MUTATIONS:
                     target = copied / mutation.file
                     target.write_text(replace_once(original_sources[mutation.file], mutation.original, mutation.replacement))
-                    result = run_tests(copied, popen_factory)
+                    try:
+                        result = run_tests(copied, popen_factory)
+                    finally:
+                        target.write_text(original_sources[mutation.file])
                     results.append({"name": mutation.name, "killed": mutant_killed(result)})
                 report = {
                     "baseline": "passed",
@@ -219,6 +222,34 @@ class MutationTest(unittest.TestCase):
         with (repo / "build/verification/mutation/.lock").open("w") as probe:
             with self.assertRaises(BlockingIOError):
                 fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def seed_sources(self, repo):
+        sources = {}
+        for filename in {mutation.file for mutation in MUTATIONS}:
+            path = repo / filename
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text((REPO / filename).read_text())
+            sources[filename] = path.read_text()
+        return sources
+
+    def recording_popen(self, repo, sources, exit_codes):
+        """Fake Gradle launcher: records, per call, how many copied sources differ from pristine."""
+        diffs = []
+
+        def popen(args, **kwargs):
+            self.assert_campaign_locked(repo)
+            self.assertIn(EGRESS_PATTERN, args)
+            folder = Path(kwargs["cwd"])
+            diffs.append(sum((folder / name).read_text() != text for name, text in sources.items()))
+            code = exit_codes(len(diffs))
+            return self.FakeProcess(args, code, stdout="1 tests completed, 1 failed\nFooTest > test FAILED" if code else "")
+
+        return popen, diffs
+
+    def assert_isolated_mutants(self, diffs):
+        self.assertEqual(len(MUTATIONS) + 1, len(diffs))
+        self.assertEqual(0, diffs[0])
+        self.assertEqual([1] * len(MUTATIONS), diffs[1:])
 
     def test_replace_once_requires_unique_pattern(self):
         with self.assertRaises(MutationError):
@@ -263,7 +294,6 @@ class MutationTest(unittest.TestCase):
 
     @patch.dict(os.environ, {"JAVA_HOME": "/jdk", "ANDROID_SDK_ROOT": "/sdk"})
     def test_campaign_kills_mutants_without_touching_primary(self):
-        gradle_calls = []
         repo = None
 
         def fake_run(args, **_kwargs):
@@ -272,27 +302,16 @@ class MutationTest(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-        def fake_popen(args, **_kwargs):
-            self.assert_campaign_locked(repo)
-            gradle_calls.append(args)
-            code = 0 if len(gradle_calls) == 1 else 1
-            return self.FakeProcess(args, code, stdout="1 tests completed, 1 failed\nFooTest > test FAILED")
-
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "primary"
-            sources = {}
-            for filename in {mutation.file for mutation in MUTATIONS}:
-                path = repo / filename
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text((REPO / filename).read_text())
-                sources[filename] = path.read_text()
+            sources = self.seed_sources(repo)
+            fake_popen, diffs = self.recording_popen(repo, sources, lambda call: 0 if call == 1 else 1)
             report = run_campaign(fake_run, repo=repo, report_path=repo / "report.json", popen_factory=fake_popen)
             self.assertEqual(len(MUTATIONS), report["killed"])
             self.assertEqual(0, report["survived"])
             for filename, original in sources.items():
                 self.assertEqual(original, (repo / filename).read_text())
-            self.assertTrue(any(call[0] == "./gradlew" for call in gradle_calls))
-            self.assertTrue(all(EGRESS_PATTERN in call for call in gradle_calls))
+            self.assert_isolated_mutants(diffs)
 
     @patch.dict(os.environ, {"JAVA_HOME": "/jdk", "ANDROID_SDK_ROOT": "/sdk"})
     def test_survivor_is_a_failure(self):
@@ -303,21 +322,14 @@ class MutationTest(unittest.TestCase):
             code = 1 if args[0] == "pgrep" else 0
             return subprocess.CompletedProcess(args, code, stdout="", stderr="")
 
-        def fake_popen(args, **_kwargs):
-            self.assert_campaign_locked(repo)
-            return self.FakeProcess(args, 0)
-
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "primary"
-            sources = {}
-            for filename in {mutation.file for mutation in MUTATIONS}:
-                path = repo / filename
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text((REPO / filename).read_text())
-                sources[filename] = path.read_text()
+            sources = self.seed_sources(repo)
+            fake_popen, diffs = self.recording_popen(repo, sources, lambda call: 0)
             with self.assertRaises(MutationError):
                 run_campaign(fake_run, repo=repo, report_path=repo / "report.json", popen_factory=fake_popen)
             self.assertEqual("failed", json.loads((repo / "report.json").read_text())["status"])
+            self.assert_isolated_mutants(diffs)
 
     @patch.dict(os.environ, {"JAVA_HOME": "/jdk", "ANDROID_SDK_ROOT": "/sdk"})
     def test_timeout_escalates_with_bounded_grace_periods(self):
