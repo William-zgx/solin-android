@@ -292,7 +292,7 @@ class MainActivityRuntimePermissionUiTest {
             FROM agent_runs r
             LEFT JOIN agent_run_placement_bindings b ON b.runId = r.id
             ORDER BY r.updatedAtMillis DESC LIMIT 5
-            """.trimIndent(),
+            """.trimIndent()
         ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
@@ -303,8 +303,8 @@ class MainActivityRuntimePermissionUiTest {
                                 "placement=${cursor.getStringOrNull(2)} dispatch=${cursor.getStringOrNull(3)} " +
                                 "attempt=${if (cursor.isNull(4)) null else cursor.getInt(4)} " +
                                 "boot=${if (cursor.isNull(5)) null else cursor.getLong(5)}",
-                            Unit,
-                        ),
+                            Unit
+                        )
                     )
                 }
             }
@@ -322,7 +322,7 @@ class MainActivityRuntimePermissionUiTest {
             SELECT placement, dispatchState, attempt, bootCount
             FROM agent_run_placement_bindings
             ORDER BY boundAtElapsedRealtimeMillis DESC LIMIT 1
-            """.trimIndent(),
+            """.trimIndent()
         ).use { cursor ->
             if (cursor.moveToFirst()) {
                 "exists placement=${cursor.getString(0)} dispatch=${cursor.getString(1)} " +
@@ -334,8 +334,7 @@ class MainActivityRuntimePermissionUiTest {
         "$runs latestBinding=$latestBinding"
     }.getOrElse { "placement state failed: ${it.javaClass.simpleName}" }
 
-    private fun android.database.Cursor.getStringOrNull(index: Int): String? =
-        if (isNull(index)) null else getString(index)
+    private fun android.database.Cursor.getStringOrNull(index: Int): String? = if (isNull(index)) null else getString(index)
 
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {

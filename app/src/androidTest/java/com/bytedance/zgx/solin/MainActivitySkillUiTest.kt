@@ -1,15 +1,15 @@
 package com.bytedance.zgx.solin
 
 import android.content.Context
-import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
-import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.AndroidComposeTestRule
-import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as createAndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -33,7 +33,7 @@ class MainActivitySkillUiTest {
         resetMainActivityPersistentState(
             context = targetContext,
             inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig,
+            remoteModelConfig = ReadyRemoteModelConfig
         )
     }
 
@@ -42,9 +42,9 @@ class MainActivitySkillUiTest {
             ActivityScenarioRule(
                 mainActivitySkipStartupIntent(
                     context = targetContext,
-                    debugRemoteModelConfig = ReadyRemoteModelConfig,
-                ),
-            ),
+                    debugRemoteModelConfig = ReadyRemoteModelConfig
+                )
+            )
         ) { rule -> activityFromScenarioRule(rule) }
 
     // The probe endpoint must be up before the Activity (started by the inner rule) probes it.
@@ -59,7 +59,7 @@ class MainActivitySkillUiTest {
 
         composeRule.waitForAnyText(
             listOf("正在使用工具：Web 搜索", "已完成 Web 搜索"),
-            substring = true,
+            substring = true
         )
         composeRule.waitForTagGone("action_confirm_button")
     }
@@ -92,7 +92,7 @@ class MainActivitySkillUiTest {
         composeRule.waitForTag("action_confirm_button")
         composeRule.onNodeWithText("读取当前屏幕文本").assertIsDisplayed()
         composeRule.onNodeWithText(
-            "将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。",
+            "将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。"
         ).assertIsDisplayed()
         composeRule.onNodeWithTag("special_access_requirements").assertIsDisplayed()
         composeRule.assertTagAbsent("runtime_permission_requirements")
@@ -115,7 +115,7 @@ class MainActivitySkillUiTest {
         composeRule.waitForTag("action_confirm_button")
         composeRule.onNodeWithText("截取当前屏幕 OCR").assertIsDisplayed()
         composeRule.onNodeWithText(
-            "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。",
+            "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。"
         ).assertIsDisplayed()
         composeRule.onNodeWithText("captureMode").assertIsDisplayed()
         composeRule.onNodeWithText("current_screen").assertIsDisplayed()
@@ -173,11 +173,10 @@ class MainActivitySkillUiTest {
         }
     }
 
-    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean =
-        runCatching {
-            waitForTag(tag, timeoutMillis = timeoutMillis)
-            true
-        }.getOrDefault(false)
+    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean = runCatching {
+        waitForTag(tag, timeoutMillis = timeoutMillis)
+        true
+    }.getOrDefault(false)
 
     private fun ComposeTestRule.assertTagAbsent(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
@@ -188,7 +187,7 @@ class MainActivitySkillUiTest {
     private fun ComposeTestRule.waitForText(
         text: String,
         timeoutMillis: Long = 5_000,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
@@ -198,7 +197,7 @@ class MainActivitySkillUiTest {
     private fun ComposeTestRule.waitForAnyText(
         texts: List<String>,
         timeoutMillis: Long = 5_000,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             texts.any { text ->
@@ -213,13 +212,13 @@ class MainActivitySkillUiTest {
             tagPrefix = "audit_event_",
             matcher = hasAnyDescendant(hasText("UserCancelled")) and
                 hasAnyDescendant(hasText("$toolName · Cancelled", substring = true)) and
-                hasAnyDescendant(hasText("用户已取消工具执行。")),
+                hasAnyDescendant(hasText("用户已取消工具执行。"))
         )
         assertTaggedRowDisplayed(
             tagPrefix = "audit_event_",
             matcher = hasAnyDescendant(hasText("ToolObserved")) and
                 hasAnyDescendant(hasText("$toolName · Cancelled", substring = true)) and
-                hasAnyDescendant(hasText("工具执行已取消。")),
+                hasAnyDescendant(hasText("工具执行已取消。"))
         )
 
         waitForText("最近 Agent 轨迹", substring = true)
@@ -227,14 +226,14 @@ class MainActivitySkillUiTest {
             tagPrefix = "agent_trace_run_",
             matcher = hasAnyDescendant(hasText("已取消")) and
                 hasAnyDescendant(hasText("UserRejected", substring = true)) and
-                hasAnyDescendant(hasText("ToolObserved · Observed Cancelled", substring = true)),
+                hasAnyDescendant(hasText("ToolObserved · Observed Cancelled", substring = true))
         )
     }
 
     private fun ComposeTestRule.assertTaggedRowDisplayed(
         tagPrefix: String,
         matcher: SemanticsMatcher,
-        timeoutMillis: Long = 5_000,
+        timeoutMillis: Long = 5_000
     ) {
         val rowMatcher = hasTestTagPrefix(tagPrefix) and matcher
         waitUntil(timeoutMillis = timeoutMillis) {
@@ -246,10 +245,9 @@ class MainActivitySkillUiTest {
             .assertIsDisplayed()
     }
 
-    private fun hasTestTagPrefix(prefix: String): SemanticsMatcher =
-        SemanticsMatcher("has test tag prefix $prefix") { node ->
-            node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
-        }
+    private fun hasTestTagPrefix(prefix: String): SemanticsMatcher = SemanticsMatcher("has test tag prefix $prefix") { node ->
+        node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
+    }
 
     private fun ComposeTestRule.assertTextAbsent(text: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {

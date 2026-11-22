@@ -237,9 +237,11 @@ class LocalModelProbeServerRule : ExternalResource() {
                 val bytes = body.toByteArray(StandardCharsets.UTF_8)
                 socket.getOutputStream().apply {
                     write(
-                        ("HTTP/1.1 $status\r\nContent-Type: application/json\r\n" +
-                            "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n")
-                            .toByteArray(StandardCharsets.ISO_8859_1),
+                        (
+                            "HTTP/1.1 $status\r\nContent-Type: application/json\r\n" +
+                                "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+                            )
+                            .toByteArray(StandardCharsets.ISO_8859_1)
                     )
                     write(bytes)
                     flush()
