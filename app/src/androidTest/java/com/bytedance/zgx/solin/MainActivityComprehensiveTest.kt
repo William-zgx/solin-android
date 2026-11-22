@@ -29,6 +29,7 @@ import java.net.InetAddress
 import java.net.URI
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -403,7 +404,13 @@ private class LocalOpenAiServer : Closeable {
         while (!serverSocket.isClosed) {
             val socket = runCatching { serverSocket.accept() }.getOrNull() ?: break
             thread(start = true, isDaemon = true, name = "solin-test-connection") {
-                handle(socket)
+                try {
+                    handle(socket)
+                } catch (_: SocketException) {
+                    // A cancelled or disconnected client is not a server failure: it ends only this
+                    // mock connection. The request was already recorded before any response write,
+                    // and the tests' own assertions still decide pass or fail.
+                }
             }
         }
     }
@@ -411,12 +418,28 @@ private class LocalOpenAiServer : Closeable {
     val baseOrigin: String = "http://127.0.0.1:${serverSocket.localPort}"
     val baseUrl: String = "$baseOrigin/v1"
 
-    fun awaitPost(): RequestRecord =
-        requests.poll(10, TimeUnit.SECONDS) ?: error("Timed out waiting for remote request")
+    /** Waits for a real POST; connectivity probes (GET /v1/models etc.) stay recorded but are skipped. */
+    fun awaitPost(): RequestRecord {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (true) {
+            val remaining = deadline - System.nanoTime()
+            if (remaining <= 0) error("Timed out waiting for remote request")
+            val request = requests.poll(remaining, TimeUnit.NANOSECONDS) ?: continue
+            if (request.method == "POST") return request
+        }
+    }
 
+    /** Fails only if a POST arrives within [timeoutMillis]; a connectivity GET is not a send. */
     fun assertNoPost(timeoutMillis: Long = 1_000) {
-        val request = requests.poll(timeoutMillis, TimeUnit.MILLISECONDS) ?: return
-        fail("Expected no remote request, but received ${request.method} ${request.path}: ${request.body}")
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (true) {
+            val remaining = deadline - System.nanoTime()
+            if (remaining <= 0) return
+            val request = requests.poll(remaining, TimeUnit.NANOSECONDS) ?: return
+            if (request.method == "POST") {
+                fail("Expected no remote request, but received ${request.method} ${request.path}: ${request.body}")
+            }
+        }
     }
 
     fun awaitDownloadGet(): RequestRecord {
