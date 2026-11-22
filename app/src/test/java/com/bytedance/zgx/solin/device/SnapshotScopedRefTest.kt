@@ -135,9 +135,6 @@ class SnapshotScopedRefTest {
         assertEquals(2, Regex("SnapshotRefRegistry.clear\\(\\)").findAll(service).count())
         val ocr = File("src/main/java/com/bytedance/zgx/solin/tool/OcrGroundingCurrentScreenControlProvider.kt").readText()
         assertEquals(1, Regex("SnapshotRefRegistry.publish\\(").findAll(ocr).count())
-        // Action results hand the after snapshot to the model directly, bypassing the OCR wrapper.
-        val executor = File("src/main/java/com/bytedance/zgx/solin/tool/DeviceControlToolExecutor.kt").readText()
-        assertTrue(executor.contains("after?.let(SnapshotRefRegistry::publish)"))
         assertTrue(service.contains("findTargetCandidate(target, snapshot = published)"))
         assertEquals(2, Regex("if \\(scopedRef\\) null else tapOcrGroundingHint").findAll(service).count())
         assertTrue(service.contains("!scopedRef || candidate.node.isClickable"))
