@@ -236,9 +236,11 @@ class MainActivitySkillUiTest {
         waitForText("最近 Agent 轨迹", substring = true)
         assertTaggedRowDisplayed(
             tagPrefix = "agent_trace_run_",
+            // The row shows only the last few steps, so the original UserRejected step can be
+            // outside the window; assert the actual cancellation outcome instead.
             matcher = hasAnyDescendant(hasText("已取消")) and
-                hasAnyDescendant(hasText("UserRejected", substring = true)) and
-                hasAnyDescendant(hasText("ToolObserved · Observed Cancelled", substring = true))
+                hasAnyDescendant(hasText("ToolObserved · Observed Cancelled", substring = true)) and
+                hasAnyDescendant(hasText("ObservationDecided · Observation cancelled", substring = true))
         )
     }
 
