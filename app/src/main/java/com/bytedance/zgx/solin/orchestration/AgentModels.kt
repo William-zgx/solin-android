@@ -25,15 +25,14 @@ enum class AgentRunState {
     AwaitingExternalOutcome,
     Completed,
     Cancelled,
-    Failed,
+    Failed
 }
 
-internal fun AgentRunState.isTerminal(): Boolean =
-    this == AgentRunState.Completed || this == AgentRunState.Cancelled || this == AgentRunState.Failed
+internal fun AgentRunState.isTerminal(): Boolean = this == AgentRunState.Completed || this == AgentRunState.Cancelled || this == AgentRunState.Failed
 
 enum class RunDataDestination {
     Local,
-    Remote,
+    Remote
 }
 
 data class RunDataReceipt(
@@ -61,7 +60,7 @@ data class RunDataReceipt(
     val outputQualityRule: String? = null,
     val outputQualityAction: String? = null,
     val outputQualityStopped: Boolean = false,
-    val outputQualityKeptPrefix: Boolean = false,
+    val outputQualityKeptPrefix: Boolean = false
 ) {
     init {
         require(remoteHistoryCount >= 0) { "remoteHistoryCount must be >= 0" }
@@ -87,7 +86,7 @@ data class ModelOutputQualityTrace(
     val keptPrefix: Boolean,
     val modelId: String?,
     val backend: String?,
-    val runtimeKind: String,
+    val runtimeKind: String
 )
 
 data class AgentRun(
@@ -96,7 +95,7 @@ data class AgentRun(
     val state: AgentRunState,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
-    val sessionId: String? = null,
+    val sessionId: String? = null
 )
 
 sealed class AgentPlan {
@@ -105,7 +104,7 @@ sealed class AgentPlan {
         val memoryHits: List<MemoryHit>,
         val deviceContext: DeviceContextSnapshot? = null,
         /** Privacy-safe prompt for a remote model, or null when only the local prompt is allowed. */
-        val remotePromptForModel: String? = null,
+        val remotePromptForModel: String? = null
     ) : AgentPlan()
 
     data class UseTool(
@@ -115,142 +114,142 @@ sealed class AgentPlan {
         val fallbackReason: String?,
         val skillRequest: SkillRequest? = null,
         val skillPlan: SkillPlan? = null,
-        val safetyDecision: SafetyDecision,
+        val safetyDecision: SafetyDecision
     ) : AgentPlan()
 
     data class RejectedTool(
-        val result: ToolResult,
+        val result: ToolResult
     ) : AgentPlan()
 
     data class MissingModel(
-        val capability: ModelCapability,
+        val capability: ModelCapability
     ) : AgentPlan()
 }
 
 sealed class AgentStep {
     data class ContextLoaded(
         val memoryHits: List<MemoryHit>,
-        val deviceContext: DeviceContextSnapshot? = null,
+        val deviceContext: DeviceContextSnapshot? = null
     ) : AgentStep()
 
     data class ModelPlanned(
-        val plan: AgentPlan,
+        val plan: AgentPlan
     ) : AgentStep()
 
     data class IntentRouted(
-        val decision: IntentRoutingDecision,
+        val decision: IntentRoutingDecision
     ) : AgentStep()
 
     data class RemoteToolsExposed(
         val scope: RemoteToolScope,
-        val toolNames: List<String>,
+        val toolNames: List<String>
     ) : AgentStep()
 
     data class PlacementSelected(
-        val binding: RunPlacementBinding,
+        val binding: RunPlacementBinding
     ) : AgentStep()
 
     data class ModelRuntimeInvocationStarted(
-        val invocation: ModelRuntimeInvocation,
+        val invocation: ModelRuntimeInvocation
     ) : AgentStep()
 
     data class ShadowPlacementEvaluated(
-        val trace: ShadowPlacementTrace,
+        val trace: ShadowPlacementTrace
     ) : AgentStep()
 
     data class RunDataReceiptRecorded(
-        val receipt: RunDataReceipt,
+        val receipt: RunDataReceipt
     ) : AgentStep()
 
     data class ModelOutputQualityGuardTriggered(
-        val trace: ModelOutputQualityTrace,
+        val trace: ModelOutputQualityTrace
     ) : AgentStep()
 
     data class ToolRequested(
         val request: ToolRequest,
-        val draft: ActionDraft,
+        val draft: ActionDraft
     ) : AgentStep()
 
     data class SkillPlanned(
         val request: SkillRequest,
-        val plan: SkillPlan? = null,
+        val plan: SkillPlan? = null
     ) : AgentStep()
 
     data class SafetyChecked(
-        val decision: SafetyDecision,
+        val decision: SafetyDecision
     ) : AgentStep()
 
     data class UserConfirmationRequested(
         val request: ToolRequest,
-        val draft: ActionDraft,
+        val draft: ActionDraft
     ) : AgentStep()
 
     data class UserConfirmed(
-        val requestId: String,
+        val requestId: String
     ) : AgentStep()
 
     data class UserRejected(
-        val requestId: String,
+        val requestId: String
     ) : AgentStep()
 
     data class UserQuestionAsked(
         val questionId: String,
         val prompt: String,
-        val choices: List<String> = emptyList(),
+        val choices: List<String> = emptyList()
     ) : AgentStep()
 
     data class UserQuestionAnswered(
         val questionId: String,
-        val answer: String,
+        val answer: String
     ) : AgentStep()
 
     data class ToolObserved(
-        val result: ToolResult,
+        val result: ToolResult
     ) : AgentStep()
 
     data class ExternalOutcomeConfirmed(
         val requestId: String,
         val outcome: AgentExternalOutcome,
-        val result: ToolResult,
+        val result: ToolResult
     ) : AgentStep()
 
     data class ContinuationCursorRecorded(
-        val cursor: AgentContinuationCursor,
+        val cursor: AgentContinuationCursor
     ) : AgentStep()
 
     data class ToolRetryScheduled(
         val request: ToolRequest,
         val attempt: Int,
-        val reason: String,
+        val reason: String
     ) : AgentStep()
 
     data class ObservationDecided(
-        val decision: AgentObservationDecision,
+        val decision: AgentObservationDecision
     ) : AgentStep()
 
     data class AssistantResponded(
-        val text: String,
+        val text: String
     ) : AgentStep()
 
     data class ToolRejected(
-        val result: ToolResult,
+        val result: ToolResult
     ) : AgentStep()
 
     data class Failed(
-        val reason: String,
+        val reason: String
     ) : AgentStep()
 
     data class RestoredSummary(
         val persistedType: String,
         val summary: String,
-        val json: String,
+        val json: String
     ) : AgentStep()
 }
 
 data class AgentLoopResult(
     val run: AgentRun,
     val plan: AgentPlan,
-    val steps: List<AgentStep>,
+    val steps: List<AgentStep>
 )
 
 sealed class AgentObservationDecision {
@@ -258,27 +257,27 @@ sealed class AgentObservationDecision {
 
     data class ContinueWithModel(
         val requiresLocalModel: Boolean,
-        val reason: String,
+        val reason: String
     ) : AgentObservationDecision()
 
     data class RetryTool(
         val request: ToolRequest,
         val attempt: Int,
-        val reason: String,
+        val reason: String
     ) : AgentObservationDecision()
 
     data class PlanNextTool(
         val plan: AgentPlan.UseTool,
-        val reason: String,
+        val reason: String
     ) : AgentObservationDecision()
 
     data class PlanToolBatch(
         val plans: List<AgentPlan.UseTool>,
-        val reason: String,
+        val reason: String
     ) : AgentObservationDecision()
 
     data class Fail(
-        val reason: String,
+        val reason: String
     ) : AgentObservationDecision()
 
     data object Cancel : AgentObservationDecision()
@@ -295,13 +294,13 @@ data class AgentObservationResult(
     val continuationRemoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
     val retryRequest: ToolRequest? = null,
     val retryAttempt: Int = 0,
-    val steps: List<AgentStep>,
+    val steps: List<AgentStep>
 )
 
 enum class AgentExternalOutcome {
     Completed,
     NotCompleted,
-    OpenedOnly,
+    OpenedOnly
 }
 
 data class AgentExternalOutcomeResult(
@@ -309,7 +308,7 @@ data class AgentExternalOutcomeResult(
     val result: ToolResult,
     val assistantMessage: String,
     val decision: AgentObservationDecision,
-    val steps: List<AgentStep>,
+    val steps: List<AgentStep>
 )
 
 data class PendingExternalOutcomeSnapshot(
@@ -317,7 +316,7 @@ data class PendingExternalOutcomeSnapshot(
     val requestId: String,
     val toolName: String,
     val title: String,
-    val summary: String,
+    val summary: String
 )
 
 data class AgentContinuationCursor(
@@ -327,7 +326,7 @@ data class AgentContinuationCursor(
     val draft: ActionDraft,
     val plannedByModel: Boolean = false,
     val fallbackReason: String? = null,
-    val skillPlan: SkillPlan? = null,
+    val skillPlan: SkillPlan? = null
 )
 
 data class AgentModelObservationResult(
@@ -336,14 +335,14 @@ data class AgentModelObservationResult(
     val steps: List<AgentStep>,
     val continuationPromptForModel: String? = null,
     val continuationRequiresLocalModel: Boolean = false,
-    val continuationRemoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
+    val continuationRemoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly
 )
 
 data class AgentRecoveryAction(
     val sourceRequestId: String,
     val sourceToolName: String,
     val request: ToolRequest,
-    val draft: ActionDraft,
+    val draft: ActionDraft
 )
 
 data class PendingToolConfirmationSnapshot(
@@ -356,5 +355,5 @@ data class PendingToolConfirmationSnapshot(
     val fallbackReason: String?,
     val nextActionInput: String? = null,
     val continuationCursor: AgentContinuationCursor? = null,
-    val skillRunCheckpoint: SkillRunCheckpoint? = null,
+    val skillRunCheckpoint: SkillRunCheckpoint? = null
 )

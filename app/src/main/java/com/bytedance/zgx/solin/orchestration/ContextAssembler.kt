@@ -32,7 +32,7 @@ import com.bytedance.zgx.solin.runtime.estimateLocalRuntimeTokens
  */
 class ContextAssembler(
     private val systemPromptBuilder: SystemPromptBuilder? = null,
-    private val memoryIndex: MemoryIndex? = null,
+    private val memoryIndex: MemoryIndex? = null
 ) {
     /**
      * Build the user-prompt string for an answer turn. If there is no memory, no device context,
@@ -44,7 +44,7 @@ class ContextAssembler(
         input: String,
         memoryHits: List<MemoryHit>,
         deviceContext: DeviceContextSnapshot?,
-        run: AgentRun,
+        run: AgentRun
     ): String {
         // Translation turns are plain chat; a fixed instruction keeps small models from answering
         // or explaining the text instead of translating it. Context cards would only distract here.
@@ -68,7 +68,7 @@ class ContextAssembler(
         }
         val evidenceCards = budgetEvidenceCards(
             cards = allCards,
-            input = input,
+            input = input
         )
         val memoryBlock = evidenceCards
             .filter { card -> card.sourceType == EvidenceSourceType.Memory }
@@ -119,12 +119,12 @@ class ContextAssembler(
         input: String,
         memoryHits: List<MemoryHit>,
         deviceContext: DeviceContextSnapshot?,
-        run: AgentRun,
+        run: AgentRun
     ): AgentPlan.Answer = AgentPlan.Answer(
         promptForModel = assembleAnswerPrompt(input, memoryHits, deviceContext, run),
         memoryHits = memoryHits,
         deviceContext = deviceContext,
-        remotePromptForModel = remotePromptProjection(input, memoryHits, deviceContext, run),
+        remotePromptForModel = remotePromptProjection(input, memoryHits, deviceContext, run)
     )
 
     /**
@@ -137,7 +137,7 @@ class ContextAssembler(
         input: String,
         memoryHits: List<MemoryHit>,
         deviceContext: DeviceContextSnapshot?,
-        run: AgentRun,
+        run: AgentRun
     ): String? {
         if (memoryHits.isNotEmpty() || deviceContext != null) return null
         if (TranslationIntentParser.parse(input) != null) return null
@@ -153,43 +153,42 @@ class ContextAssembler(
 
     private fun evidenceCardsForAnswerContext(
         memoryHits: List<MemoryHit>,
-        deviceContext: DeviceContextSnapshot?,
-    ): List<EvidenceCard> =
-        buildList {
-            memoryHits
-                .filter { hit -> hit.isAvailableForLocalContext() }
-                .forEach { hit ->
-                    add(
-                        EvidenceCard(
-                            id = "memory:${hit.id}",
-                            sourceType = EvidenceSourceType.Memory,
-                            privacy = MessagePrivacy.LocalOnly,
-                            requiresLocalModel = true,
-                            text = hit.text,
-                            quality = EvidenceQuality(hit.memoryEvidenceQualityLevel()),
-                            tokenEstimate = estimateLocalRuntimeTokens(hit.text),
-                        ),
-                    )
-                }
-            val deviceText = deviceContext?.toPromptContext()?.takeIf { it.isNotBlank() }
-            if (deviceText != null) {
+        deviceContext: DeviceContextSnapshot?
+    ): List<EvidenceCard> = buildList {
+        memoryHits
+            .filter { hit -> hit.isAvailableForLocalContext() }
+            .forEach { hit ->
                 add(
                     EvidenceCard(
-                        id = "device-context",
-                        sourceType = EvidenceSourceType.DeviceContext,
+                        id = "memory:${hit.id}",
+                        sourceType = EvidenceSourceType.Memory,
                         privacy = MessagePrivacy.LocalOnly,
                         requiresLocalModel = true,
-                        text = deviceText,
-                        quality = EvidenceQuality(EvidenceQualityLevel.Medium),
-                        tokenEstimate = estimateLocalRuntimeTokens(deviceText),
-                    ),
+                        text = hit.text,
+                        quality = EvidenceQuality(hit.memoryEvidenceQualityLevel()),
+                        tokenEstimate = estimateLocalRuntimeTokens(hit.text)
+                    )
                 )
             }
+        val deviceText = deviceContext?.toPromptContext()?.takeIf { it.isNotBlank() }
+        if (deviceText != null) {
+            add(
+                EvidenceCard(
+                    id = "device-context",
+                    sourceType = EvidenceSourceType.DeviceContext,
+                    privacy = MessagePrivacy.LocalOnly,
+                    requiresLocalModel = true,
+                    text = deviceText,
+                    quality = EvidenceQuality(EvidenceQualityLevel.Medium),
+                    tokenEstimate = estimateLocalRuntimeTokens(deviceText)
+                )
+            )
         }
+    }
 
     private fun budgetEvidenceCards(
         cards: List<EvidenceCard>,
-        input: String,
+        input: String
     ): List<EvidenceCard> {
         if (cards.isEmpty()) return emptyList()
         var remainingTokens = (
@@ -212,7 +211,7 @@ class ContextAssembler(
                         selected += card.copy(
                             text = truncatedText,
                             truncated = true,
-                            tokenEstimate = estimateLocalRuntimeTokens(truncatedText),
+                            tokenEstimate = estimateLocalRuntimeTokens(truncatedText)
                         )
                         remainingTokens = 0
                     }
@@ -239,40 +238,36 @@ class ContextAssembler(
         val evidenceRenderComparator: Comparator<EvidenceCard> =
             compareBy { it.sourceType.priorityForPromptRender() }
 
-        fun EvidenceSourceType.priorityForPromptBudget(): Int =
-            when (this) {
-                EvidenceSourceType.Memory -> 0
-                EvidenceSourceType.DeviceContext -> 1
-                EvidenceSourceType.UserPrompt -> 2
-                EvidenceSourceType.ToolResult,
-                EvidenceSourceType.OcrText,
-                EvidenceSourceType.FilePreview,
-                EvidenceSourceType.ImageAttachment,
-                EvidenceSourceType.PublicWeb,
-                EvidenceSourceType.ProtectedSource -> 3
-            }
+        fun EvidenceSourceType.priorityForPromptBudget(): Int = when (this) {
+            EvidenceSourceType.Memory -> 0
+            EvidenceSourceType.DeviceContext -> 1
+            EvidenceSourceType.UserPrompt -> 2
+            EvidenceSourceType.ToolResult,
+            EvidenceSourceType.OcrText,
+            EvidenceSourceType.FilePreview,
+            EvidenceSourceType.ImageAttachment,
+            EvidenceSourceType.PublicWeb,
+            EvidenceSourceType.ProtectedSource -> 3
+        }
 
-        fun EvidenceSourceType.priorityForPromptRender(): Int =
-            when (this) {
-                EvidenceSourceType.Memory -> 0
-                EvidenceSourceType.DeviceContext -> 1
-                else -> 2
-            }
+        fun EvidenceSourceType.priorityForPromptRender(): Int = when (this) {
+            EvidenceSourceType.Memory -> 0
+            EvidenceSourceType.DeviceContext -> 1
+            else -> 2
+        }
 
-        fun EvidenceQualityLevel.priorityForPromptBudget(): Int =
-            when (this) {
-                EvidenceQualityLevel.High -> 3
-                EvidenceQualityLevel.Medium -> 2
-                EvidenceQualityLevel.Unknown -> 1
-                EvidenceQualityLevel.Low -> 0
-            }
+        fun EvidenceQualityLevel.priorityForPromptBudget(): Int = when (this) {
+            EvidenceQualityLevel.High -> 3
+            EvidenceQualityLevel.Medium -> 2
+            EvidenceQualityLevel.Unknown -> 1
+            EvidenceQualityLevel.Low -> 0
+        }
 
-        fun MemoryHit.memoryEvidenceQualityLevel(): EvidenceQualityLevel =
-            when {
-                finalScore >= 0.70f -> EvidenceQualityLevel.High
-                finalScore >= 0.25f -> EvidenceQualityLevel.Medium
-                else -> EvidenceQualityLevel.Low
-            }
+        fun MemoryHit.memoryEvidenceQualityLevel(): EvidenceQualityLevel = when {
+            finalScore >= 0.70f -> EvidenceQualityLevel.High
+            finalScore >= 0.25f -> EvidenceQualityLevel.Medium
+            else -> EvidenceQualityLevel.Low
+        }
 
         fun EvidenceCard.toPromptLine(prefix: String = "- "): String {
             val quality = when (this.quality.level) {

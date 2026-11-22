@@ -2,8 +2,6 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.MessagePrivacy
-import com.bytedance.zgx.solin.multimodal.SharedInput
-import com.bytedance.zgx.solin.multimodal.SharedInputSource
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
 import com.bytedance.zgx.solin.action.IntentRoutingDecision
@@ -13,6 +11,8 @@ import com.bytedance.zgx.solin.device.DeviceContextSnapshot
 import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.memory.MemoryHit
+import com.bytedance.zgx.solin.multimodal.SharedInput
+import com.bytedance.zgx.solin.multimodal.SharedInputSource
 import com.bytedance.zgx.solin.runtime.estimateLocalRuntimeTokens
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
@@ -30,7 +30,7 @@ fun AgentLoopResult.toAssistantRoute(): AssistantRoute {
             promptForModel = planned.promptForModel,
             memoryHits = planned.memoryHits,
             deviceContext = planned.deviceContext,
-            remotePromptForModel = planned.remotePromptForModel,
+            remotePromptForModel = planned.remotePromptForModel
         )
 
         is AgentPlan.UseTool -> AssistantRoute.Action(
@@ -40,7 +40,7 @@ fun AgentLoopResult.toAssistantRoute(): AssistantRoute {
             plannedByModel = planned.plannedByModel,
             fallbackReason = planned.fallbackReason,
             skillId = planned.skillRequest?.skillId,
-            requiresUserConfirmation = planned.requiresUserConfirmation(),
+            requiresUserConfirmation = planned.requiresUserConfirmation()
         )
 
         is AgentPlan.RejectedTool -> AssistantRoute.ToolRejected(planned.result.summary)
@@ -49,8 +49,7 @@ fun AgentLoopResult.toAssistantRoute(): AssistantRoute {
     }
 }
 
-internal fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean =
-    safetyDecision.outcome == SafetyOutcome.RequireConfirmation
+internal fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean = safetyDecision.outcome == SafetyOutcome.RequireConfirmation
 
 internal fun AgentPlan.UseTool.toIntentRoutingDecision(input: String): IntentRoutingDecision {
     val path = routingPath()
@@ -63,25 +62,24 @@ internal fun AgentPlan.UseTool.toIntentRoutingDecision(input: String): IntentRou
         accepted = true,
         confidence = ActionIntentConfidence.High,
         rejectionReasons = emptyList(),
-        requiresConfirmation = requiresUserConfirmation(),
+        requiresConfirmation = requiresUserConfirmation()
     )
 }
 
-internal fun AgentPlan.UseTool.routingPath(): IntentRoutingPath =
-    when (fallbackReason) {
-        "skill-first",
-        "skill model step" -> IntentRoutingPath.SkillFirst
-        "remote tool call",
-        "remote tool batch" -> IntentRoutingPath.RemoteToolPlanning
-        "local model tool call" -> IntentRoutingPath.ModelToolCall
-        else -> IntentRoutingPath.ActionPlanner
-    }
+internal fun AgentPlan.UseTool.routingPath(): IntentRoutingPath = when (fallbackReason) {
+    "skill-first",
+    "skill model step" -> IntentRoutingPath.SkillFirst
+    "remote tool call",
+    "remote tool batch" -> IntentRoutingPath.RemoteToolPlanning
+    "local model tool call" -> IntentRoutingPath.ModelToolCall
+    else -> IntentRoutingPath.ActionPlanner
+}
 
 internal fun AgentTraceStore.appendRejectedRoutingDecision(
     runId: String,
     path: IntentRoutingPath,
     toolName: String?,
-    reason: String,
+    reason: String
 ) {
     val run = run(runId) ?: return
     appendStep(
@@ -96,40 +94,36 @@ internal fun AgentTraceStore.appendRejectedRoutingDecision(
                 accepted = false,
                 confidence = ActionIntentConfidence.None,
                 rejectionReasons = listOf(reason.toRoutingReasonSlug()),
-                requiresConfirmation = null,
-            ),
-        ),
+                requiresConfirmation = null
+            )
+        )
     )
 }
 
-internal fun IntentRoutingPath.routingPriority(): Int =
-    when (this) {
-        IntentRoutingPath.SkillFirst -> 100
-        IntentRoutingPath.ActionPlanner -> 80
-        IntentRoutingPath.RemoteToolPlanning -> 70
-        IntentRoutingPath.ModelToolCall -> 60
-        IntentRoutingPath.NoAction -> 0
-    }
+internal fun IntentRoutingPath.routingPriority(): Int = when (this) {
+    IntentRoutingPath.SkillFirst -> 100
+    IntentRoutingPath.ActionPlanner -> 80
+    IntentRoutingPath.RemoteToolPlanning -> 70
+    IntentRoutingPath.ModelToolCall -> 60
+    IntentRoutingPath.NoAction -> 0
+}
 
-internal fun String.toRoutingReasonSlug(): String =
-    lowercase()
-        .replace(Regex("[^a-z0-9]+"), "_")
-        .trim('_')
-        .ifBlank { "tool_rejected" }
+internal fun String.toRoutingReasonSlug(): String = lowercase()
+    .replace(Regex("[^a-z0-9]+"), "_")
+    .trim('_')
+    .ifBlank { "tool_rejected" }
 
-internal fun ActionDraft.withSafetyDecision(safetyDecision: SafetyDecision): ActionDraft =
-    if (safetyDecision.outcome == SafetyOutcome.RequireConfirmation && !requiresConfirmation) {
-        copy(requiresConfirmation = true)
-    } else {
-        this
-    }
+internal fun ActionDraft.withSafetyDecision(safetyDecision: SafetyDecision): ActionDraft = if (safetyDecision.outcome == SafetyOutcome.RequireConfirmation && !requiresConfirmation) {
+    copy(requiresConfirmation = true)
+} else {
+    this
+}
 
-internal fun AgentPlan.UseTool.nextExecutionState(): AgentRunState =
-    when {
-        request.toolName == MobileActionFunctions.ASK_USER -> AgentRunState.AwaitingUserAnswer
-        requiresUserConfirmation() -> AgentRunState.AwaitingUserConfirmation
-        else -> AgentRunState.ExecutingTool
-    }
+internal fun AgentPlan.UseTool.nextExecutionState(): AgentRunState = when {
+    request.toolName == MobileActionFunctions.ASK_USER -> AgentRunState.AwaitingUserAnswer
+    requiresUserConfirmation() -> AgentRunState.AwaitingUserConfirmation
+    else -> AgentRunState.ExecutingTool
+}
 
 /**
  * Parse the `choices` argument from a ToolRequest whose arguments map is `Map<String, String>`.
@@ -156,53 +150,49 @@ internal fun parseAskUserChoices(arguments: Map<String, String>): List<String> {
  * compaction gating even against remote models (both over- and under-estimates are safe: the
  * compactor is conservative, and the post-send retry path catches actual overflows).
  */
-internal fun estimateTokensApproximate(messages: List<ChatMessage>): Int =
-    messages.sumOf { estimateLocalRuntimeTokens(it.text) } + messages.size * 4
+internal fun estimateTokensApproximate(messages: List<ChatMessage>): Int = messages.sumOf { estimateLocalRuntimeTokens(it.text) } + messages.size * 4
 
-internal fun SharedInput.toPromptPrivacySegments(): List<PromptPrivacySegment> =
-    sourcePrivacy.map { metadata ->
-        PromptPrivacySegment(
-            source = when (metadata.source) {
-                SharedInputSource.Text -> PromptSegmentSource.CurrentInput
-                SharedInputSource.Image -> PromptSegmentSource.Image
-                SharedInputSource.File -> PromptSegmentSource.File
-                SharedInputSource.ScreenOcr -> PromptSegmentSource.ScreenOcr
-            },
-            privacy = metadata.privacy,
-            requiresLocalModel = metadata.requiresLocalModel,
-        )
-    }
+internal fun SharedInput.toPromptPrivacySegments(): List<PromptPrivacySegment> = sourcePrivacy.map { metadata ->
+    PromptPrivacySegment(
+        source = when (metadata.source) {
+            SharedInputSource.Text -> PromptSegmentSource.CurrentInput
+            SharedInputSource.Image -> PromptSegmentSource.Image
+            SharedInputSource.File -> PromptSegmentSource.File
+            SharedInputSource.ScreenOcr -> PromptSegmentSource.ScreenOcr
+        },
+        privacy = metadata.privacy,
+        requiresLocalModel = metadata.requiresLocalModel
+    )
+}
 
 internal fun ChatMessage.toPromptPrivacySegment(
     source: PromptSegmentSource,
-    optionalHistory: Boolean = false,
+    optionalHistory: Boolean = false
 ): PromptPrivacySegment = PromptPrivacySegment(
     source = source,
     privacy = privacy,
     requiresLocalModel = privacy == MessagePrivacy.LocalOnly,
-    optionalHistory = optionalHistory,
+    optionalHistory = optionalHistory
 )
 
 internal fun Iterable<ChatMessage>.toPromptPrivacySegments(
     source: PromptSegmentSource,
-    optionalHistory: Boolean = false,
-): List<PromptPrivacySegment> =
-    map { message -> message.toPromptPrivacySegment(source, optionalHistory) }
+    optionalHistory: Boolean = false
+): List<PromptPrivacySegment> = map { message -> message.toPromptPrivacySegment(source, optionalHistory) }
 
-internal fun PendingMessagesDrain.toPromptPrivacySegments(): List<PromptPrivacySegment> =
-    steer.toPromptPrivacySegments(PromptSegmentSource.Steer) +
-        queued.toPromptPrivacySegments(PromptSegmentSource.QueuedInput)
+internal fun PendingMessagesDrain.toPromptPrivacySegments(): List<PromptPrivacySegment> = steer.toPromptPrivacySegments(PromptSegmentSource.Steer) +
+    queued.toPromptPrivacySegments(PromptSegmentSource.QueuedInput)
 
 internal fun MemoryHit.toPromptPrivacySegment(): PromptPrivacySegment = PromptPrivacySegment(
     source = PromptSegmentSource.Memory,
     privacy = privacy,
-    requiresLocalModel = privacy == MessagePrivacy.LocalOnly,
+    requiresLocalModel = privacy == MessagePrivacy.LocalOnly
 )
 
 internal fun DeviceContextSnapshot.toPromptPrivacySegment(): PromptPrivacySegment = PromptPrivacySegment(
     source = PromptSegmentSource.DeviceContext,
     privacy = MessagePrivacy.LocalOnly,
-    requiresLocalModel = true,
+    requiresLocalModel = true
 )
 
 internal fun EvidenceCard.toPromptPrivacySegment(): PromptPrivacySegment = PromptPrivacySegment(
@@ -218,7 +208,7 @@ internal fun EvidenceCard.toPromptPrivacySegment(): PromptPrivacySegment = Promp
         EvidenceSourceType.ProtectedSource -> PromptSegmentSource.Evidence
     },
     privacy = privacy,
-    requiresLocalModel = requiresLocalModel,
+    requiresLocalModel = requiresLocalModel
 )
 
 internal fun ToolResult.toPromptPrivacySegment(spec: ToolSpec?): PromptPrivacySegment {
@@ -233,14 +223,13 @@ internal fun ToolResult.toPromptPrivacySegment(spec: ToolSpec?): PromptPrivacySe
     return PromptPrivacySegment(
         source = PromptSegmentSource.ToolObservation,
         privacy = if (isRemoteEligible) MessagePrivacy.RemoteEligible else MessagePrivacy.LocalOnly,
-        requiresLocalModel = !isRemoteEligible,
+        requiresLocalModel = !isRemoteEligible
     )
 }
 
-private fun ToolResult.containsProtectedObservationPayload(): Boolean =
-    data.any { (key, value) ->
-        key.isProtectedObservationKey() || PROTECTED_OBSERVATION_FIELD_PATTERN.containsMatchIn(value)
-    }
+private fun ToolResult.containsProtectedObservationPayload(): Boolean = data.any { (key, value) ->
+    key.isProtectedObservationKey() || PROTECTED_OBSERVATION_FIELD_PATTERN.containsMatchIn(value)
+}
 
 private fun String.isProtectedObservationKey(): Boolean {
     val normalized = lowercase()
@@ -263,11 +252,11 @@ private val PROTECTED_OBSERVATION_KEYS = setOf(
     "searchVerificationEvidence",
     "uiActionOutcome",
     "uiActionOutcomeReason",
-    "appSearchProgressStage",
+    "appSearchProgressStage"
 ).mapTo(mutableSetOf()) { it.lowercase() }
 
 private val PROTECTED_OBSERVATION_FIELD_PATTERN = Regex(
-    pattern = """(?i)[\"']?(?:screen\w*|ocr\w*|before(?:observation|node|actionable|text)\w*|after(?:observation|node|actionable|text)\w*|verificationSummary|searchVerification\w*|uiActionOutcome\w*|appSearchProgressStage)[\"']?\s*[:=]""",
+    pattern = """(?i)[\"']?(?:screen\w*|ocr\w*|before(?:observation|node|actionable|text)\w*|after(?:observation|node|actionable|text)\w*|verificationSummary|searchVerification\w*|uiActionOutcome\w*|appSearchProgressStage)[\"']?\s*[:=]"""
 )
 
 internal fun AssistantRoute.Chat.toContextPrivacySegments(): List<PromptPrivacySegment> = buildList {

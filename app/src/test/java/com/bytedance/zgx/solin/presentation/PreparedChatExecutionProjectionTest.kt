@@ -18,7 +18,7 @@ class PreparedChatExecutionProjectionTest {
                 runId = "run",
                 promptForModel = "wrapped 原始",
                 memoryHits = emptyList(),
-                remotePromptForModel = "原始",
+                remotePromptForModel = "原始"
             ),
             stateBeforeSend = ChatUiState(),
             effectiveMessagePrivacy = MessagePrivacy.RemoteEligible,
@@ -29,7 +29,7 @@ class PreparedChatExecutionProjectionTest {
             includePrivateLocalContext = false,
             agentRunOptions = AgentRunOptions(),
             currentPromptEvidenceSummary = null,
-            remoteSendConfirmed = false,
+            remoteSendConfirmed = false
         )
         assertEquals("原始", execution.routeForDispatch.remotePromptForModel)
 

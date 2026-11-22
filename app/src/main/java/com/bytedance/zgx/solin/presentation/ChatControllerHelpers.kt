@@ -31,11 +31,11 @@ import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import com.bytedance.zgx.solin.orchestration.BindAndReserveResult
 import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
 import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
+import com.bytedance.zgx.solin.orchestration.MidRunSteeringAction
 import com.bytedance.zgx.solin.orchestration.ModelCandidateSnapshot
 import com.bytedance.zgx.solin.orchestration.ModelRequirements
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeAdapters
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
-import com.bytedance.zgx.solin.orchestration.MidRunSteeringAction
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.PreparedChatBindingStore
 import com.bytedance.zgx.solin.orchestration.PreparedChatRun
@@ -80,7 +80,7 @@ internal interface ChatServingCall {
  */
 internal class PreparedServingCall(
     private val launch: (onLaunched: (Deferred<Unit>) -> Unit) -> Unit,
-    private val stopRuntime: () -> Unit,
+    private val stopRuntime: () -> Unit
 ) : ChatServingCall {
     private val stopped = AtomicBoolean(false)
     private val job = AtomicReference<Deferred<Unit>?>(null)
@@ -114,7 +114,7 @@ internal interface ChatPlacementRuntime : PreparedChatBindingStore {
         prepared: PreparedChatRun,
         receipt: RunDataReceipt,
         local: ChatServingCall,
-        remote: ChatServingCall,
+        remote: ChatServingCall
     )
 
     fun stop(runId: String, state: AgentRunState = AgentRunState.Cancelled): Boolean
@@ -123,13 +123,11 @@ internal interface ChatPlacementRuntime : PreparedChatBindingStore {
 internal class S3ChatPlacementRuntime(
     private val bindingStore: RunPlacementBindingStore,
     private val dispatcher: ModelRuntimeDispatcher,
-    private val clockMillis: () -> Long = System::currentTimeMillis,
+    private val clockMillis: () -> Long = System::currentTimeMillis
 ) : ChatPlacementRuntime {
-    override fun activeBinding(runId: String): ActiveRunPlacementPermit? =
-        bindingStore.activeBinding(runId)
+    override fun activeBinding(runId: String): ActiveRunPlacementPermit? = bindingStore.activeBinding(runId)
 
-    override fun bindAndReserve(binding: RunPlacementBinding): ActiveRunPlacementPermit? =
-        (bindingStore.bindAndReserve(binding) as? BindAndReserveResult.Bound)?.permit
+    override fun bindAndReserve(binding: RunPlacementBinding): ActiveRunPlacementPermit? = (bindingStore.bindAndReserve(binding) as? BindAndReserveResult.Bound)?.permit
 
     override fun abort(permit: ActiveRunPlacementPermit) {
         dispatcher.stop(permit.binding.runId, AgentRunState.Failed, clockMillis())
@@ -139,27 +137,25 @@ internal class S3ChatPlacementRuntime(
         prepared: PreparedChatRun,
         receipt: RunDataReceipt,
         local: ChatServingCall,
-        remote: ChatServingCall,
+        remote: ChatServingCall
     ) {
         dispatcher.dispatch(
             permit = prepared.permit,
             receipt = receipt,
             adapters = ModelRuntimeAdapters(
                 local = { local.asRunningModelCall() },
-                remote = { remote.asRunningModelCall() },
-            ),
+                remote = { remote.asRunningModelCall() }
+            )
         )
     }
 
-    override fun stop(runId: String, state: AgentRunState): Boolean =
-        dispatcher.stop(runId, state, clockMillis())
+    override fun stop(runId: String, state: AgentRunState): Boolean = dispatcher.stop(runId, state, clockMillis())
 }
 
-private fun ChatServingCall.asRunningModelCall(): RunningModelRuntimeCall<Unit> =
-    object : RunningModelRuntimeCall<Unit> {
-        override suspend fun await() = this@asRunningModelCall.await()
-        override fun stop() = this@asRunningModelCall.stop()
-    }
+private fun ChatServingCall.asRunningModelCall(): RunningModelRuntimeCall<Unit> = object : RunningModelRuntimeCall<Unit> {
+    override suspend fun await() = this@asRunningModelCall.await()
+    override fun stop() = this@asRunningModelCall.stop()
+}
 
 internal class PreparedChatExecution(
     val userPrompt: String,
@@ -173,7 +169,7 @@ internal class PreparedChatExecution(
     val includePrivateLocalContext: Boolean,
     val agentRunOptions: AgentRunOptions,
     val currentPromptEvidenceSummary: EvidenceReceiptSummary?,
-    val remoteSendConfirmed: Boolean,
+    val remoteSendConfirmed: Boolean
 ) {
     @Volatile
     private var confirmedLocalMessages: List<ChatMessage> = emptyList()
@@ -198,9 +194,8 @@ internal class PreparedChatExecution(
         confirmedLocalMessages = messages.filter { message -> message.privacy == MessagePrivacy.LocalOnly }
     }
 
-    override fun toString(): String =
-        "PreparedChatExecution(runId=${route.runId}, historyCount=${remoteHistory.size}, " +
-            "imageCount=${imageAttachments.size}, localImageCount=${localImageAttachments.size})"
+    override fun toString(): String = "PreparedChatExecution(runId=${route.runId}, historyCount=${remoteHistory.size}, " +
+        "imageCount=${imageAttachments.size}, localImageCount=${localImageAttachments.size})"
 }
 
 internal fun initialChatPrivacyPlan(
@@ -208,22 +203,22 @@ internal fun initialChatPrivacyPlan(
     history: List<ChatMessage>,
     remoteImages: List<ChatImageAttachment>,
     localImages: List<LocalImageAttachment>,
-    evidence: EvidenceReceiptSummary?,
+    evidence: EvidenceReceiptSummary?
 ): PromptPrivacyPlan = PromptPrivacyPlanner.build(
     buildList {
         add(
             PromptPrivacySegment(
                 source = PromptSegmentSource.CurrentInput,
                 privacy = promptPrivacy,
-                requiresLocalModel = promptPrivacy == MessagePrivacy.LocalOnly,
-            ),
+                requiresLocalModel = promptPrivacy == MessagePrivacy.LocalOnly
+            )
         )
         history.mapTo(this) { message ->
             PromptPrivacySegment(
                 source = PromptSegmentSource.History,
                 privacy = message.privacy,
                 requiresLocalModel = message.privacy == MessagePrivacy.LocalOnly,
-                optionalHistory = true,
+                optionalHistory = true
             )
         }
         repeat(maxOf(remoteImages.size, localImages.size)) {
@@ -231,8 +226,8 @@ internal fun initialChatPrivacyPlan(
                 PromptPrivacySegment(
                     PromptSegmentSource.Image,
                     promptPrivacy,
-                    promptPrivacy == MessagePrivacy.LocalOnly,
-                ),
+                    promptPrivacy == MessagePrivacy.LocalOnly
+                )
             )
         }
         if (evidence != null) {
@@ -241,22 +236,21 @@ internal fun initialChatPrivacyPlan(
                 PromptPrivacySegment(
                     source = PromptSegmentSource.Evidence,
                     privacy = if (localOnly) MessagePrivacy.LocalOnly else MessagePrivacy.RemoteEligible,
-                    requiresLocalModel = localOnly,
-                ),
+                    requiresLocalModel = localOnly
+                )
             )
         }
-    },
+    }
 )
 
-internal fun PromptPrivacyPlan.withRouteContext(route: AssistantRoute.Chat): PromptPrivacyPlan =
-    PromptPrivacyPlanner.append(this, route.toContextPrivacySegments())
+internal fun PromptPrivacyPlan.withRouteContext(route: AssistantRoute.Chat): PromptPrivacyPlan = PromptPrivacyPlanner.append(this, route.toContextPrivacySegments())
 
 internal fun initialAgentRunOptions(
     state: ChatUiState,
     useRemoteModel: Boolean,
     remoteConfig: RemoteModelConfig,
     localPlanningStrategy: () -> LocalPlanningStrategy = { LocalPlanningStrategy.RuleFirst },
-    localPlanningModelPath: () -> String? = { null },
+    localPlanningModelPath: () -> String? = { null }
 ): AgentRunOptions {
     if (useRemoteModel) {
         return AgentRunOptions(
@@ -267,7 +261,7 @@ internal fun initialAgentRunOptions(
             // declares vision support. This lets the in-app observe→replan→tap loop run without a
             // local action model — the remote model sees screenshots and decides taps.
             remoteGuiDrivingEnabled = state.remoteGuiAutomationEnabled &&
-                remoteConfig.supportsVisionInput,
+                remoteConfig.supportsVisionInput
         )
     }
     val strategy = localPlanningStrategy()
@@ -278,7 +272,7 @@ internal fun initialAgentRunOptions(
         initialPlanningMode = InitialPlanningMode.LocalModelFirst,
         reduceDeviceActionConfirmations = state.reduceDeviceActionConfirmations,
         localPlanningStrategy = strategy,
-        localPlanningModelPath = localPlanningModelPath(),
+        localPlanningModelPath = localPlanningModelPath()
     )
 }
 
@@ -286,7 +280,7 @@ internal data class ChatPlacementInputs(
     val requirements: ModelRequirements,
     val complexity: RequestComplexity,
     val localCandidate: ModelCandidateSnapshot,
-    val remoteCandidate: ModelCandidateSnapshot,
+    val remoteCandidate: ModelCandidateSnapshot
 )
 
 internal fun chatPlacementInputs(
@@ -298,10 +292,10 @@ internal fun chatPlacementInputs(
     localRuntimeLoaded: Boolean,
     connectivity: RemoteConnectivitySnapshot?,
     nowElapsedRealtimeMillis: Long,
-    autoRemoteAuthorized: Boolean,
+    autoRemoteAuthorized: Boolean
 ): ChatPlacementInputs {
     val estimatedInputTokens = estimateTokensApproximate(
-        history + ChatMessage(MessageRole.User, promptForModel),
+        history + ChatMessage(MessageRole.User, promptForModel)
     )
     val requestedOutputTokens = 1_024
     val requirements = ModelRequirements(
@@ -309,7 +303,7 @@ internal fun chatPlacementInputs(
         requiresVision = remoteImageCount + localImageCount > 0,
         requiresTools = false,
         estimatedInputTokens = estimatedInputTokens,
-        requestedOutputTokens = requestedOutputTokens,
+        requestedOutputTokens = requestedOutputTokens
     )
     val localContextWindow = state.activeLocalCapabilityProfile?.contextWindowTokens ?: state.localMaxTotalTokens
     val complexity = RequestComplexityAggregator.aggregate(
@@ -319,8 +313,8 @@ internal fun chatPlacementInputs(
             reasoningEffort = state.generationParameters.reasoningEffort,
             requiresMultiStepPlan = false,
             requiresToolLoop = false,
-            requestedOutputTokens = requestedOutputTokens,
-        ),
+            requestedOutputTokens = requestedOutputTokens
+        )
     )
     val remoteConfig = state.remoteModelConfig.normalized()
     return ChatPlacementInputs(
@@ -331,7 +325,7 @@ internal fun chatPlacementInputs(
             supportsText = true,
             supportsVision = state.activeLocalModelSupportsVisionInput,
             supportsTools = false,
-            contextWindowTokens = localContextWindow,
+            contextWindowTokens = localContextWindow
         ),
         remoteCandidate = ModelCandidateSnapshot(
             available = remoteConfig.isConfigured,
@@ -344,8 +338,8 @@ internal fun chatPlacementInputs(
             connectivityStatus = connectivity?.status ?: RemoteModelConnectivityStatus.Unknown,
             connectivityFresh = connectivity?.isFresh(nowElapsedRealtimeMillis) == true,
             profileRevisionMatches = connectivity?.configRevision == remoteConfig.profileRevision,
-            overloaded = false,
-        ),
+            overloaded = false
+        )
     )
 }
 
@@ -356,7 +350,7 @@ internal fun MutableStateFlow<ChatUiState>.updateLastAssistant(text: String) {
         if (index >= 0) {
             updatedMessages[index] = updatedMessages[index].copy(
                 text = text,
-                generationStats = null,
+                generationStats = null
             )
         }
         state.copy(messages = updatedMessages)
@@ -371,7 +365,7 @@ internal fun MutableStateFlow<ChatUiState>.updateLastAssistantLocalOnly(text: St
             updatedMessages[index] = updatedMessages[index].copy(
                 text = text,
                 generationStats = null,
-                privacy = MessagePrivacy.LocalOnly,
+                privacy = MessagePrivacy.LocalOnly
             )
         }
         state.copy(messages = updatedMessages)
@@ -386,7 +380,7 @@ internal fun MutableStateFlow<ChatUiState>.updateLastAssistantStats(stats: Gener
         if (index >= 0) {
             val enrichedStats = stats.copy(
                 modelId = stats.modelId ?: state.activeInstalledModelId ?: state.selectedModelId,
-                backend = stats.backend ?: state.backend,
+                backend = stats.backend ?: state.backend
             )
             updatedMessages[index] = updatedMessages[index].copy(generationStats = enrichedStats)
         }
@@ -407,88 +401,80 @@ internal fun MutableStateFlow<ChatUiState>.updateLastAssistantStats(stats: Gener
                     stats.backend ?: state.modelHealth.fallbackBackend
                 } else {
                     state.modelHealth.fallbackBackend
-                },
-            ),
+                }
+            )
         )
     }
 }
 
 internal fun ChatUiState.failedGenerationModelHealth(
     useRemoteModel: Boolean,
-    reason: String,
-): ModelHealth =
-    modelHealth.copy(
-        profileId = if (useRemoteModel) remoteModelConfig.modelProfile().id else activeModelProfileId(),
-        state = ModelHealthState.LoadFailed,
-        backend = if (useRemoteModel) null else backend,
-        failureReason = reason,
-    )
+    reason: String
+): ModelHealth = modelHealth.copy(
+    profileId = if (useRemoteModel) remoteModelConfig.modelProfile().id else activeModelProfileId(),
+    state = ModelHealthState.LoadFailed,
+    backend = if (useRemoteModel) null else backend,
+    failureReason = reason
+)
 
 /** Ends a run that never got a model placement: the UI goes idle and records why. */
-internal fun ChatUiState.idleWithoutPlacement(reason: PlacementReasonCode, statusText: String): ChatUiState =
-    copy(
-        isBusy = false,
-        isGenerating = false,
-        activeRunPlacement = null,
-        activeRunPlacementReason = reason,
-        statusText = statusText,
-    )
+internal fun ChatUiState.idleWithoutPlacement(reason: PlacementReasonCode, statusText: String): ChatUiState = copy(
+    isBusy = false,
+    isGenerating = false,
+    activeRunPlacement = null,
+    activeRunPlacementReason = reason,
+    statusText = statusText
+)
 
-internal fun ChatUiState.clearedEvidence(): ChatUiState =
-    copy(
-        memoryHits = emptyList(),
-        activeRunTimeline = emptyList(),
-        activeMemoryEvidence = emptyList(),
-        activePublicWebEvidence = emptyList(),
-    )
+internal fun ChatUiState.clearedEvidence(): ChatUiState = copy(
+    memoryHits = emptyList(),
+    activeRunTimeline = emptyList(),
+    activeMemoryEvidence = emptyList(),
+    activePublicWebEvidence = emptyList()
+)
 
 /** The route as a remote model may see it: the privacy-safe projection when one exists. */
-internal fun AssistantRoute.Chat.forRemoteSend(): AssistantRoute.Chat =
-    remotePromptForModel?.let { copy(promptForModel = it, remotePromptForModel = null) } ?: this
+internal fun AssistantRoute.Chat.forRemoteSend(): AssistantRoute.Chat = remotePromptForModel?.let { copy(promptForModel = it, remotePromptForModel = null) } ?: this
 
-internal fun remoteRouteBoundaryFailure(userInput: String, route: AssistantRoute.Chat): String? =
-    when {
-        route.memoryHits.isNotEmpty() ->
-            "远程发送已阻止：本次路由包含本地记忆上下文。请切换到本地模型，或重试不带本地记忆的请求。"
+internal fun remoteRouteBoundaryFailure(userInput: String, route: AssistantRoute.Chat): String? = when {
+    route.memoryHits.isNotEmpty() ->
+        "远程发送已阻止：本次路由包含本地记忆上下文。请切换到本地模型，或重试不带本地记忆的请求。"
 
-        route.deviceContext != null ->
-            "远程发送已阻止：本次路由包含设备上下文。请切换到本地模型，或重试不带设备上下文的请求。"
+    route.deviceContext != null ->
+        "远程发送已阻止：本次路由包含设备上下文。请切换到本地模型，或重试不带设备上下文的请求。"
 
-        route.promptForModel != userInput ->
-            "远程发送已阻止：本次路由修改了远程 prompt。请切换到本地模型，或重新发送原始请求。"
+    route.promptForModel != userInput ->
+        "远程发送已阻止：本次路由修改了远程 prompt。请切换到本地模型，或重新发送原始请求。"
 
-        else -> null
+    else -> null
+}
+
+internal fun ChatUiState.lastGenerationStatsForAdaptivePolicy(): GenerationStats? = messages
+    .asReversed()
+    .firstNotNullOfOrNull { message -> message.generationStats?.takeIf { it.isUsable() } }
+    ?: modelHealth.takeIf { health ->
+        health.tokenCount != null && health.tokensPerSecond != null
+    }?.let { health ->
+        GenerationStats(
+            tokenCount = health.tokenCount ?: 0,
+            tokensPerSecond = health.tokensPerSecond ?: 0.0,
+            backend = health.backend ?: backend,
+            loadMs = health.loadMs,
+            firstTokenMs = health.firstTokenMs,
+            usedFallbackBackend = health.fallbackBackend != null
+        )
     }
 
-internal fun ChatUiState.lastGenerationStatsForAdaptivePolicy(): GenerationStats? =
-    messages
-        .asReversed()
-        .firstNotNullOfOrNull { message -> message.generationStats?.takeIf { it.isUsable() } }
-        ?: modelHealth.takeIf { health ->
-            health.tokenCount != null && health.tokensPerSecond != null
-        }?.let { health ->
-            GenerationStats(
-                tokenCount = health.tokenCount ?: 0,
-                tokensPerSecond = health.tokensPerSecond ?: 0.0,
-                backend = health.backend ?: backend,
-                loadMs = health.loadMs,
-                firstTokenMs = health.firstTokenMs,
-                usedFallbackBackend = health.fallbackBackend != null,
-            )
-        }
+internal fun ChatUiState.lastOutputQualityIssueForAdaptivePolicy(): GenerationQualityIssue? = modelHealth.lastOutputQualityIssue
+    ?.let { value -> runCatching { GenerationQualityIssue.valueOf(value) }.getOrNull() }
 
-internal fun ChatUiState.lastOutputQualityIssueForAdaptivePolicy(): GenerationQualityIssue? =
-    modelHealth.lastOutputQualityIssue
-        ?.let { value -> runCatching { GenerationQualityIssue.valueOf(value) }.getOrNull() }
-
-internal fun AssistantRoute.runIdOrNull(): String? =
-    when (this) {
-        is AssistantRoute.Chat -> runId
-        is AssistantRoute.Action -> runId
-        is AssistantRoute.Cancelled -> runId
-        is AssistantRoute.ToolRejected,
-        is AssistantRoute.MissingModel -> null
-    }
+internal fun AssistantRoute.runIdOrNull(): String? = when (this) {
+    is AssistantRoute.Chat -> runId
+    is AssistantRoute.Action -> runId
+    is AssistantRoute.Cancelled -> runId
+    is AssistantRoute.ToolRejected,
+    is AssistantRoute.MissingModel -> null
+}
 
 internal fun AssistantRoute.runDataReceipt(
     stateBeforeSend: ChatUiState,
@@ -497,7 +483,7 @@ internal fun AssistantRoute.runDataReceipt(
     remoteHistoryCount: Int,
     imageAttachmentCount: Int,
     protectedSourceCount: Int = 0,
-    currentPromptEvidenceSummary: EvidenceReceiptSummary? = null,
+    currentPromptEvidenceSummary: EvidenceReceiptSummary? = null
 ): RunDataReceipt {
     val memoryHits = (this as? AssistantRoute.Chat)?.memoryHits.orEmpty()
     val deviceContext = (this as? AssistantRoute.Chat)?.deviceContext
@@ -521,8 +507,8 @@ internal fun AssistantRoute.runDataReceipt(
                         privacy = MessagePrivacy.LocalOnly,
                         requiresLocalModel = true,
                         text = hit.text,
-                        quality = EvidenceQuality(EvidenceQualityLevel.High),
-                    ),
+                        quality = EvidenceQuality(EvidenceQualityLevel.High)
+                    )
                 )
             }
         }
@@ -534,8 +520,8 @@ internal fun AssistantRoute.runDataReceipt(
                     privacy = MessagePrivacy.LocalOnly,
                     requiresLocalModel = true,
                     text = "",
-                    quality = EvidenceQuality(EvidenceQualityLevel.Unknown),
-                ),
+                    quality = EvidenceQuality(EvidenceQualityLevel.Unknown)
+                )
             )
         }
         if (isRemote && imageAttachmentCount > 0) {
@@ -547,8 +533,8 @@ internal fun AssistantRoute.runDataReceipt(
                         privacy = MessagePrivacy.RemoteEligible,
                         requiresLocalModel = false,
                         text = "",
-                        quality = EvidenceQuality(EvidenceQualityLevel.Unknown),
-                    ),
+                        quality = EvidenceQuality(EvidenceQualityLevel.Unknown)
+                    )
                 )
             }
         }
@@ -602,52 +588,47 @@ internal fun AssistantRoute.runDataReceipt(
             add("对话消息")
             add("Agent 轨迹")
             if (memoryHits.isNotEmpty()) add("显式记忆")
-        },
+        }
     )
 }
 
-internal fun EvidenceReceiptSummary?.orEmptyEvidenceSourceTypeNames(): List<String> =
-    this?.sourceTypes?.map { sourceType -> sourceType.name }.orEmpty()
+internal fun EvidenceReceiptSummary?.orEmptyEvidenceSourceTypeNames(): List<String> = this?.sourceTypes?.map { sourceType -> sourceType.name }.orEmpty()
 
-internal fun List<AgentPlan.UseTool>.batchToolTitle(): String =
-    groupingBy { plan -> plan.draft.title.ifBlank { plan.request.toolName } }
-        .eachCount()
-        .entries
-        .joinToString(separator = "、") { (title, count) ->
-            if (count > 1) "$title x$count" else title
-        }
+internal fun List<AgentPlan.UseTool>.batchToolTitle(): String = groupingBy { plan -> plan.draft.title.ifBlank { plan.request.toolName } }
+    .eachCount()
+    .entries
+    .joinToString(separator = "、") { (title, count) ->
+        if (count > 1) "$title x$count" else title
+    }
 
 /** Non-blank exception message for user-facing status text, falling back to the type name. */
 
 /** Prefixes [text] with the model's already streamed [partial] answer, if any. */
-internal fun afterPartialAnswer(partial: CharSequence, text: String): String =
-    if (partial.isBlank()) text else "$partial\n\n$text"
+internal fun afterPartialAnswer(partial: CharSequence, text: String): String = if (partial.isBlank()) text else "$partial\n\n$text"
 
-internal fun toolBatchAssistantText(partial: CharSequence, plans: List<AgentPlan.UseTool>): String =
-    afterPartialAnswer(partial, "正在并行使用工具：${plans.batchToolTitle()}")
+internal fun toolBatchAssistantText(partial: CharSequence, plans: List<AgentPlan.UseTool>): String = afterPartialAnswer(partial, "正在并行使用工具：${plans.batchToolTitle()}")
 
 /** [draftSource] names who drafted a confirmation-gated step, e.g. "远程" or "模型". */
-internal fun nextToolAssistantText(partial: CharSequence, plan: AgentPlan.UseTool, draftSource: String): String =
-    afterPartialAnswer(
-        partial,
-        if (plan.requiresUserConfirmation()) {
-            "已准备${draftSource}动作草稿：${plan.draft.title}\n请确认后再执行。"
-        } else {
-            "正在使用工具：${plan.draft.title}"
-        },
-    )
+internal fun nextToolAssistantText(partial: CharSequence, plan: AgentPlan.UseTool, draftSource: String): String = afterPartialAnswer(
+    partial,
+    if (plan.requiresUserConfirmation()) {
+        "已准备${draftSource}动作草稿：${plan.draft.title}\n请确认后再执行。"
+    } else {
+        "正在使用工具：${plan.draft.title}"
+    }
+)
 
 /** A user message sent while a run was active, held until the run yields (mid-run steering). */
 internal data class HeldMidRunMessage(
     val prompt: String,
     val explicitMessagePrivacy: MessagePrivacy?,
-    val sessionId: String?,
+    val sessionId: String?
 )
 
 /** Held messages merged into one normal send. */
 internal data class MergedMidRunSend(
     val prompt: String,
-    val explicitMessagePrivacy: MessagePrivacy?,
+    val explicitMessagePrivacy: MessagePrivacy?
 )
 
 /**
@@ -666,7 +647,7 @@ internal data class MergedMidRunSend(
  */
 internal class ChatMidRunSteering(
     private val router: AssistantRouter,
-    private val uiState: MutableStateFlow<ChatUiState>,
+    private val uiState: MutableStateFlow<ChatUiState>
 ) {
     private val lock = Any()
     private val held = mutableListOf<HeldMidRunMessage>()
@@ -685,10 +666,12 @@ internal class ChatMidRunSteering(
                 MidRunSteeringAction.NotSteerable -> Unit
             }
         }
-        publish(statusText = when (action) {
-            MidRunSteeringAction.Steer -> "已插话，正在调整"
-            else -> "已插话，当前步骤完成后发送"
-        })
+        publish(
+            statusText = when (action) {
+                MidRunSteeringAction.Steer -> "已插话，正在调整"
+                else -> "已插话，当前步骤完成后发送"
+            }
+        )
         return action
     }
 
@@ -718,7 +701,7 @@ internal class ChatMidRunSteering(
     fun takeMerged(
         sessionId: String?,
         prompt: String?,
-        explicitMessagePrivacy: MessagePrivacy?,
+        explicitMessagePrivacy: MessagePrivacy?
     ): MergedMidRunSend? {
         val taken = synchronized(lock) {
             if (held.isEmpty()) return null
@@ -732,7 +715,7 @@ internal class ChatMidRunSteering(
         if (messages.isEmpty()) return null
         return MergedMidRunSend(
             prompt = requireNotNull(messages.mergedPrompt()),
-            explicitMessagePrivacy = mergedMidRunPrivacy(messages.map(HeldMidRunMessage::explicitMessagePrivacy)),
+            explicitMessagePrivacy = mergedMidRunPrivacy(messages.map(HeldMidRunMessage::explicitMessagePrivacy))
         )
     }
 
@@ -751,26 +734,23 @@ internal class ChatMidRunSteering(
         uiState.update { state ->
             state.copy(
                 pendingSteerMessageCount = count,
-                statusText = statusText ?: state.statusText,
+                statusText = statusText ?: state.statusText
             )
         }
     }
 
-    private fun runtimeCopy(prompt: String) =
-        ChatMessage(role = MessageRole.User, text = prompt, privacy = MessagePrivacy.LocalOnly)
+    private fun runtimeCopy(prompt: String) = ChatMessage(role = MessageRole.User, text = prompt, privacy = MessagePrivacy.LocalOnly)
 
-    private fun List<HeldMidRunMessage>.mergedPrompt(): String? =
-        takeIf(List<HeldMidRunMessage>::isNotEmpty)?.joinToString(separator = "\n") { message -> message.prompt }
+    private fun List<HeldMidRunMessage>.mergedPrompt(): String? = takeIf(List<HeldMidRunMessage>::isNotEmpty)?.joinToString(separator = "\n") { message -> message.prompt }
 }
 
 /**
  * Most restrictive explicit privacy of merged messages: any LocalOnly wins; a uniform explicit
  * choice is kept; otherwise null so the normal pipeline classifies the merged text (fail closed).
  */
-internal fun mergedMidRunPrivacy(privacies: List<MessagePrivacy?>): MessagePrivacy? =
-    when {
-        MessagePrivacy.LocalOnly in privacies -> MessagePrivacy.LocalOnly
-        privacies.isNotEmpty() && privacies.all { privacy -> privacy != null && privacy == privacies.first() } ->
-            privacies.first()
-        else -> null
-    }
+internal fun mergedMidRunPrivacy(privacies: List<MessagePrivacy?>): MessagePrivacy? = when {
+    MessagePrivacy.LocalOnly in privacies -> MessagePrivacy.LocalOnly
+    privacies.isNotEmpty() && privacies.all { privacy -> privacy != null && privacy == privacies.first() } ->
+        privacies.first()
+    else -> null
+}

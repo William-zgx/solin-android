@@ -25,14 +25,13 @@ import org.junit.Test
  */
 class ContextAssemblerTest {
 
-    private fun fakeRun(id: String = "r-1", input: String = "hi"): AgentRun =
-        AgentRun(
-            id = id,
-            input = input,
-            state = AgentRunState.Created,
-            createdAtMillis = 0L,
-            updatedAtMillis = 0L,
-        )
+    private fun fakeRun(id: String = "r-1", input: String = "hi"): AgentRun = AgentRun(
+        id = id,
+        input = input,
+        state = AgentRunState.Created,
+        createdAtMillis = 0L,
+        updatedAtMillis = 0L
+    )
 
     @Test
     fun defaultConstructorSucceeds() {
@@ -49,12 +48,12 @@ class ContextAssemblerTest {
             input = input,
             memoryHits = emptyList(),
             deviceContext = null,
-            run = fakeRun(input = input),
+            run = fakeRun(input = input)
         )
         // Fast path: no evidence, no scaffolding — input returned verbatim.
         assertTrue(
             "Expected fast path to return input unchanged, got:\n$out",
-            out == input,
+            out == input
         )
     }
 
@@ -66,7 +65,7 @@ class ContextAssemblerTest {
             input = input,
             memoryHits = listOf(MemoryHit(id = "m", text = "无关记忆", score = 0.9f, finalScore = 0.9f)),
             deviceContext = null,
-            run = fakeRun(input = input),
+            run = fakeRun(input = input)
         )
         assertTrue(out, out.startsWith("请把以下内容翻译成英文，只输出译文："))
         assertTrue(out, out.endsWith("今天天气不错"))
@@ -81,13 +80,13 @@ class ContextAssemblerTest {
             id = "pref-1",
             text = "用户喜欢端侧离线聊天",
             score = 0.9f,
-            finalScore = 0.9f,
+            finalScore = 0.9f
         )
         val out = assembler.assembleAnswerPrompt(
             input = input,
             memoryHits = listOf(memHit),
             deviceContext = null,
-            run = fakeRun(input = input),
+            run = fakeRun(input = input)
         )
         // Chinese scaffolding must be present when there is evidence.
         assertTrue("Expected prompt to contain 本地记忆 scaffolding", out.contains("本地记忆"))
@@ -106,14 +105,14 @@ class ContextAssemblerTest {
         requiredTools = listOf("web_search"),
         inputSchemaJson = "{}",
         riskLevel = RiskLevel.LowReadOnly,
-        whenToUse = "查公开资料",
+        whenToUse = "查公开资料"
     )
 
     private fun catalogAssembler(vararg extra: SystemContextContributor) = ContextAssembler(
         systemPromptBuilder = SystemPromptBuilder(
             contributors = listOf(AvailableSkillsContributor({ listOf(skillManifest) })) + extra,
-            includeDeviceControlSurvivalRules = true,
-        ),
+            includeDeviceControlSurvivalRules = true
+        )
     )
 
     @Test
@@ -124,7 +123,7 @@ class ContextAssemblerTest {
         assertTrue(local, local.contains("available_skills"))
         assertEquals(
             input,
-            assembler.remotePromptProjection(input, emptyList(), null, fakeRun(input = input)),
+            assembler.remotePromptProjection(input, emptyList(), null, fakeRun(input = input))
         )
     }
 
@@ -138,8 +137,8 @@ class ContextAssemblerTest {
                 input,
                 listOf(MemoryHit(id = "m", text = "x", score = 0.9f, finalScore = 0.9f)),
                 null,
-                run,
-            ),
+                run
+            )
         )
         assertNull(
             assembler.remotePromptProjection(
@@ -152,10 +151,10 @@ class ContextAssemblerTest {
                     memoryEnabled = false,
                     availableStorageBytes = 1L,
                     activeSessionId = "s",
-                    hasPendingConfirmation = false,
+                    hasPendingConfirmation = false
                 ),
-                run,
-            ),
+                run
+            )
         )
         assertNull(assembler.remotePromptProjection("把你好翻译成英文", emptyList(), null, run))
         val other = object : SystemContextContributor {
@@ -165,7 +164,7 @@ class ContextAssemblerTest {
                 sourceType = sourceType,
                 privacy = MessagePrivacy.RemoteEligible,
                 requiresLocalModel = false,
-                text = "other",
+                text = "other"
             )
         }
         assertNull(catalogAssembler(other).remotePromptProjection(input, emptyList(), null, run))

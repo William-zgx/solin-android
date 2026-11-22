@@ -25,7 +25,7 @@ import com.bytedance.zgx.solin.skill.SkillManifest
  */
 class AvailableSkillsContributor(
     private val manifestsProvider: () -> List<SkillManifest>,
-    private val maxSkills: Int = DEFAULT_MAX_ADVERTISED_SKILLS,
+    private val maxSkills: Int = DEFAULT_MAX_ADVERTISED_SKILLS
 ) : SystemContextContributor {
 
     override val sourceType: EvidenceSourceType = EvidenceSourceType.UserPrompt
@@ -46,7 +46,7 @@ class AvailableSkillsContributor(
             requiresLocalModel = false,
             text = text,
             quality = EvidenceQuality(EvidenceQualityLevel.High),
-            tokenEstimate = estimateLocalRuntimeTokens(text),
+            tokenEstimate = estimateLocalRuntimeTokens(text)
         )
     }
 

@@ -4,8 +4,8 @@ import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
-import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.EvidenceBlobRef
+import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.tool.ToolCapability
@@ -26,7 +26,7 @@ class AgentLoopRoutingTest {
 
         val history = listOf(remote, local).toPromptPrivacySegments(
             source = PromptSegmentSource.History,
-            optionalHistory = true,
+            optionalHistory = true
         )
         val steer = local.toPromptPrivacySegment(PromptSegmentSource.Steer)
         val queued = remote.toPromptPrivacySegment(PromptSegmentSource.QueuedInput)
@@ -40,11 +40,11 @@ class AgentLoopRoutingTest {
 
         val drainSegments = PendingMessagesDrain(
             steer = listOf(local),
-            queued = listOf(remote),
+            queued = listOf(remote)
         ).toPromptPrivacySegments()
         assertEquals(
             listOf(PromptSegmentSource.Steer, PromptSegmentSource.QueuedInput),
-            drainSegments.map { it.source },
+            drainSegments.map { it.source }
         )
         assertEquals(MessagePrivacy.LocalOnly, PromptPrivacyPlanner.build(drainSegments).aggregatePrivacy)
     }
@@ -56,9 +56,9 @@ class AgentLoopRoutingTest {
                 PromptPrivacySegment(
                     PromptSegmentSource.CurrentInput,
                     MessagePrivacy.RemoteEligible,
-                    false,
-                ),
-            ),
+                    false
+                )
+            )
         )
         val route = AssistantRoute.Chat(
             runId = "run",
@@ -71,8 +71,8 @@ class AgentLoopRoutingTest {
                 memoryEnabled = true,
                 availableStorageBytes = 1L,
                 activeSessionId = "session",
-                hasPendingConfirmation = false,
-            ),
+                hasPendingConfirmation = false
+            )
         )
 
         val plan = PromptPrivacyPlanner.append(initial, route.toContextPrivacySegments())
@@ -81,7 +81,7 @@ class AgentLoopRoutingTest {
         assertTrue(plan.requiresLocalModel)
         assertEquals(
             listOf(PromptSegmentSource.Memory, PromptSegmentSource.DeviceContext),
-            route.toContextPrivacySegments().map { it.source },
+            route.toContextPrivacySegments().map { it.source }
         )
     }
 
@@ -92,7 +92,7 @@ class AgentLoopRoutingTest {
             sourceType = EvidenceSourceType.PublicWeb,
             privacy = MessagePrivacy.RemoteEligible,
             requiresLocalModel = false,
-            text = "public",
+            text = "public"
         )
 
         val segment = evidence.toPromptPrivacySegment()
@@ -108,10 +108,10 @@ class AgentLoopRoutingTest {
         listOf(
             emptyMap(),
             mapOf("privacy" to "future", "requiresLocalModel" to "false"),
-            mapOf("privacy" to MessagePrivacy.RemoteEligible.name, "requiresLocalModel" to "not-a-boolean"),
+            mapOf("privacy" to MessagePrivacy.RemoteEligible.name, "requiresLocalModel" to "not-a-boolean")
         ).forEach { data ->
             val plan = PromptPrivacyPlanner.build(
-                listOf(toolResult(data).toPromptPrivacySegment(publicSpec)),
+                listOf(toolResult(data).toPromptPrivacySegment(publicSpec))
             )
             assertEquals(MessagePrivacy.LocalOnly, plan.aggregatePrivacy)
             assertTrue(plan.requiresLocalModel)
@@ -120,33 +120,33 @@ class AgentLoopRoutingTest {
         assertLocalOnly(toolResult(remoteEligibleData()).toPromptPrivacySegment(null))
         assertLocalOnly(
             toolResult(remoteEligibleData()).toPromptPrivacySegment(
-                toolSpec(ToolResultContinuationPolicy.LocalEvidence),
-            ),
+                toolSpec(ToolResultContinuationPolicy.LocalEvidence)
+            )
         )
         assertLocalOnly(
             toolResult(remoteEligibleData()).toPromptPrivacySegment(
-                publicSpec.copy(privateOutputKeys = setOf("privateResult")),
-            ),
+                publicSpec.copy(privateOutputKeys = setOf("privateResult"))
+            )
         )
         listOf(
             mapOf("screenObservationDiffSummary" to "changed=true"),
-            mapOf("payloadJson" to "{\"afterScreenObservationJson\":{\"text\":\"private\"}}"),
+            mapOf("payloadJson" to "{\"afterScreenObservationJson\":{\"text\":\"private\"}}")
         ).forEach { protectedData ->
             assertLocalOnly(
-                toolResult(remoteEligibleData() + protectedData).toPromptPrivacySegment(publicSpec),
+                toolResult(remoteEligibleData() + protectedData).toPromptPrivacySegment(publicSpec)
             )
         }
         assertLocalOnly(
             toolResult(
                 data = remoteEligibleData(),
-                overflowRefs = listOf(overflowRef(MessagePrivacy.LocalOnly)),
-            ).toPromptPrivacySegment(publicSpec),
+                overflowRefs = listOf(overflowRef(MessagePrivacy.LocalOnly))
+            ).toPromptPrivacySegment(publicSpec)
         )
 
         val remotePlan = PromptPrivacyPlanner.build(
             listOf(
-                toolResult(remoteEligibleData()).toPromptPrivacySegment(publicSpec),
-            ),
+                toolResult(remoteEligibleData()).toPromptPrivacySegment(publicSpec)
+            )
         )
         assertEquals(MessagePrivacy.RemoteEligible, remotePlan.aggregatePrivacy)
         assertFalse(remotePlan.requiresLocalModel)
@@ -160,7 +160,7 @@ class AgentLoopRoutingTest {
 
     private fun remoteEligibleData(): Map<String, String> = mapOf(
         "privacy" to MessagePrivacy.RemoteEligible.name,
-        "requiresLocalModel" to "false",
+        "requiresLocalModel" to "false"
     )
 
     private fun toolSpec(policy: ToolResultContinuationPolicy) = ToolSpec(
@@ -169,7 +169,7 @@ class AgentLoopRoutingTest {
         description = "Test",
         inputSchemaJson = "{}",
         capability = ToolCapability.WebSearch,
-        resultContinuationPolicy = policy,
+        resultContinuationPolicy = policy
     )
 
     private fun overflowRef(privacy: MessagePrivacy): EvidenceBlobRef = EvidenceBlobRef.fromSha256(
@@ -177,18 +177,18 @@ class AgentLoopRoutingTest {
         sizeBytes = 1,
         mimeType = "text/plain",
         privacy = privacy,
-        sourceType = EvidenceSourceType.ToolResult,
+        sourceType = EvidenceSourceType.ToolResult
     )
 
     private fun toolResult(
         data: Map<String, String>,
-        overflowRefs: List<EvidenceBlobRef> = emptyList(),
+        overflowRefs: List<EvidenceBlobRef> = emptyList()
     ) = ToolResult(
         requestId = "tool",
         status = ToolStatus.Succeeded,
         summary = "done",
         data = data,
-        overflowRefs = overflowRefs,
+        overflowRefs = overflowRefs
     )
 
     @Test
@@ -198,16 +198,16 @@ class AgentLoopRoutingTest {
             input = "q",
             state = AgentRunState.GeneratingAnswer,
             createdAtMillis = 0L,
-            updatedAtMillis = 0L,
+            updatedAtMillis = 0L
         )
         val result = AgentLoopResult(
             run = run,
             plan = AgentPlan.Answer(
                 promptForModel = "wrapped q",
                 memoryHits = emptyList(),
-                remotePromptForModel = "q",
+                remotePromptForModel = "q"
             ),
-            steps = emptyList(),
+            steps = emptyList()
         )
 
         val route = result.toAssistantRoute() as AssistantRoute.Chat
