@@ -78,13 +78,14 @@ object UiTargetResolver {
         kind: UiTargetKind,
         target: String? = null,
         profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
+        livePackage: String? = snapshot.packageName,
     ): UiTargetResolutionEvidence {
         val ref = SnapshotRefs.parse(target)
         val nodes = if (ref == null) {
             snapshot.nodes
         } else {
             val scoped = try {
-                SnapshotRefs.validate(ref, snapshot, snapshot.packageName)
+                SnapshotRefs.validate(ref, snapshot, livePackage)
             } catch (error: SnapshotRefException) {
                 return UiTargetResolutionEvidence(
                     kind = kind,

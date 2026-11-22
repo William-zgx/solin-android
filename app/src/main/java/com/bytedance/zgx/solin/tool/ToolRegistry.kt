@@ -510,6 +510,11 @@ private val privateNonSucceededAllowedFailureKinds = setOf(
     "submit_not_found",
     "result_not_verified",
     "dangerous_action",
+    "snapshot_unknown",
+    "ref_retired",
+    "ref_not_in_snapshot",
+    "package_changed",
+    "element_moved",
     "unknown"
 )
 

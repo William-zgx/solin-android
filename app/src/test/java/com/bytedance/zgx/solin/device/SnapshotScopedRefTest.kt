@@ -104,6 +104,14 @@ class SnapshotScopedRefTest {
             assertNull(evidence.selectedNodeId)
             assertTrue(evidence.rankedCandidates.isEmpty())
         }
+        val changed = UiTargetResolver.explain(
+            snapshot,
+            UiTargetKind.SearchEntry,
+            "screen_1700_f00dbeef/n0_abcd1234_f00dbeef",
+            livePackage = "com.other",
+        )
+        assertEquals(UiActionFailureKind.PackageChanged, changed.failureKind)
+        assertNull(changed.selectedNodeId)
         val valid = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, "screen_1700_f00dbeef/n0_abcd1234_f00dbeef")
         assertNull(valid.failureKind)
         assertEquals(node.id, valid.selectedNodeId)
@@ -120,5 +128,23 @@ class SnapshotScopedRefTest {
         assertTrue(service.contains("CriticalControlTapRefused"))
         val queries = File(root, "AccessibilityNodeQueries.kt").readText()
         assertTrue(queries.contains("SnapshotRefs.requireSameBounds(scoped, screenNode.bounds)"))
+    }
+
+    @Test
+    fun toolBoundaryAllowsEverySnapshotRefFailureKind() {
+        val root = File("src/main/java/com/bytedance/zgx/solin/tool")
+        val registry = File(root, "ToolRegistry.kt").readText()
+        val schema = File(root, "ToolSchemasUi.kt").readText()
+        listOf(
+            UiActionFailureKind.SnapshotUnknown,
+            UiActionFailureKind.RefRetired,
+            UiActionFailureKind.RefNotInSnapshot,
+            UiActionFailureKind.PackageChanged,
+            UiActionFailureKind.ElementMoved,
+        ).forEach { kind ->
+            val quoted = "\"${kind.schemaValue}\""
+            assertTrue(kind.schemaValue, registry.contains(quoted))
+            assertTrue(kind.schemaValue, schema.contains(quoted))
+        }
     }
 }
