@@ -18100,3 +18100,14 @@ git diff --check
 - 关闭 drawer 的后续修复 `b0fe1cc5` + `2922ea3e`：不再等待始终组合的
   `session_manager_title` 消失，而是在点击关闭按钮后断言其不再显示，保留真实关闭语义且
   不新增轮询。Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过；完整结果待下一次 run。
+- Hosted [#190](https://github.com/William-zgx/solin-android/actions/runs/45025841855)（`19ef7708`）：
+  Verify 成功，emulator 其余已执行分组通过；综合测试推进到模型管理，在第二次 Local → Remote 后
+  找不到 `model_tab_advanced`，整体仍为 **failure**。artifact 与生产状态机共同确认：真实模式切换
+  必须重新显示 Remote disclosure，`SolinScreen` 为避免披露被遮挡会关闭模型管理器；旧测试未确认
+  披露并重新打开页面，不是放宽生产隐私行为的理由。
+- Remote disclosure walkthrough `b6664b9c`：第二次切换必须等到并确认
+  `remote_mode_disclosure_sheet`，再重新打开 `model_manager_sheet`，随后才进入高级页；共享确认
+  helper 不改变首次可选披露流程。独立 Opus 5.5 correctness/privacy **ACCEPT**、简化复核 **CLEAN**；
+  `:app:compileDebugAndroidTestKotlin` 与 integrated-main Spotless、隐私扫描通过。完整
+  `:app:testDebugUnitTest` 为 **FROM-CACHE / SUCCESS**（本提交只改 androidTest，JVM 输入未变），
+  不把它写成重新执行了全部 JVM 测试。下一次 hosted run 才能判定完整 workflow 是否全绿。
