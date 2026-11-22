@@ -2,8 +2,10 @@ package com.bytedance.zgx.solin
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -11,7 +13,6 @@ import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as createAndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -83,7 +84,7 @@ class MainActivitySmokeTest {
         composeRule.waitForTag("app_title")
 
         composeRule.onNodeWithTag("app_title").assertIsDisplayed()
-        composeRule.waitForText("选好之前不读取手机内容")
+        composeRule.waitForText("选好之前不读取手机内容，也不向外发送")
         composeRule.onNodeWithTag("home_choice_local").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("home_choice_remote").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("home_choice_import").performScrollTo().assertIsDisplayed()
@@ -106,7 +107,10 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("top_model_button").performClick()
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.onNodeWithText("模型管理").assertIsDisplayed()
+        // The closed session drawer keeps its own "模型管理" row composed, so scope to the sheet.
+        composeRule.onNode(
+            hasText("模型管理") and hasAnyAncestor(hasTestTag("model_manager_sheet")),
+        ).assertIsDisplayed()
         composeRule.waitForText("可下载或导入本地模型离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。")
         composeRule.waitForText("当前模型")
         composeRule.onNodeWithTag("model_tab_current").assertIsDisplayed()
@@ -155,7 +159,10 @@ class MainActivitySmokeTest {
         composeRule.openDrawerItem("top_privacy_button")
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.onAllNodesWithText("隐私与权限").onFirst().assertIsDisplayed()
+        // The closed session drawer also composes a "隐私与权限" row; assert the sheet title only.
+        composeRule.onNode(
+            hasText("隐私与权限") and hasAnyAncestor(hasTestTag("model_manager_sheet")),
+        ).assertIsDisplayed()
         composeRule.waitForText("为什么装它")
         composeRule.waitForText("本地可用")
         composeRule.waitForText("远程多模态可选")
@@ -183,7 +190,10 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("home_privacy_notice_button").performScrollTo().performClick()
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.onAllNodesWithText("隐私与权限").onFirst().assertIsDisplayed()
+        // The closed session drawer also composes a "隐私与权限" row; assert the sheet title only.
+        composeRule.onNode(
+            hasText("隐私与权限") and hasAnyAncestor(hasTestTag("model_manager_sheet")),
+        ).assertIsDisplayed()
         composeRule.waitForText("能力与信任中心")
         composeRule.waitForText("远程公开证据查询")
         composeRule.waitForText("敏感能力披露")
@@ -205,7 +215,8 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("top_privacy_button").assertIsDisplayed()
         composeRule.onNodeWithTag("top_background_tasks_button").assertIsDisplayed()
         composeRule.onNodeWithTag("session_manager_close_button").performClick()
-        composeRule.waitForTagGone("session_manager_title")
+        // The drawer content stays composed while closed, so assert it is no longer displayed.
+        composeRule.onNodeWithTag("session_manager_title").assertIsNotDisplayed()
     }
 
     @Test
@@ -230,7 +241,7 @@ class MainActivitySmokeTest {
         composeRule.openDrawerItem("top_background_tasks_button")
         composeRule.waitForTag("background_task_manager_title")
 
-        composeRule.onNodeWithText("后台任务").assertIsDisplayed()
+        composeRule.onNodeWithTag("background_task_manager_title").assertIsDisplayed().assertTextEquals("后台任务")
         composeRule.onNodeWithTag("background_task_refresh_button").assertIsDisplayed()
         composeRule.onNodeWithTag("periodic_check_policy_section").assertIsDisplayed()
     }

@@ -29,7 +29,7 @@ class ReleaseSignedSmokeDeviceTest {
         )
         assertTrue(
             "Expected the Solin main shell to render.",
-            device.wait(Until.hasObject(By.text("Solin")), 30_000),
+            device.wait(Until.hasObject(By.desc("模型管理")), 30_000),
         )
     }
 }
