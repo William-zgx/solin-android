@@ -4,17 +4,19 @@ import android.app.DownloadManager
 import android.content.Context
 import android.database.Cursor
 import android.view.KeyEvent
+import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assertIsOff
-import androidx.compose.ui.test.assertIsOn
-import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -343,6 +345,9 @@ class MainActivityComprehensiveTest {
             composeRule.onNodeWithTag("model_manager_close_button").performClick()
         } else if (tag == "session_manager_title") {
             composeRule.onNodeWithTag("session_manager_close_button").performClick()
+            // Closed drawer content stays composed; assert visibility rather than waiting for the tag to disappear.
+            composeRule.onNodeWithTag("session_manager_title").assertIsNotDisplayed()
+            return
         } else {
             InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         }
