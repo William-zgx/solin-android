@@ -530,15 +530,20 @@ final_release_gate_block = job_block("final-release-gate")
 if "workflow_dispatch" not in verify_block:
     fail("verify job must run on workflow_dispatch before release artifacts are archived")
 for required in (
-    "runs-on: macos-14",
-    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }}",
+    "runs-on: ubuntu-latest",
+    "Enable KVM hardware acceleration",
+    "test -w /dev/kvm",
+    "system-images;android-36;google_apis;x86_64",
+    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
     '-no-snapshot-save',
-    '-accel off',
-    "Summarize emulator infrastructure skip",
-    "The skipped report and emulator log are attached as CI artifacts.",
+    '-accel on',
 ):
     if required not in emulator_regression_block:
-        fail(f"emulator-regression missing transparent HVF infrastructure marker: {required}")
+        fail(f"emulator-regression missing hardware-accelerated runner marker: {required}")
+if "macos-" in emulator_regression_block or "-accel off" in emulator_regression_block or "Summarize emulator infrastructure skip" in emulator_regression_block:
+    fail("emulator-regression must not use a retired macOS runner, unaccelerated emulator, or skip summary")
+if "non-release connected emulator smoke" not in emulator_regression_block:
+    fail("emulator-regression must be labelled non-release connected emulator smoke")
 if "java-version: \"21\"" not in verify_block:
     fail("verify must use JDK 21 for localagents-rag generated classes")
 for required in (
@@ -553,6 +558,8 @@ for required in (
 ):
     if required not in emulator_api_matrix_block:
         fail(f"emulator-api-matrix missing matrix marker: {required}")
+if "x86_64" in emulator_api_matrix_block:
+    fail("emulator-api-matrix is arm64 release evidence and must not use x86_64")
 if "needs: [verify, emulator-regression]" not in release_archive_block:
     fail("release-artifact-archive must depend on verify and emulator-regression")
 if "needs: [verify, emulator-regression, release-artifact-archive]" not in protected_signing_block:

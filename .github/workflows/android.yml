@@ -177,7 +177,7 @@ jobs:
 
   emulator-regression:
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     timeout-minutes: 75
 
     steps:
@@ -192,6 +192,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Enable KVM hardware acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -w /dev/kvm
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
@@ -204,47 +211,27 @@ jobs:
             "cmake;3.31.6" \
             "platform-tools" \
             "emulator" \
-            "system-images;android-36;google_apis;arm64-v8a"
+            "system-images;android-36;google_apis;x86_64"
 
-      - name: Create API 36 arm64 AVD
+      - name: Create API 36 x86_64 AVD
         run: |
           echo "no" | avdmanager create avd \
             --force \
-            --name solin_ci_api36_arm64 \
-            --package "system-images;android-36;google_apis;arm64-v8a"
+            --name solin_ci_api36_x86_64 \
+            --package "system-images;android-36;google_apis;x86_64"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run connected emulator regression
+      - name: Run non-release connected emulator smoke (x86_64, possible ARM translation)
         run: |
-          AVD_NAME=solin_ci_api36_arm64 \
-          ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }} \
-          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
+          AVD_NAME=solin_ci_api36_x86_64 \
+          ALLOW_EMULATOR_INFRA_UNAVAILABLE=0 \
+          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel on" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
           ARTIFACT_DIR=build/verification/ci-emulator-regression \
           scripts/regression_emulator.sh
-
-      - name: Summarize emulator infrastructure skip
-        if: always()
-        run: |
-          REPORT=build/verification/ci-emulator-regression/regression-emulator.properties
-          if [[ -f "$REPORT" ]]; then
-            STATUS="$(awk -F= '$1 == "status" {print $2; exit}' "$REPORT")"
-            REASON="$(awk -F= '$1 == "reason" {print $2; exit}' "$REPORT")"
-            if [[ "$STATUS" == "skipped" ]]; then
-              MESSAGE="Connected emulator regression was skipped because hosted emulator infrastructure is unavailable: ${REASON:-unknown}."
-              echo "::warning::$MESSAGE"
-              {
-                echo "## Emulator regression"
-                echo
-                echo "> **Skipped:** $MESSAGE"
-                echo
-                echo "The skipped report and emulator log are attached as CI artifacts."
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
-          fi
 
       - name: Upload emulator evidence
         if: always()
