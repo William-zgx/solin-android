@@ -3,8 +3,8 @@ package com.bytedance.zgx.solin.tool
 import android.provider.MediaStore
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL
-import com.bytedance.zgx.solin.action.ActionExecutor
 import com.bytedance.zgx.solin.action.ActionDraft
+import com.bytedance.zgx.solin.action.ActionExecutor
 import com.bytedance.zgx.solin.action.ActionPlan
 import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningResult
@@ -94,7 +94,7 @@ class RoutingAndValidatingToolExecutorTest {
             id = id,
             toolName = MobileActionFunctions.CALCULATE,
             arguments = mapOf("expression" to "1+1"),
-            reason = "test",
+            reason = "test"
         )
 
         val single = executor.execute(calc("single"))
@@ -116,71 +116,71 @@ class RoutingAndValidatingToolExecutorTest {
                 toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
                 arguments = mapOf(
                     "start" to "2026-06-01T09:00:00Z",
-                    "end" to "2026-06-01T10:00:00Z",
+                    "end" to "2026-06-01T10:00:00Z"
                 ),
-                reason = "test",
+                reason = "test"
             ) to "busyBlockCount",
             ToolRequest(
                 id = "foreground",
                 toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
-                reason = "test",
+                reason = "test"
             ) to "packageName",
             ToolRequest(
                 id = "contacts",
                 toolName = MobileActionFunctions.QUERY_CONTACTS,
                 arguments = mapOf("query" to "Alice"),
-                reason = "test",
+                reason = "test"
             ) to "contactsJson",
             ToolRequest(
                 id = "notifications",
                 toolName = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
-                reason = "test",
+                reason = "test"
             ) to "notificationsJson",
             ToolRequest(
                 id = "files",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
-                reason = "test",
+                reason = "test"
             ) to "filesJson",
             ToolRequest(
                 id = "background-tasks",
                 toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
-                reason = "test",
+                reason = "test"
             ) to "tasksJson",
             ToolRequest(
                 id = "screenshot-ocr",
                 toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-                reason = "test",
+                reason = "test"
             ) to "ocrText",
             ToolRequest(
                 id = "image-ocr",
                 toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
                 arguments = mapOf("maxCount" to "3"),
-                reason = "test",
+                reason = "test"
             ) to "ocrText",
             ToolRequest(
                 id = "screen-text",
                 toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
                 arguments = mapOf("maxChars" to "1000"),
-                reason = "test",
+                reason = "test"
             ) to "screenText",
             ToolRequest(
                 id = "current-screenshot-ocr",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
+                reason = "test"
             ) to "ocrText",
             ToolRequest(
                 id = "observe-current-screen",
                 toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                 arguments = mapOf("maxTextChars" to "1000", "maxNodes" to "50"),
-                reason = "test",
+                reason = "test"
             ) to "nodesJson",
             ToolRequest(
                 id = "ui-tap",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "n0_button", "timeoutMillis" to "500"),
-                reason = "test",
-            ) to "afterNodesJson",
+                reason = "test"
+            ) to "afterNodesJson"
         )
 
         requests.forEach { (request, routedDataKey) ->
@@ -221,7 +221,7 @@ class RoutingAndValidatingToolExecutorTest {
         val request = ToolRequest(
             id = "wifi",
             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            reason = "test",
+            reason = "test"
         )
 
         val result = executor.execute(request)
@@ -243,15 +243,15 @@ class RoutingAndValidatingToolExecutorTest {
                         staticNode(
                             id = "pay-button",
                             text = "确认支付",
-                            clickable = true,
-                        ),
-                    ),
-                ),
-            ),
+                            clickable = true
+                        )
+                    )
+                )
+            )
         )
         val executor = routingExecutor(
             delegate = delegate,
-            currentScreenControlProvider = screenProvider,
+            currentScreenControlProvider = screenProvider
         )
 
         val result = executor.execute(
@@ -259,8 +259,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "direct-dangerous-tap",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "确认支付"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -289,15 +289,15 @@ class RoutingAndValidatingToolExecutorTest {
                     textSummary = "内容列表",
                     nodes = listOf(staticNode(id = "list-item", text = "列表项", clickable = true)),
                     widthPx = 1080,
-                    heightPx = 2400,
-                ),
-            ),
+                    heightPx = 2400
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val result = executor.execute(
@@ -305,8 +305,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "coord-tap",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("targetX" to "500", "targetY" to "250", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -323,12 +323,12 @@ class RoutingAndValidatingToolExecutorTest {
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Failed(
                 reason = "当前屏幕状态读取超时",
-                failureKind = UiActionFailureKind.Timeout,
-            ),
+                failureKind = UiActionFailureKind.Timeout
+            )
         )
         val executor = routingExecutor(
             delegate = delegate,
-            currentScreenControlProvider = screenProvider,
+            currentScreenControlProvider = screenProvider
         )
 
         val result = executor.execute(
@@ -336,8 +336,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "coord-tap-unreadable",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("targetX" to "500", "targetY" to "250", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -359,7 +359,7 @@ class RoutingAndValidatingToolExecutorTest {
             textSummary = "内容列表",
             nodes = listOf(staticNode(id = "list-item", text = "列表项", clickable = true)),
             widthPx = 1080,
-            heightPx = 2400,
+            heightPx = 2400
         )
         fun freshProvider() = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(cleanSnapshot),
@@ -369,9 +369,9 @@ class RoutingAndValidatingToolExecutorTest {
                     before = cleanSnapshot,
                     after = cleanSnapshot.copy(id = "screen-gesture-after"),
                     summary = "gesture done",
-                    retryable = false,
-                ),
-            ),
+                    retryable = false
+                )
+            )
         )
 
         val swipe = ValidatingToolExecutor(routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = freshProvider()))
@@ -383,10 +383,10 @@ class RoutingAndValidatingToolExecutorTest {
                         "startXNorm" to "500",
                         "startYNorm" to "800",
                         "endXNorm" to "500",
-                        "endYNorm" to "200",
+                        "endYNorm" to "200"
                     ),
-                    reason = "test",
-                ),
+                    reason = "test"
+                )
             )
         assertEquals(ToolStatus.Succeeded, swipe.status)
         assertNull(swipe.error)
@@ -400,8 +400,8 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "longpress-dims",
                     toolName = MobileActionFunctions.UI_LONG_PRESS,
                     arguments = mapOf("xNorm" to "500", "yNorm" to "500"),
-                    reason = "test",
-                ),
+                    reason = "test"
+                )
             )
         assertEquals(ToolStatus.Succeeded, longPress.status)
         assertEquals("long_press", longPress.data["actionType"])
@@ -412,8 +412,8 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "presskey-dims",
                     toolName = MobileActionFunctions.UI_PRESS_KEY,
                     arguments = mapOf("key" to "home"),
-                    reason = "test",
-                ),
+                    reason = "test"
+                )
             )
         assertEquals(ToolStatus.Succeeded, pressKey.status)
         assertEquals("press_key", pressKey.data["actionType"])
@@ -429,15 +429,15 @@ class RoutingAndValidatingToolExecutorTest {
             // First read is the launcher/transition window; second read is the target app foreground.
             observeResults = listOf(
                 ScreenStateReadResult.Available(
-                    staticSnapshot(id = "transition", packageName = "com.android.launcher"),
+                    staticSnapshot(id = "transition", packageName = "com.android.launcher")
                 ),
                 ScreenStateReadResult.Available(
-                    staticSnapshot(id = "target", packageName = "com.xingin.xhs"),
-                ),
-            ),
+                    staticSnapshot(id = "target", packageName = "com.xingin.xhs")
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
-            routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = screenProvider),
+            routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = screenProvider)
         )
 
         val result = executor.execute(
@@ -447,10 +447,10 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf(
                     "maxTextChars" to "2000",
                     "maxNodes" to "50",
-                    "expectedPackageName" to "com.xingin.xhs",
+                    "expectedPackageName" to "com.xingin.xhs"
                 ),
-                reason = "post-launch in-app continuation",
-            ),
+                reason = "post-launch in-app continuation"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -463,11 +463,11 @@ class RoutingAndValidatingToolExecutorTest {
     fun observeReturnsTimeoutWhenExpectedForegroundPackageNeverAppears() {
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
-                staticSnapshot(id = "wrong", packageName = "com.android.launcher"),
-            ),
+                staticSnapshot(id = "wrong", packageName = "com.android.launcher")
+            )
         )
         val executor = ValidatingToolExecutor(
-            routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = screenProvider),
+            routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = screenProvider)
         )
 
         val result = executor.execute(
@@ -477,10 +477,10 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf(
                     "maxTextChars" to "2000",
                     "maxNodes" to "50",
-                    "expectedPackageName" to "com.xingin.xhs",
+                    "expectedPackageName" to "com.xingin.xhs"
                 ),
-                reason = "post-launch in-app continuation",
-            ),
+                reason = "post-launch in-app continuation"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -500,15 +500,15 @@ class RoutingAndValidatingToolExecutorTest {
             observeResults = listOf(
                 ScreenStateReadResult.Failed(
                     reason = "当前屏幕没有可访问节点根节点",
-                    failureKind = UiActionFailureKind.Unknown,
+                    failureKind = UiActionFailureKind.Unknown
                 ),
                 ScreenStateReadResult.Available(
-                    staticSnapshot(id = "target", packageName = "com.xingin.xhs"),
-                ),
-            ),
+                    staticSnapshot(id = "target", packageName = "com.xingin.xhs")
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
-            routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = screenProvider),
+            routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = screenProvider)
         )
 
         val result = executor.execute(
@@ -516,8 +516,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "observe-no-expected-pkg",
                 toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                 arguments = mapOf("maxTextChars" to "2000", "maxNodes" to "50"),
-                reason = "post-launch in-app continuation",
-            ),
+                reason = "post-launch in-app continuation"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -529,11 +529,11 @@ class RoutingAndValidatingToolExecutorTest {
     fun observeReturnsImmediatelyOnHappyPathWithNoExpectedPackage() {
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
-                staticSnapshot(id = "ready", packageName = "com.xingin.xhs"),
-            ),
+                staticSnapshot(id = "ready", packageName = "com.xingin.xhs")
+            )
         )
         val executor = ValidatingToolExecutor(
-            routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = screenProvider),
+            routingExecutor(delegate = RecordingDelegate(), currentScreenControlProvider = screenProvider)
         )
 
         val result = executor.execute(
@@ -541,8 +541,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "observe-happy",
                 toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                 arguments = mapOf("maxTextChars" to "2000", "maxNodes" to "50"),
-                reason = "post-launch in-app continuation",
-            ),
+                reason = "post-launch in-app continuation"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -563,22 +563,22 @@ class RoutingAndValidatingToolExecutorTest {
                             id = "message-field",
                             text = "消息",
                             className = "android.widget.EditText",
-                            editable = true,
+                            editable = true
                         ),
                         staticNode(
                             id = "close-button",
                             text = "关闭",
-                            clickable = true,
-                        ),
-                    ),
-                ),
-            ),
+                            clickable = true
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val result = executor.execute(
@@ -586,8 +586,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "submit-message-input",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -608,12 +608,12 @@ class RoutingAndValidatingToolExecutorTest {
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Failed(
                 reason = "当前屏幕状态读取超时",
-                failureKind = UiActionFailureKind.Timeout,
-            ),
+                failureKind = UiActionFailureKind.Timeout
+            )
         )
         val executor = routingExecutor(
             delegate = delegate,
-            currentScreenControlProvider = screenProvider,
+            currentScreenControlProvider = screenProvider
         )
 
         val result = executor.execute(
@@ -621,8 +621,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "submit-without-screen-context",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -644,20 +644,20 @@ class RoutingAndValidatingToolExecutorTest {
                             id = "search-field",
                             text = "搜索商品",
                             className = "android.widget.EditText",
-                            editable = true,
+                            editable = true
                         ),
                         staticNode(
                             id = "search-submit",
                             text = "搜索",
-                            clickable = true,
-                        ),
-                    ),
-                ),
-            ),
+                            clickable = true
+                        )
+                    )
+                )
+            )
         )
         val executor = routingExecutor(
             delegate = delegate,
-            currentScreenControlProvider = screenProvider,
+            currentScreenControlProvider = screenProvider
         )
 
         val result = executor.execute(
@@ -665,8 +665,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "submit-search-input",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -687,20 +687,20 @@ class RoutingAndValidatingToolExecutorTest {
                             id = "message-field",
                             text = "消息",
                             className = "android.widget.EditText",
-                            editable = true,
+                            editable = true
                         ),
                         staticNode(
                             id = "close-button",
                             text = "关闭",
-                            clickable = true,
-                        ),
-                    ),
-                ),
-            ),
+                            clickable = true
+                        )
+                    )
+                )
+            )
         )
         val executor = routingExecutor(
             delegate = delegate,
-            currentScreenControlProvider = screenProvider,
+            currentScreenControlProvider = screenProvider
         )
 
         val result = executor.execute(
@@ -708,8 +708,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "type-message-without-target",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("text" to "hello", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -735,38 +735,38 @@ class RoutingAndValidatingToolExecutorTest {
                         staticNode(
                             id = "search-entry",
                             text = "搜索入口",
-                            clickable = true,
+                            clickable = true
                         ),
                         staticNode(
                             id = "close-button",
                             text = "关闭",
-                            clickable = true,
-                        ),
-                    ),
-                ),
-            ),
+                            clickable = true
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
         val typeRequest = ToolRequest(
             id = "type-before-search-entry-focus",
             toolName = MobileActionFunctions.UI_TYPE_TEXT,
             arguments = mapOf("text" to "hello", "timeoutMillis" to "500"),
-            reason = "test",
+            reason = "test"
         )
 
         val typeResult = executor.execute(typeRequest)
         val actionRuntime = RecordingActionPlanningRuntime(
             toolName = MobileActionFunctions.UI_TAP,
-            parameters = mapOf("target" to "搜索入口", "timeoutMillis" to "500"),
+            parameters = mapOf("target" to "搜索入口", "timeoutMillis" to "500")
         )
         val replanner = ModelObservationReplanner(
             actionPlanningRuntime = actionRuntime,
-            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+            actionModelPathProvider = { "/tmp/action-model.litertlm" }
         )
         val replan = replanner.planNext(
             AgentObservationReplanContext(
@@ -775,12 +775,12 @@ class RoutingAndValidatingToolExecutorTest {
                     input = "在当前应用搜索 hello",
                     state = AgentRunState.Observing,
                     createdAtMillis = 1L,
-                    updatedAtMillis = 1L,
+                    updatedAtMillis = 1L
                 ),
                 previousRequest = typeRequest,
                 observedResult = typeResult,
-                priorRequests = listOf(typeRequest),
-            ),
+                priorRequests = listOf(typeRequest)
+            )
         )
         assertNotNull(replan)
         requireNotNull(replan)
@@ -807,12 +807,12 @@ class RoutingAndValidatingToolExecutorTest {
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Failed(
                 reason = "当前屏幕状态读取超时",
-                failureKind = UiActionFailureKind.Timeout,
-            ),
+                failureKind = UiActionFailureKind.Timeout
+            )
         )
         val executor = routingExecutor(
             delegate = delegate,
-            currentScreenControlProvider = screenProvider,
+            currentScreenControlProvider = screenProvider
         )
 
         val result = executor.execute(
@@ -820,8 +820,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "type-without-screen-context",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("text" to "hello", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -843,20 +843,20 @@ class RoutingAndValidatingToolExecutorTest {
                             id = "search-field",
                             text = "搜索商品",
                             className = "android.widget.EditText",
-                            editable = true,
+                            editable = true
                         ),
                         staticNode(
                             id = "search-submit",
                             text = "搜索",
-                            clickable = true,
-                        ),
-                    ),
-                ),
-            ),
+                            clickable = true
+                        )
+                    )
+                )
+            )
         )
         val executor = routingExecutor(
             delegate = delegate,
-            currentScreenControlProvider = screenProvider,
+            currentScreenControlProvider = screenProvider
         )
 
         val result = executor.execute(
@@ -864,8 +864,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "type-search-without-target",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("text" to "数据线", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -882,18 +882,18 @@ class RoutingAndValidatingToolExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
         val executor = ValidatingToolExecutor(
-            routingExecutor(delegate = actionExecutor),
+            routingExecutor(delegate = actionExecutor)
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "open-camera-routing",
                 toolName = MobileActionFunctions.OPEN_CAMERA,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -914,15 +914,15 @@ class RoutingAndValidatingToolExecutorTest {
     fun currentScreenshotOcrFailsClosedUntilMediaProjectionConsent() {
         val delegate = RecordingDelegate()
         val provider = StaticCurrentScreenshotOcrProvider(
-            CurrentScreenshotOcrReadResult.MissingConsent,
+            CurrentScreenshotOcrReadResult.MissingConsent
         )
         val screenProvider = StaticCurrentScreenControlProvider()
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = provider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val result = executor.execute(
@@ -930,8 +930,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -957,16 +957,16 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "当前屏幕 OCR 文本",
                         bounds = OcrTextBounds(left = 1, top = 2, right = 120, bottom = 42),
-                        lines = listOf(OcrTextLine(text = "当前屏幕 OCR 文本")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "当前屏幕 OCR 文本"))
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenshotOcrProvider = provider,
-            ),
+                currentScreenshotOcrProvider = provider
+            )
         )
 
         val result = executor.execute(
@@ -974,8 +974,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -1021,19 +1021,19 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "当前屏幕 OCR 文本",
                         bounds = OcrTextBounds(left = 1, top = 2, right = 120, bottom = 42),
-                        lines = listOf(OcrTextLine(text = "当前屏幕 OCR 文本")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "当前屏幕 OCR 文本"))
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = provider,
                 currentScreenControlProvider = StaticCurrentScreenControlProvider(
-                    observeResult = ScreenStateReadResult.PermissionDenied("accessibility disabled"),
-                ),
-            ),
+                    observeResult = ScreenStateReadResult.PermissionDenied("accessibility disabled")
+                )
+            )
         )
 
         val result = executor.execute(
@@ -1041,8 +1041,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-denied-observation",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -1066,10 +1066,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "继续",
                         bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
-                        lines = listOf(OcrTextLine(text = "继续")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "继续"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1081,18 +1081,18 @@ class RoutingAndValidatingToolExecutorTest {
                         staticNode(
                             id = "container",
                             text = "",
-                            bounds = ScreenBounds(0, 0, 1080, 2200),
-                        ),
-                    ),
-                ),
-            ),
+                            bounds = ScreenBounds(0, 0, 1080, 2200)
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val ocrResult = executor.execute(
@@ -1100,24 +1100,24 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-grounding",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val tapResult = executor.execute(
             ToolRequest(
                 id = "tap-ocr-target",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "继续", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         executor.execute(
             ToolRequest(
                 id = "tap-ocr-target-again",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "继续", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, ocrResult.status)
@@ -1146,10 +1146,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "立即购买",
                         bounds = OcrTextBounds(left = 760, top = 1800, right = 1040, bottom = 1900),
-                        lines = listOf(OcrTextLine(text = "立即购买")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "立即购买"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1161,18 +1161,18 @@ class RoutingAndValidatingToolExecutorTest {
                         staticNode(
                             id = "container",
                             text = "",
-                            bounds = ScreenBounds(0, 0, 1080, 2200),
-                        ),
-                    ),
-                ),
-            ),
+                            bounds = ScreenBounds(0, 0, 1080, 2200)
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -1180,16 +1180,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-dangerous-grounding",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val tapResult = executor.execute(
             ToolRequest(
                 id = "tap-dangerous-ocr-target",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "ocr:block:0", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, tapResult.status)
@@ -1211,15 +1211,15 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "继续",
                         bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
-                        lines = listOf(OcrTextLine(text = "继续")),
+                        lines = listOf(OcrTextLine(text = "继续"))
                     ),
                     OcrTextBlock(
                         text = "继续",
                         bounds = OcrTextBounds(left = 20, top = 260, right = 220, bottom = 328),
-                        lines = listOf(OcrTextLine(text = "继续")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "继续"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1231,18 +1231,18 @@ class RoutingAndValidatingToolExecutorTest {
                         staticNode(
                             id = "container",
                             text = "",
-                            bounds = ScreenBounds(0, 0, 1080, 2200),
-                        ),
-                    ),
-                ),
-            ),
+                            bounds = ScreenBounds(0, 0, 1080, 2200)
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val ocrResult = executor.execute(
@@ -1250,16 +1250,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-repeated-target",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val tapResult = executor.execute(
             ToolRequest(
                 id = "tap-ocr-element-id-target",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "ocr:block:1", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, ocrResult.status)
@@ -1285,15 +1285,15 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "继续",
                         bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
-                        lines = listOf(OcrTextLine(text = "继续")),
+                        lines = listOf(OcrTextLine(text = "继续"))
                     ),
                     OcrTextBlock(
                         text = "继续",
                         bounds = OcrTextBounds(left = 20, top = 260, right = 220, bottom = 328),
-                        lines = listOf(OcrTextLine(text = "继续")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "继续"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1305,18 +1305,18 @@ class RoutingAndValidatingToolExecutorTest {
                         staticNode(
                             id = "container",
                             text = "",
-                            bounds = ScreenBounds(0, 0, 1080, 2200),
-                        ),
-                    ),
-                ),
-            ),
+                            bounds = ScreenBounds(0, 0, 1080, 2200)
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -1324,32 +1324,32 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-repeated-text",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val textTapResult = executor.execute(
             ToolRequest(
                 id = "tap-repeated-ocr-text-target",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "继续", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         executor.execute(
             ToolRequest(
                 id = "current-screenshot-ocr-repeated-id",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val idTapResult = executor.execute(
             ToolRequest(
                 id = "tap-repeated-ocr-element-id-target",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "ocr:block:1", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, textTapResult.status)
@@ -1382,18 +1382,18 @@ class RoutingAndValidatingToolExecutorTest {
                                 elements = listOf(
                                     OcrTextElement(
                                         text = "取消",
-                                        bounds = OcrTextBounds(left = 20, top = 20, right = 110, bottom = 70),
+                                        bounds = OcrTextBounds(left = 20, top = 20, right = 110, bottom = 70)
                                     ),
                                     OcrTextElement(
                                         text = "继续",
-                                        bounds = OcrTextBounds(left = 130, top = 20, right = 230, bottom = 70),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-            ),
+                                        bounds = OcrTextBounds(left = 130, top = 20, right = 230, bottom = 70)
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1405,18 +1405,18 @@ class RoutingAndValidatingToolExecutorTest {
                         staticNode(
                             id = "container",
                             text = "",
-                            bounds = ScreenBounds(0, 0, 1080, 2200),
-                        ),
-                    ),
-                ),
-            ),
+                            bounds = ScreenBounds(0, 0, 1080, 2200)
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val ocrResult = executor.execute(
@@ -1424,16 +1424,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-nested-element",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val tapResult = executor.execute(
             ToolRequest(
                 id = "tap-nested-ocr-element-id-target",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "ocr:block:0:line:0:element:1", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, ocrResult.status)
@@ -1459,10 +1459,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "继续",
                         bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
-                        lines = listOf(OcrTextLine(text = "继续")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "继续"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1474,32 +1474,32 @@ class RoutingAndValidatingToolExecutorTest {
                         staticNode(
                             id = "container",
                             text = "",
-                            bounds = ScreenBounds(0, 0, 1080, 2200),
-                        ),
-                    ),
-                ),
-            ),
+                            bounds = ScreenBounds(0, 0, 1080, 2200)
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
         val actionRuntime = RecordingActionPlanningRuntime(
             toolName = MobileActionFunctions.UI_TAP,
-            parameters = mapOf("target" to "ocr:block:0", "timeoutMillis" to "500"),
+            parameters = mapOf("target" to "ocr:block:0", "timeoutMillis" to "500")
         )
         val replanner = ModelObservationReplanner(
             actionPlanningRuntime = actionRuntime,
-            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+            actionModelPathProvider = { "/tmp/action-model.litertlm" }
         )
         val ocrRequest = ToolRequest(
             id = "current-screenshot-ocr-model-loop",
             toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
             arguments = mapOf("captureMode" to "current_screen"),
-            reason = "test",
+            reason = "test"
         )
 
         val ocrResult = executor.execute(ocrRequest)
@@ -1510,12 +1510,12 @@ class RoutingAndValidatingToolExecutorTest {
                     input = "看当前屏幕，帮我点击继续",
                     state = AgentRunState.Observing,
                     createdAtMillis = 1L,
-                    updatedAtMillis = 1L,
+                    updatedAtMillis = 1L
                 ),
                 previousRequest = ocrRequest,
                 observedResult = ocrResult,
-                priorRequests = listOf(ocrRequest),
-            ),
+                priorRequests = listOf(ocrRequest)
+            )
         )
         assertNotNull(replan)
         requireNotNull(replan)
@@ -1546,10 +1546,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "继续",
                         bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
-                        lines = listOf(OcrTextLine(text = "继续")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "继续"))
+                    )
+                )
+            )
         )
         val beforeScreen = ScreenStateReadResult.Available(
             staticSnapshot(
@@ -1560,10 +1560,10 @@ class RoutingAndValidatingToolExecutorTest {
                     staticNode(
                         id = "container",
                         text = "",
-                        bounds = ScreenBounds(0, 0, 1080, 2200),
-                    ),
-                ),
-            ),
+                        bounds = ScreenBounds(0, 0, 1080, 2200)
+                    )
+                )
+            )
         )
         val changedScreen = ScreenStateReadResult.Available(
             staticSnapshot(
@@ -1574,24 +1574,24 @@ class RoutingAndValidatingToolExecutorTest {
                     staticNode(
                         id = "settings-button",
                         text = "设置",
-                        clickable = true,
-                    ),
-                ),
-            ),
+                        clickable = true
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResults = listOf(
                 beforeScreen,
                 beforeScreen,
-                changedScreen,
-            ),
+                changedScreen
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val ocrResult = executor.execute(
@@ -1599,16 +1599,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-stale-grounding",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val tapResult = executor.execute(
             ToolRequest(
                 id = "tap-stale-ocr-target",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "继续", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, ocrResult.status)
@@ -1631,10 +1631,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "继续",
                         bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
-                        lines = listOf(OcrTextLine(text = "继续")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "继续"))
+                    )
+                )
+            )
         )
         val beforeScreen = ScreenStateReadResult.Available(
             staticSnapshot(
@@ -1645,10 +1645,10 @@ class RoutingAndValidatingToolExecutorTest {
                     staticNode(
                         id = "container",
                         text = "",
-                        bounds = ScreenBounds(0, 0, 1080, 2200),
-                    ),
-                ),
-            ),
+                        bounds = ScreenBounds(0, 0, 1080, 2200)
+                    )
+                )
+            )
         )
         val changedScreen = ScreenStateReadResult.Available(
             staticSnapshot(
@@ -1659,24 +1659,24 @@ class RoutingAndValidatingToolExecutorTest {
                     staticNode(
                         id = "settings-button",
                         text = "设置",
-                        clickable = true,
-                    ),
-                ),
-            ),
+                        clickable = true
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResults = listOf(
                 beforeScreen,
                 changedScreen,
-                changedScreen,
-            ),
+                changedScreen
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val ocrResult = executor.execute(
@@ -1684,16 +1684,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-between-capture-observe",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val tapResult = executor.execute(
             ToolRequest(
                 id = "tap-between-capture-observe-ocr-target",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to "继续", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, ocrResult.status)
@@ -1717,10 +1717,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "搜索",
                         bounds = OcrTextBounds(left = 20, top = 32, right = 420, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "搜索"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1728,16 +1728,16 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "before",
                     packageName = "com.example.app",
                     textSummary = "搜索",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -1745,24 +1745,24 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-type-grounding",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val typeResult = executor.execute(
             ToolRequest(
                 id = "type-ocr-target",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("target" to "搜索输入框", "text" to "数据线", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         executor.execute(
             ToolRequest(
                 id = "type-ocr-target-again",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("target" to "搜索输入框", "text" to "耳机", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, typeResult.status)
@@ -1790,15 +1790,15 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "搜索商品",
                         bounds = OcrTextBounds(left = 20, top = 32, right = 720, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索商品")),
+                        lines = listOf(OcrTextLine(text = "搜索商品"))
                     ),
                     OcrTextBlock(
                         text = "搜索",
                         bounds = OcrTextBounds(left = 820, top = 32, right = 980, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "搜索"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1806,16 +1806,16 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "before",
                     packageName = "com.example.app",
                     textSummary = "无搜索语义的容器",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -1823,16 +1823,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-targetless-type-grounding",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val typeResult = executor.execute(
             ToolRequest(
                 id = "type-targetless-ocr-search-entry",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("text" to "数据线", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, typeResult.status)
@@ -1859,10 +1859,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "搜索商品",
                         bounds = OcrTextBounds(left = 20, top = 32, right = 720, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索商品")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "搜索商品"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1870,17 +1870,17 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "before",
                     packageName = "com.example.app",
                     textSummary = "无搜索语义的容器",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
                 currentScreenControlProvider = screenProvider,
-                clockMillis = { nowMillis },
-            ),
+                clockMillis = { nowMillis }
+            )
         )
 
         executor.execute(
@@ -1888,8 +1888,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-expiring-type",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         nowMillis += 15_001L
         val typeResult = executor.execute(
@@ -1897,8 +1897,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "type-expired-ocr-search-entry",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("text" to "数据线", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, typeResult.status)
@@ -1920,10 +1920,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "搜索",
                         bounds = OcrTextBounds(left = 820, top = 32, right = 980, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "搜索"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -1931,16 +1931,16 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "before",
                     packageName = "com.example.app",
                     textSummary = "无搜索语义的容器",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -1948,16 +1948,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-targetless-type-button-only",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val typeResult = executor.execute(
             ToolRequest(
                 id = "type-targetless-button-only",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("text" to "数据线", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, typeResult.status)
@@ -1979,15 +1979,15 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "搜索商品",
                         bounds = OcrTextBounds(left = 20, top = 32, right = 820, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索商品")),
+                        lines = listOf(OcrTextLine(text = "搜索商品"))
                     ),
                     OcrTextBlock(
                         text = "搜索",
                         bounds = OcrTextBounds(left = 900, top = 32, right = 1040, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "搜索"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -2001,24 +2001,24 @@ class RoutingAndValidatingToolExecutorTest {
                             text = "搜索商品",
                             className = "android.widget.EditText",
                             bounds = ScreenBounds(20, 32, 820, 96),
-                            editable = true,
+                            editable = true
                         ),
                         staticNode(
                             id = "search-submit",
                             text = "搜索",
                             bounds = ScreenBounds(900, 32, 1040, 96),
-                            clickable = true,
-                        ),
-                    ),
-                ),
-            ),
+                            clickable = true
+                        )
+                    )
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -2026,24 +2026,24 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-submit-grounding",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val submitResult = executor.execute(
             ToolRequest(
                 id = "submit-search-ocr-target",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         executor.execute(
             ToolRequest(
                 id = "submit-search-ocr-target-again",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, submitResult.status)
@@ -2069,10 +2069,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "Google",
                         bounds = OcrTextBounds(left = 120, top = 120, right = 360, bottom = 210),
-                        lines = listOf(OcrTextLine(text = "Google")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "Google"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -2080,16 +2080,16 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "before",
                     packageName = "com.example.app",
                     textSummary = "Google",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -2097,16 +2097,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-submit-google",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         executor.execute(
             ToolRequest(
                 id = "submit-search-google-logo",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertTrue(screenProvider.submitSearchOcrGroundingHints.isEmpty())
@@ -2124,10 +2124,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "搜索商品",
                         bounds = OcrTextBounds(left = 20, top = 32, right = 820, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索商品")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "搜索商品"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -2135,16 +2135,16 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "before",
                     packageName = "com.example.app",
                     textSummary = "搜索商品",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -2152,16 +2152,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-submit-placeholder",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         executor.execute(
             ToolRequest(
                 id = "submit-search-placeholder",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertTrue(screenProvider.submitSearchOcrGroundingHints.isEmpty())
@@ -2179,10 +2179,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "确定",
                         bounds = OcrTextBounds(left = 900, top = 32, right = 1040, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "确定")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "确定"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -2190,16 +2190,16 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "confirm-dialog",
                     packageName = "com.example.app",
                     textSummary = "确定",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -2207,16 +2207,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-confirm-only",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val result = executor.execute(
             ToolRequest(
                 id = "submit-search-confirm-only",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -2236,15 +2236,15 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "搜索商品",
                         bounds = OcrTextBounds(left = 20, top = 32, right = 820, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索商品")),
+                        lines = listOf(OcrTextLine(text = "搜索商品"))
                     ),
                     OcrTextBlock(
                         text = "确定",
                         bounds = OcrTextBounds(left = 760, top = 1500, right = 1040, bottom = 1580),
-                        lines = listOf(OcrTextLine(text = "确定")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "确定"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -2252,16 +2252,16 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "confirm-dialog-with-search-placeholder",
                     packageName = "com.example.app",
                     textSummary = "搜索商品 确定",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -2269,16 +2269,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-search-context-confirm",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val result = executor.execute(
             ToolRequest(
                 id = "submit-search-search-context-confirm",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -2298,10 +2298,10 @@ class RoutingAndValidatingToolExecutorTest {
                     OcrTextBlock(
                         text = "搜索",
                         bounds = OcrTextBounds(left = 900, top = 32, right = 1040, bottom = 96),
-                        lines = listOf(OcrTextLine(text = "搜索")),
-                    ),
-                ),
-            ),
+                        lines = listOf(OcrTextLine(text = "搜索"))
+                    )
+                )
+            )
         )
         val screenProvider = StaticCurrentScreenControlProvider(
             observeResult = ScreenStateReadResult.Available(
@@ -2309,16 +2309,16 @@ class RoutingAndValidatingToolExecutorTest {
                     id = "before",
                     packageName = "com.example.app",
                     textSummary = "搜索",
-                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200))),
-                ),
-            ),
+                    nodes = listOf(staticNode(id = "container", bounds = ScreenBounds(0, 0, 1080, 2200)))
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
                 currentScreenshotOcrProvider = ocrProvider,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         executor.execute(
@@ -2326,23 +2326,23 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "current-screenshot-ocr-submit-interrupted",
                 toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
                 arguments = mapOf("captureMode" to "current_screen"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val foregroundResult = executor.execute(
             ToolRequest(
                 id = "intervening-foreground-app",
                 toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         executor.execute(
             ToolRequest(
                 id = "submit-search-after-intervening-tool",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, foregroundResult.status)
@@ -2355,15 +2355,15 @@ class RoutingAndValidatingToolExecutorTest {
         val delegate = RecordingDelegate()
         val executor = routingExecutor(
             delegate = delegate,
-            backgroundTaskScheduler = null,
+            backgroundTaskScheduler = null
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "background-tasks",
                 toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -2383,8 +2383,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "email",
                 toolName = MobileActionFunctions.COMPOSE_EMAIL,
                 arguments = mapOf("subject" to "Hi"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Rejected, result.status)
@@ -2404,40 +2404,40 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "files-kind",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("kind" to "archives"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val blankKind = executor.execute(
             ToolRequest(
                 id = "files-blank-kind",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("kind" to " "),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val nonMediaKind = executor.execute(
             ToolRequest(
                 id = "files-non-media-kind",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("kind" to "documents"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val invalidRange = executor.execute(
             ToolRequest(
                 id = "files-range",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("maxCount" to "51"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val invalidMinimum = executor.execute(
             ToolRequest(
                 id = "files-min-range",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("maxCount" to "0"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Rejected, invalidKind.status)
@@ -2473,8 +2473,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "files-screenshots",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("kind" to "screenshots", "maxCount" to "3"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -2492,16 +2492,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "screenshot-ocr",
                 toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                 arguments = mapOf("maxCount" to "1"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val rejectedRange = executor.execute(
             ToolRequest(
                 id = "screenshot-ocr-range",
                 toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                 arguments = mapOf("maxCount" to "2"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, accepted.status)
@@ -2521,16 +2521,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "image-ocr",
                 toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
                 arguments = mapOf("maxCount" to "3"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val rejectedRange = executor.execute(
             ToolRequest(
                 id = "image-ocr-range",
                 toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
                 arguments = mapOf("maxCount" to "4"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, accepted.status)
@@ -2550,16 +2550,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "screen-text",
                 toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
                 arguments = mapOf("maxChars" to "4000"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val rejectedRange = executor.execute(
             ToolRequest(
                 id = "screen-text-range",
                 toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
                 arguments = mapOf("maxChars" to "4001"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, accepted.status)
@@ -2578,35 +2578,35 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "tap-empty",
                 toolName = MobileActionFunctions.UI_TAP,
                 arguments = mapOf("target" to " "),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "type-too-long",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf("text" to "x".repeat(2001)),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "scroll-invalid",
                 toolName = MobileActionFunctions.UI_SCROLL,
                 arguments = mapOf("direction" to "diagonal"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "wait-too-long",
                 toolName = MobileActionFunctions.UI_WAIT,
                 arguments = mapOf("timeoutMillis" to "10001"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "type-invalid-paste-fallback",
                 toolName = MobileActionFunctions.UI_TYPE_TEXT,
                 arguments = mapOf(
                     "text" to "hello",
-                    "allowClipboardPasteFallback" to "sometimes",
+                    "allowClipboardPasteFallback" to "sometimes"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         cases.forEach { request ->
@@ -2630,15 +2630,15 @@ class RoutingAndValidatingToolExecutorTest {
                 staticSnapshot(
                     id = "wrong-app",
                     packageName = "com.other.app",
-                    textSummary = "Other app",
-                ),
-            ),
+                    textSummary = "Other app"
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val result = executor.execute(
@@ -2648,10 +2648,10 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf(
                     "target" to "搜索入口",
                     "expectedPackageName" to "com.target.app",
-                    "timeoutMillis" to "500",
+                    "timeoutMillis" to "500"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -2670,8 +2670,8 @@ class RoutingAndValidatingToolExecutorTest {
                 staticSnapshot(
                     id = "target-app",
                     packageName = "com.target.app",
-                    textSummary = "Target app",
-                ),
+                    textSummary = "Target app"
+                )
             ),
             actionResult = UiActionReadResult.Available(
                 UiActionExecutionResult(
@@ -2679,23 +2679,23 @@ class RoutingAndValidatingToolExecutorTest {
                     before = staticSnapshot(
                         id = "before",
                         packageName = "com.target.app",
-                        textSummary = "Target app",
+                        textSummary = "Target app"
                     ),
                     after = staticSnapshot(
                         id = "after",
                         packageName = "com.other.app",
-                        textSummary = "Other app",
+                        textSummary = "Other app"
                     ),
                     summary = "已等待屏幕稳定",
-                    retryable = false,
-                ),
-            ),
+                    retryable = false
+                )
+            )
         )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val result = executor.execute(
@@ -2704,10 +2704,10 @@ class RoutingAndValidatingToolExecutorTest {
                 toolName = MobileActionFunctions.UI_WAIT,
                 arguments = mapOf(
                     "targetPackageName" to "com.target.app",
-                    "timeoutMillis" to "500",
+                    "timeoutMillis" to "500"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -2724,8 +2724,8 @@ class RoutingAndValidatingToolExecutorTest {
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenControlProvider = screenProvider,
-            ),
+                currentScreenControlProvider = screenProvider
+            )
         )
 
         val defaultResult = executor.execute(
@@ -2735,10 +2735,10 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf(
                     "text" to "hello",
                     "target" to "输入框",
-                    "timeoutMillis" to "500",
+                    "timeoutMillis" to "500"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val allowedResult = executor.execute(
             ToolRequest(
@@ -2748,10 +2748,10 @@ class RoutingAndValidatingToolExecutorTest {
                     "text" to "hello",
                     "target" to "输入框",
                     "allowClipboardPasteFallback" to "true",
-                    "timeoutMillis" to "500",
+                    "timeoutMillis" to "500"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, defaultResult.status)
@@ -2763,15 +2763,15 @@ class RoutingAndValidatingToolExecutorTest {
     @Test
     fun validatingExecutorWrapsDelegateExceptionAsRetryableExecutionFailure() {
         val executor = ValidatingToolExecutor(
-            ThrowingDelegate(IllegalStateException("boom")),
+            ThrowingDelegate(IllegalStateException("boom"))
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "wifi",
                 toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -2789,18 +2789,18 @@ class RoutingAndValidatingToolExecutorTest {
                     summary = "read clipboard",
                     data = mapOf(
                         "toolName" to request.toolName,
-                        "truncated" to "false",
-                    ),
+                        "truncated" to "false"
+                    )
                 )
-            },
+            }
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "clipboard-missing-output",
                 toolName = MobileActionFunctions.READ_CLIPBOARD,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -2822,18 +2822,18 @@ class RoutingAndValidatingToolExecutorTest {
                         "privacy" to MessagePrivacy.LocalOnly.name,
                         "requiresLocalModel" to "true",
                         "text" to "clipboard text",
-                        "truncated" to "maybe",
-                    ),
+                        "truncated" to "maybe"
+                    )
                 )
-            },
+            }
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "clipboard-wrong-output-type",
                 toolName = MobileActionFunctions.READ_CLIPBOARD,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -2850,7 +2850,7 @@ class RoutingAndValidatingToolExecutorTest {
         val cases = listOf(
             ToolStatus.Rejected to ToolErrorCode.InvalidRequest,
             ToolStatus.Failed to ToolErrorCode.ExecutionFailed,
-            ToolStatus.Cancelled to ToolErrorCode.UserCancelled,
+            ToolStatus.Cancelled to ToolErrorCode.UserCancelled
         )
 
         cases.forEach { (status, errorCode) ->
@@ -2862,17 +2862,17 @@ class RoutingAndValidatingToolExecutorTest {
                         summary = "delegate $status",
                         data = emptyMap(),
                         error = ToolError(errorCode, "delegate $status"),
-                        retryable = status == ToolStatus.Failed,
+                        retryable = status == ToolStatus.Failed
                     )
-                },
+                }
             )
 
             val result = executor.execute(
                 ToolRequest(
                     id = "wifi-non-success-$status",
                     toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                    reason = "test",
-                ),
+                    reason = "test"
+                )
             )
 
             assertEquals(status, result.status)
@@ -2887,7 +2887,7 @@ class RoutingAndValidatingToolExecutorTest {
         val cases = listOf(
             ToolStatus.Rejected to ToolErrorCode.InvalidRequest,
             ToolStatus.Failed to ToolErrorCode.ExecutionFailed,
-            ToolStatus.Cancelled to ToolErrorCode.UserCancelled,
+            ToolStatus.Cancelled to ToolErrorCode.UserCancelled
         )
 
         cases.forEach { (status, errorCode) ->
@@ -2907,20 +2907,20 @@ class RoutingAndValidatingToolExecutorTest {
                             "debugPayload" to "raw private detail",
                             "specialAccess" to "usage_stats",
                             "settingsAction" to "android.settings.USAGE_ACCESS_SETTINGS",
-                            "recoveryToolName" to MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                            "recoveryToolName" to MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS
                         ),
                         error = ToolError(errorCode, "delegate $status with com.example.private"),
-                        retryable = status == ToolStatus.Failed,
+                        retryable = status == ToolStatus.Failed
                     )
-                },
+                }
             )
 
             val result = executor.execute(
                 ToolRequest(
                     id = "foreground-non-success-$status",
                     toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
-                    reason = "test",
-                ),
+                    reason = "test"
+                )
             )
 
             assertEquals(status, result.status)
@@ -2950,26 +2950,26 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "files-invalid-max-count",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("maxCount" to "51"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "screenshot-invalid-max-count",
                 toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                 arguments = mapOf("maxCount" to "2"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "screen-text-invalid-max-chars",
                 toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
                 arguments = mapOf("maxChars" to "4001"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "calendar-missing-end",
                 toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
                 arguments = mapOf("start" to "2026-06-01T09:00:00Z"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         requests.forEach { request ->
@@ -3000,60 +3000,60 @@ class RoutingAndValidatingToolExecutorTest {
                 toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
                 arguments = mapOf(
                     "start" to "2026-06-01T09:00:00Z",
-                    "end" to "2026-06-01T10:00:00Z",
+                    "end" to "2026-06-01T10:00:00Z"
                 ),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "foreground-private-output",
                 toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "contacts-private-output",
                 toolName = MobileActionFunctions.QUERY_CONTACTS,
                 arguments = mapOf("query" to "Alice"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "notifications-private-output",
                 toolName = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "files-private-output",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "screenshot-ocr-private-output",
                 toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "image-ocr-private-output",
                 toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
                 arguments = mapOf("maxCount" to "3"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "screen-text-private-output",
                 toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
                 arguments = mapOf("maxChars" to "1000"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "screen-state-private-output",
                 toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                 arguments = mapOf("maxTextChars" to "1000", "maxNodes" to "50"),
-                reason = "test",
+                reason = "test"
             ),
             ToolRequest(
                 id = "ui-scroll-private-output",
                 toolName = MobileActionFunctions.UI_SCROLL,
                 arguments = mapOf("direction" to "down", "timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         privateDeviceRequests.forEach { request ->
@@ -3068,7 +3068,7 @@ class RoutingAndValidatingToolExecutorTest {
             assertTrue("$request should have private output keys", privateKeys.isNotEmpty())
             assertTrue(
                 "${request.toolName} result must include at least one declared private output key",
-                privateKeys.any { privateKey -> result.data.containsKey(privateKey) },
+                privateKeys.any { privateKey -> result.data.containsKey(privateKey) }
             )
         }
         assertTrue(delegate.requests.isEmpty())
@@ -3088,10 +3088,10 @@ class RoutingAndValidatingToolExecutorTest {
                         resultsJson = """{"kind":"weather","provider":"Open-Meteo"}""",
                         searchMode = request.searchMode,
                         freshness = request.freshness,
-                        maxResults = request.maxResults,
+                        maxResults = request.maxResults
                     )
-                },
-            ),
+                }
+            )
         )
 
         val result = executor.execute(
@@ -3099,8 +3099,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "web-search-routed",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气怎么样"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -3128,10 +3128,10 @@ class RoutingAndValidatingToolExecutorTest {
                         resultsJson = """{"kind":"web_search_evidence","freshness":"${request.freshness.schemaValue}"}""",
                         searchMode = request.searchMode,
                         freshness = request.freshness,
-                        maxResults = request.maxResults,
+                        maxResults = request.maxResults
                     )
-                },
-            ),
+                }
+            )
         )
 
         val result = executor.execute(
@@ -3139,8 +3139,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "web-search-current-freshness",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "OpenAI latest model"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -3157,17 +3157,17 @@ class RoutingAndValidatingToolExecutorTest {
             routingExecutor(
                 delegate = delegate,
                 currentScreenControlProvider = StaticCurrentScreenControlProvider(
-                    observeResult = ScreenStateReadResult.PermissionDenied("accessibility disabled"),
-                ),
-            ),
+                    observeResult = ScreenStateReadResult.PermissionDenied("accessibility disabled")
+                )
+            )
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "observe-denied",
                 toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -3198,11 +3198,11 @@ class RoutingAndValidatingToolExecutorTest {
                             after = staticSnapshot("after"),
                             summary = "未找到可提交搜索的输入法动作或按钮",
                             retryable = true,
-                            failureKind = UiActionFailureKind.SubmitNotFound,
-                        ),
-                    ),
-                ),
-            ),
+                            failureKind = UiActionFailureKind.SubmitNotFound
+                        )
+                    )
+                )
+            )
         )
 
         val result = executor.execute(
@@ -3210,8 +3210,8 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "submit-search-failed",
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                 arguments = mapOf("timeoutMillis" to "500"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -3245,8 +3245,8 @@ class RoutingAndValidatingToolExecutorTest {
                         staticSnapshot(
                             id = "preflight",
                             packageName = "com.taobao.taobao",
-                            textSummary = "搜索商品",
-                        ),
+                            textSummary = "搜索商品"
+                        )
                     ),
                     actionResult = UiActionReadResult.Available(
                         UiActionExecutionResult(
@@ -3254,7 +3254,7 @@ class RoutingAndValidatingToolExecutorTest {
                             before = staticSnapshot(
                                 id = "before",
                                 packageName = "com.taobao.taobao",
-                                textSummary = "搜索商品",
+                                textSummary = "搜索商品"
                             ),
                             after = staticSnapshot(
                                 id = "after",
@@ -3262,15 +3262,15 @@ class RoutingAndValidatingToolExecutorTest {
                                 textSummary = "海河牛奶 综合 销量 筛选",
                                 nodes = listOf(
                                     staticNode(id = "result", text = "海河牛奶旗舰店", clickable = true),
-                                    staticNode(id = "filter", text = "筛选", clickable = true),
-                                ),
+                                    staticNode(id = "filter", text = "筛选", clickable = true)
+                                )
                             ),
                             summary = "已等待屏幕稳定",
-                            retryable = false,
-                        ),
-                    ),
-                ),
-            ),
+                            retryable = false
+                        )
+                    )
+                )
+            )
         )
 
         val result = executor.execute(
@@ -3280,10 +3280,10 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf(
                     "timeoutMillis" to "500",
                     "verifySearchQuery" to "海河牛奶",
-                    "expectedPackageName" to "com.taobao.taobao",
+                    "expectedPackageName" to "com.taobao.taobao"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -3302,7 +3302,7 @@ class RoutingAndValidatingToolExecutorTest {
         val unchanged = staticSnapshot(
             id = "same",
             packageName = "com.taobao.taobao",
-            textSummary = "搜索商品",
+            textSummary = "搜索商品"
         )
         val delegate = RecordingDelegate()
         val executor = ValidatingToolExecutor(
@@ -3316,11 +3316,11 @@ class RoutingAndValidatingToolExecutorTest {
                             before = unchanged,
                             after = unchanged,
                             summary = "已等待屏幕稳定",
-                            retryable = false,
-                        ),
-                    ),
-                ),
-            ),
+                            retryable = false
+                        )
+                    )
+                )
+            )
         )
 
         val result = executor.execute(
@@ -3330,10 +3330,10 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf(
                     "timeoutMillis" to "500",
                     "verifySearchQuery" to "海河牛奶",
-                    "expectedPackageName" to "com.taobao.taobao",
+                    "expectedPackageName" to "com.taobao.taobao"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -3351,15 +3351,15 @@ class RoutingAndValidatingToolExecutorTest {
     fun validatingExecutorDoesNotLetUnknownToolReachRoutingDelegate() {
         val delegate = RecordingDelegate()
         val executor = ValidatingToolExecutor(
-            routingExecutor(delegate = delegate),
+            routingExecutor(delegate = delegate)
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "unknown",
                 toolName = "not_a_tool",
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Rejected, result.status)
@@ -3373,7 +3373,7 @@ class RoutingAndValidatingToolExecutorTest {
     private class OcrLockFixture(
         var lock: DeviceLockState,
         private val probeThrows: Boolean = false,
-        private val consented: Boolean = true,
+        private val consented: Boolean = true
     ) {
         var probes = 0
         var captures = 0
@@ -3385,14 +3385,14 @@ class RoutingAndValidatingToolExecutorTest {
             id = "ocr-lock-gate",
             toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
             arguments = mapOf("captureMode" to "current_screen"),
-            reason = "test",
+            reason = "test"
         )
         private val provider = object : CurrentScreenshotOcrProvider {
             override fun setOneShotConsent(
                 requestId: String,
                 resultCode: Int,
                 data: android.content.Intent?,
-                issuedAtMillis: Long,
+                issuedAtMillis: Long
             ) = Unit
 
             override fun clearOneShotConsent(requestId: String) {
@@ -3412,15 +3412,15 @@ class RoutingAndValidatingToolExecutorTest {
                         OcrTextBlock(
                             text = CANARY,
                             bounds = OcrTextBounds(left = 1, top = 2, right = 120, bottom = 42),
-                            lines = listOf(OcrTextLine(text = CANARY)),
-                        ),
-                    ),
+                            lines = listOf(OcrTextLine(text = CANARY))
+                        )
+                    )
                 )
             }
         }
         private val screen = java.lang.reflect.Proxy.newProxyInstance(
             CurrentScreenControlProvider::class.java.classLoader,
-            arrayOf(CurrentScreenControlProvider::class.java),
+            arrayOf(CurrentScreenControlProvider::class.java)
         ) { _, method, _ ->
             check(method.name == "observeCurrentScreen") { "Unexpected device operation: ${method.name}" }
             observes++
@@ -3436,7 +3436,7 @@ class RoutingAndValidatingToolExecutorTest {
             provider,
             screen,
             clockMillis = { 1_000L },
-            deviceLockState = probe,
+            deviceLockState = probe
         )
 
         fun assertRefusedGenerically(result: ToolResult) {
@@ -3536,104 +3536,96 @@ class RoutingAndValidatingToolExecutorTest {
         currentScreenshotOcrProvider: CurrentScreenshotOcrProvider? = StaticCurrentScreenshotOcrProvider(
             CurrentScreenshotOcrReadResult.Available(
                 text = "current screenshot text",
-                truncated = false,
-            ),
+                truncated = false
+            )
         ),
         webSearchProvider: WebSearchProvider = StaticWebSearchProvider(),
         currentScreenControlProvider: CurrentScreenControlProvider? = StaticCurrentScreenControlProvider(),
         clockMillis: () -> Long = { System.currentTimeMillis() },
         deviceLockState: () -> DeviceLockState =
-            { DeviceLockState.Unlocked },
-    ): RoutingToolExecutor =
-        RoutingToolExecutor(
-            calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
-                override fun queryAvailability(window: CalendarAvailabilityWindow): CalendarAvailabilityReadResult =
-                    CalendarAvailabilityReadResult.Available(
-                        CalendarAvailabilityQuery.snapshotFromBusyIntervals(
-                            window = window,
-                            busyIntervals = emptyList(),
-                        ),
+            { DeviceLockState.Unlocked }
+    ): RoutingToolExecutor = RoutingToolExecutor(
+        calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
+            override fun queryAvailability(window: CalendarAvailabilityWindow): CalendarAvailabilityReadResult = CalendarAvailabilityReadResult.Available(
+                CalendarAvailabilityQuery.snapshotFromBusyIntervals(
+                    window = window,
+                    busyIntervals = emptyList()
+                )
+            )
+        },
+        foregroundAppProvider = object : ForegroundAppProvider {
+            override fun currentForegroundApp(): ForegroundAppReadResult = ForegroundAppReadResult.Available(
+                ForegroundAppInfo(
+                    packageName = "com.example.foreground",
+                    appLabel = "Foreground",
+                    lastTimeUsedMillis = 100L
+                )
+            )
+        },
+        contactSummaryProvider = object : ContactSummaryProvider {
+            override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult = ContactSummaryReadResult.Available(
+                listOf(ContactSummaryItem(name = "Alice", phone = "+1 555 0100"))
+            )
+        },
+        notificationSummaryProvider = object : NotificationSummaryProvider {
+            override fun recentNotifications(maxCount: Int): NotificationSummaryReadResult = NotificationSummaryReadResult.Available(
+                listOf(
+                    NotificationSummaryItem(
+                        id = 1,
+                        title = "Done",
+                        isOngoing = false,
+                        postTimeMillis = 1_000L
                     )
-            },
-            foregroundAppProvider = object : ForegroundAppProvider {
-                override fun currentForegroundApp(): ForegroundAppReadResult =
-                    ForegroundAppReadResult.Available(
-                        ForegroundAppInfo(
-                            packageName = "com.example.foreground",
-                            appLabel = "Foreground",
-                            lastTimeUsedMillis = 100L,
-                        ),
+                )
+            )
+        },
+        recentFileProvider = object : RecentFileProvider {
+            override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult = RecentFileReadResult.Available(
+                listOf(
+                    RecentFileItem(
+                        id = 1L,
+                        name = "brief.pdf",
+                        mimeType = "application/pdf",
+                        kind = "documents",
+                        sizeBytes = 512L,
+                        lastModifiedMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli()
                     )
-            },
-            contactSummaryProvider = object : ContactSummaryProvider {
-                override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult =
-                    ContactSummaryReadResult.Available(
-                        listOf(ContactSummaryItem(name = "Alice", phone = "+1 555 0100")),
-                    )
-            },
-            notificationSummaryProvider = object : NotificationSummaryProvider {
-                override fun recentNotifications(maxCount: Int): NotificationSummaryReadResult =
-                    NotificationSummaryReadResult.Available(
-                        listOf(
-                            NotificationSummaryItem(
-                                id = 1,
-                                title = "Done",
-                                isOngoing = false,
-                                postTimeMillis = 1_000L,
-                            ),
-                        ),
-                    )
-            },
-            recentFileProvider = object : RecentFileProvider {
-                override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult =
-                    RecentFileReadResult.Available(
-                        listOf(
-                            RecentFileItem(
-                                id = 1L,
-                                name = "brief.pdf",
-                                mimeType = "application/pdf",
-                                kind = "documents",
-                                sizeBytes = 512L,
-                                lastModifiedMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
-                            ),
-                        ),
-                    )
-            },
-            webSearchProvider = webSearchProvider,
-            delegate = delegate,
-            backgroundTaskScheduler = backgroundTaskScheduler,
-            recentImageTextProvider = object : RecentImageTextProvider {
-                override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult =
-                    RecentImageTextReadResult.Available(
-                        item = RecentImageTextItem(
-                            name = "Screenshot.png",
-                            mimeType = "image/png",
-                            kind = "screenshots",
-                            sizeBytes = 512L,
-                            lastModifiedMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
-                            text = "screen text",
-                            truncated = false,
-                        ),
-                        scannedCount = 1,
-                    )
-            },
-            currentScreenTextProvider = object : CurrentScreenTextProvider {
-                override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult =
-                    CurrentScreenTextReadResult.Available(
-                        CurrentScreenTextSnapshot(
-                            text = "current screen text",
-                            packageName = "com.example.app",
-                            capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
-                            nodeCount = 3,
-                            truncated = false,
-                        ),
-                    )
-            },
-            currentScreenshotOcrProvider = currentScreenshotOcrProvider,
-            currentScreenControlProvider = currentScreenControlProvider,
-            clockMillis = clockMillis,
-            currentScreenshotDeviceLockState = deviceLockState,
-        )
+                )
+            )
+        },
+        webSearchProvider = webSearchProvider,
+        delegate = delegate,
+        backgroundTaskScheduler = backgroundTaskScheduler,
+        recentImageTextProvider = object : RecentImageTextProvider {
+            override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult = RecentImageTextReadResult.Available(
+                item = RecentImageTextItem(
+                    name = "Screenshot.png",
+                    mimeType = "image/png",
+                    kind = "screenshots",
+                    sizeBytes = 512L,
+                    lastModifiedMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
+                    text = "screen text",
+                    truncated = false
+                ),
+                scannedCount = 1
+            )
+        },
+        currentScreenTextProvider = object : CurrentScreenTextProvider {
+            override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult = CurrentScreenTextReadResult.Available(
+                CurrentScreenTextSnapshot(
+                    text = "current screen text",
+                    packageName = "com.example.app",
+                    capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
+                    nodeCount = 3,
+                    truncated = false
+                )
+            )
+        },
+        currentScreenshotOcrProvider = currentScreenshotOcrProvider,
+        currentScreenControlProvider = currentScreenControlProvider,
+        clockMillis = clockMillis,
+        currentScreenshotDeviceLockState = deviceLockState
+    )
 
     private class StaticCurrentScreenControlProvider(
         observeResult: ScreenStateReadResult = ScreenStateReadResult.Available(staticSnapshot("before")),
@@ -3644,9 +3636,9 @@ class RoutingAndValidatingToolExecutorTest {
                 before = staticSnapshot("before"),
                 after = staticSnapshot("after"),
                 summary = "action completed",
-                retryable = false,
-            ),
-        ),
+                retryable = false
+            )
+        )
     ) : CurrentScreenControlProvider {
         private var observeIndex = 0
         var observeCallCount = 0
@@ -3675,7 +3667,7 @@ class RoutingAndValidatingToolExecutorTest {
         override fun tapWithOcrGrounding(
             target: String,
             ocrGroundingHint: UiOcrGroundingHint?,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ): UiActionReadResult {
             tapTargets += target
             tapOcrGroundingHints += ocrGroundingHint
@@ -3686,7 +3678,7 @@ class RoutingAndValidatingToolExecutorTest {
             text: String,
             target: String?,
             timeoutMillis: Long,
-            allowClipboardPasteFallback: Boolean,
+            allowClipboardPasteFallback: Boolean
         ): UiActionReadResult {
             typeTextValues += text
             typeTextTargets += target
@@ -3700,7 +3692,7 @@ class RoutingAndValidatingToolExecutorTest {
             target: String?,
             ocrGroundingHint: UiOcrGroundingHint?,
             timeoutMillis: Long,
-            allowClipboardPasteFallback: Boolean,
+            allowClipboardPasteFallback: Boolean
         ): UiActionReadResult {
             typeTextValues += text
             typeTextTargets += target
@@ -3716,25 +3708,22 @@ class RoutingAndValidatingToolExecutorTest {
 
         override fun submitSearchWithOcrGrounding(
             ocrGroundingHint: UiOcrGroundingHint?,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ): UiActionReadResult {
             submitSearchOcrGroundingHints += ocrGroundingHint
             return actionResult
         }
 
-        override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult =
-            actionResult
+        override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult = actionResult
 
-        override fun pressBack(timeoutMillis: Long): UiActionReadResult =
-            actionResult
+        override fun pressBack(timeoutMillis: Long): UiActionReadResult = actionResult
 
-        override fun waitForScreen(timeoutMillis: Long): UiActionReadResult =
-            actionResult
+        override fun waitForScreen(timeoutMillis: Long): UiActionReadResult = actionResult
 
         override fun tapByNormalizedCoords(
             normalizedX: Int,
             normalizedY: Int,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ): UiActionReadResult {
             tapTargets += "coord($normalizedX,$normalizedY)"
             tapOcrGroundingHints += null
@@ -3751,7 +3740,7 @@ class RoutingAndValidatingToolExecutorTest {
             endXNorm: Int,
             endYNorm: Int,
             durationMillis: Long,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ): UiActionReadResult {
             swipeCalls += "($startXNorm,$startYNorm)->($endXNorm,$endYNorm)"
             return actionResult
@@ -3761,7 +3750,7 @@ class RoutingAndValidatingToolExecutorTest {
             xNorm: Int,
             yNorm: Int,
             holdMillis: Long,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ): UiActionReadResult {
             longPressCalls += "($xNorm,$yNorm)"
             return actionResult
@@ -3782,18 +3771,17 @@ class RoutingAndValidatingToolExecutorTest {
             textSummary: String = "Continue",
             nodes: List<ScreenNode> = listOf(staticNode(id = "n0_button", text = "Continue", clickable = true)),
             widthPx: Int? = null,
-            heightPx: Int? = null,
-        ): ScreenStateSnapshot =
-            ScreenStateSnapshot(
-                id = "screen-$id",
-                packageName = packageName,
-                capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
-                nodes = nodes,
-                textSummary = textSummary,
-                truncated = false,
-                widthPx = widthPx,
-                heightPx = heightPx,
-            )
+            heightPx: Int? = null
+        ): ScreenStateSnapshot = ScreenStateSnapshot(
+            id = "screen-$id",
+            packageName = packageName,
+            capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
+            nodes = nodes,
+            textSummary = textSummary,
+            truncated = false,
+            widthPx = widthPx,
+            heightPx = heightPx
+        )
 
         fun staticNode(
             id: String,
@@ -3804,23 +3792,22 @@ class RoutingAndValidatingToolExecutorTest {
             clickable: Boolean = false,
             editable: Boolean = false,
             scrollable: Boolean = false,
-            enabled: Boolean = true,
-        ): ScreenNode =
-            ScreenNode(
-                id = id,
-                text = text,
-                contentDescription = contentDescription,
-                className = className,
-                bounds = bounds,
-                clickable = clickable,
-                editable = editable,
-                scrollable = scrollable,
-                enabled = enabled,
-            )
+            enabled: Boolean = true
+        ): ScreenNode = ScreenNode(
+            id = id,
+            text = text,
+            contentDescription = contentDescription,
+            className = className,
+            bounds = bounds,
+            clickable = clickable,
+            editable = editable,
+            scrollable = scrollable,
+            enabled = enabled
+        )
     }
 
     private class StaticCurrentScreenshotOcrProvider(
-        private val result: CurrentScreenshotOcrReadResult,
+        private val result: CurrentScreenshotOcrReadResult
     ) : CurrentScreenshotOcrProvider {
         val capturedRequestIds = mutableListOf<String>()
 
@@ -3828,13 +3815,12 @@ class RoutingAndValidatingToolExecutorTest {
             requestId: String,
             resultCode: Int,
             data: android.content.Intent?,
-            issuedAtMillis: Long,
+            issuedAtMillis: Long
         ) = Unit
 
         override fun clearOneShotConsent(requestId: String) = Unit
 
-        override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean =
-            result !is CurrentScreenshotOcrReadResult.MissingConsent
+        override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean = result !is CurrentScreenshotOcrReadResult.MissingConsent
 
         override fun captureCurrentScreenshotOcr(requestId: String, nowMillis: Long): CurrentScreenshotOcrReadResult {
             capturedRequestIds += requestId
@@ -3851,17 +3837,16 @@ class RoutingAndValidatingToolExecutorTest {
                 resultsJson = """{"kind":"instant_answer","results":[]}""",
                 searchMode = request.searchMode,
                 freshness = request.freshness,
-                maxResults = request.maxResults,
+                maxResults = request.maxResults
             )
-        },
+        }
     ) : WebSearchProvider {
-        override fun search(request: WebSearchRequest): WebSearchReadResult =
-            resultForRequest(request)
+        override fun search(request: WebSearchRequest): WebSearchReadResult = resultForRequest(request)
     }
 
     private class RecordingActionPlanningRuntime(
         private val toolName: String,
-        private val parameters: Map<String, String>,
+        private val parameters: Map<String, String>
     ) : ActionPlanningRuntime {
         var lastInput: String? = null
 
@@ -3877,39 +3862,36 @@ class RoutingAndValidatingToolExecutorTest {
                         title = "Test action",
                         summary = "Run test action",
                         parameters = parameters,
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = true,
-                fallbackReason = null,
+                fallbackReason = null
             )
         }
     }
 
     private class StaticBackgroundTaskScheduler : BackgroundTaskScheduler {
-        override fun scheduledTasks(limit: Int): List<ScheduledTask> =
-            listOf(
-                ScheduledTask(
-                    id = "task-route",
-                    type = ScheduledTaskType.Reminder,
-                    title = "Routed task",
-                    body = "private body",
-                    triggerAtMillis = 1_000L,
-                    status = ScheduledTaskStatus.Scheduled,
-                    createdAtMillis = 100L,
-                    updatedAtMillis = 200L,
-                ),
+        override fun scheduledTasks(limit: Int): List<ScheduledTask> = listOf(
+            ScheduledTask(
+                id = "task-route",
+                type = ScheduledTaskType.Reminder,
+                title = "Routed task",
+                body = "private body",
+                triggerAtMillis = 1_000L,
+                status = ScheduledTaskStatus.Scheduled,
+                createdAtMillis = 100L,
+                updatedAtMillis = 200L
             )
+        )
 
-        override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> =
-            Result.failure(UnsupportedOperationException("not used"))
+        override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> = Result.failure(UnsupportedOperationException("not used"))
 
-        override fun cancel(taskId: String): Result<Unit> =
-            Result.failure(UnsupportedOperationException("not used"))
+        override fun cancel(taskId: String): Result<Unit> = Result.failure(UnsupportedOperationException("not used"))
     }
 
     private class RecordingDelegate(
-        private val registry: ToolRegistry = ToolRegistry(),
+        private val registry: ToolRegistry = ToolRegistry()
     ) : ToolExecutor {
         val requests = mutableListOf<ToolRequest>()
 
@@ -3917,7 +3899,7 @@ class RoutingAndValidatingToolExecutorTest {
             requests += request
             return request.succeeded(
                 summary = "delegated",
-                data = validOutputDataFor(request),
+                data = validOutputDataFor(request)
             )
         }
 
@@ -3943,7 +3925,7 @@ class RoutingAndValidatingToolExecutorTest {
         private fun validOutputValueFor(
             request: ToolRequest,
             key: String,
-            property: JSONObject,
+            property: JSONObject
         ): String {
             constValueFor(property)?.let { return it }
             stringSet(property, "enum").firstOrNull()?.let { return it }
@@ -3968,8 +3950,7 @@ class RoutingAndValidatingToolExecutorTest {
             }
         }
 
-        private fun intOrNull(json: JSONObject, name: String): Int? =
-            if (json.has(name)) json.optInt(name) else null
+        private fun intOrNull(json: JSONObject, name: String): Int? = if (json.has(name)) json.optInt(name) else null
 
         private fun constValueFor(json: JSONObject): String? {
             if (!json.has("const") || json.isNull("const")) return null
@@ -3983,18 +3964,14 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     private class ThrowingDelegate(
-        private val throwable: Throwable,
+        private val throwable: Throwable
     ) : ToolExecutor {
-        override fun execute(request: ToolRequest): ToolResult {
-            throw throwable
-        }
+        override fun execute(request: ToolRequest): ToolResult = throw throwable
     }
 
     private class StaticResultDelegate(
-        private val resultForRequest: (ToolRequest) -> ToolResult,
+        private val resultForRequest: (ToolRequest) -> ToolResult
     ) : ToolExecutor {
-        override fun execute(request: ToolRequest): ToolResult =
-            resultForRequest(request)
+        override fun execute(request: ToolRequest): ToolResult = resultForRequest(request)
     }
-
 }

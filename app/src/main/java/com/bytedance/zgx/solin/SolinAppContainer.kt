@@ -40,9 +40,9 @@ import com.bytedance.zgx.solin.device.AndroidNotificationSummaryProvider
 import com.bytedance.zgx.solin.device.AndroidRecentFileProvider
 import com.bytedance.zgx.solin.device.AndroidRecentImageTextProvider
 import com.bytedance.zgx.solin.device.DeviceControlSessionService
-import com.bytedance.zgx.solin.device.deviceLockState
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.SolinAccessibilityService
+import com.bytedance.zgx.solin.device.deviceLockState
 import com.bytedance.zgx.solin.download.ModelDownloadService
 import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.OnDeviceEvidenceBlobStore

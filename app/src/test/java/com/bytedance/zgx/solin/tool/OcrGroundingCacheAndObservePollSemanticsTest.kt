@@ -72,7 +72,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     fun concurrentTapsConsumeTheGroundingHintAtMostOnce() {
         val threads = 8
         val provider = RecordingControlProvider(
-            observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
+            observeResult = ScreenStateReadResult.Available(groundedSnapshot())
         )
         val executor = routingExecutorWithOcrGrounding(provider)
 
@@ -80,7 +80,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         executor.execute(captureOcrRequest())
         assertTrue(
             "capture must have published a hint, otherwise the test proves nothing",
-            provider.observeCallCount.get() > 0,
+            provider.observeCallCount.get() > 0
         )
 
         val pool = Executors.newFixedThreadPool(threads)
@@ -96,8 +96,8 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
                             id = "concurrent-tap-$i",
                             toolName = MobileActionFunctions.UI_TAP,
                             arguments = mapOf("target" to GROUNDED_TARGET, "timeoutMillis" to "500"),
-                            reason = "test",
-                        ),
+                            reason = "test"
+                        )
                     )
                 }
             }
@@ -113,7 +113,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         val delivered = provider.tapOcrGroundingHints.count { it != null }
         assertTrue(
             "grounding hint was delivered $delivered times; consume must invalidate atomically",
-            delivered <= 1,
+            delivered <= 1
         )
     }
 
@@ -121,7 +121,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     @Test
     fun punctuationOnlyOcrBlockIsNotAGroundingHintForAnUnrelatedTarget() {
         val provider = RecordingControlProvider(
-            observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
+            observeResult = ScreenStateReadResult.Available(groundedSnapshot())
         )
         val executor = routingExecutorWithOcrGrounding(provider, ocrText = "<")
 
@@ -141,7 +141,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     @Test
     fun secondTapAfterASingleCaptureReceivesNoGroundingHint() {
         val provider = RecordingControlProvider(
-            observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
+            observeResult = ScreenStateReadResult.Available(groundedSnapshot())
         )
         val executor = routingExecutorWithOcrGrounding(provider)
 
@@ -159,7 +159,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     fun lockRefusedOcrDoesNotSeedGroundingHintForLaterTap() {
         listOf(DeviceLockState.Locked, DeviceLockState.Unknown).forEach { state ->
             val provider = RecordingControlProvider(
-                observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
+                observeResult = ScreenStateReadResult.Available(groundedSnapshot())
             )
             val executor = routingExecutorWithOcrGrounding(provider, lockState = { state })
 
@@ -175,7 +175,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     @Test
     fun unrelatedToolBetweenCaptureAndTapInvalidatesTheGroundingHint() {
         val provider = RecordingControlProvider(
-            observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
+            observeResult = ScreenStateReadResult.Available(groundedSnapshot())
         )
         val executor = routingExecutorWithOcrGrounding(provider)
 
@@ -184,8 +184,8 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
             ToolRequest(
                 id = "unrelated",
                 toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         executor.execute(tapRequest("tap-after-unrelated"))
 
@@ -218,8 +218,8 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         val provider = RecordingControlProvider(
             // Always a different package, so the settle condition never becomes satisfied.
             observeResult = ScreenStateReadResult.Available(
-                groundedSnapshot(packageName = "com.example.other"),
-            ),
+                groundedSnapshot(packageName = "com.example.other")
+            )
         )
         val executor = DeviceControlToolExecutor(provider)
         val elapsedMillis = AtomicLong(-1L)
@@ -234,8 +234,8 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
                         id = "observe-cancelled",
                         toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                         arguments = mapOf("expectedPackageName" to "com.example.never"),
-                        reason = "test",
-                    ),
+                        reason = "test"
+                    )
                 )
             }
             elapsedMillis.set((System.nanoTime() - begin) / 1_000_000)
@@ -253,7 +253,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         assertTrue(
             "observe took ${observed}ms; a cancellable wait must unwind well before the " +
                 "${fullPollBudgetMillis}ms uninterruptible poll budget",
-            observed < fullPollBudgetMillis,
+            observed < fullPollBudgetMillis
         )
     }
 
@@ -261,15 +261,15 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     @Test
     fun observeSucceedsImmediatelyWhenExpectedPackageIsAlreadyForeground() {
         val provider = RecordingControlProvider(
-            observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
+            observeResult = ScreenStateReadResult.Available(groundedSnapshot())
         )
         val result = DeviceControlToolExecutor(provider).execute(
             ToolRequest(
                 id = "observe-settled",
                 toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                 arguments = mapOf("expectedPackageName" to GROUNDED_PACKAGE),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -286,22 +286,22 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         val provider = RecordingControlProvider(
             observeResult = ScreenStateReadResult.Failed(
                 reason = "accessibility service not enabled",
-                failureKind = UiActionFailureKind.PermissionMissing,
-            ),
+                failureKind = UiActionFailureKind.PermissionMissing
+            )
         )
         val result = DeviceControlToolExecutor(provider).execute(
             ToolRequest(
                 id = "observe-permission-missing",
                 toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
         assertEquals(
             "PermissionMissing must not be retried",
             1,
-            provider.observeCallCount.get(),
+            provider.observeCallCount.get()
         )
     }
 
@@ -311,99 +311,90 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         id = "capture-ocr",
         toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
         arguments = mapOf("captureMode" to "current_screen"),
-        reason = "test",
+        reason = "test"
     )
 
     private fun tapRequest(id: String) = ToolRequest(
         id = id,
         toolName = MobileActionFunctions.UI_TAP,
         arguments = mapOf("target" to GROUNDED_TARGET, "timeoutMillis" to "500"),
-        reason = "test",
+        reason = "test"
     )
 
     private fun routingExecutorWithOcrGrounding(
         provider: CurrentScreenControlProvider,
         ocrText: String = GROUNDED_TARGET,
         lockState: () -> DeviceLockState =
-            { DeviceLockState.Unlocked },
-    ): RoutingToolExecutor =
-        RoutingToolExecutor(
-            calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
-                override fun queryAvailability(
-                    window: CalendarAvailabilityWindow,
-                ): CalendarAvailabilityReadResult =
-                    CalendarAvailabilityReadResult.Available(
-                        CalendarAvailabilityQuery.snapshotFromBusyIntervals(
-                            window = window,
-                            busyIntervals = emptyList(),
-                        ),
-                    )
-            },
-            foregroundAppProvider = object : ForegroundAppProvider {
-                override fun currentForegroundApp(): ForegroundAppReadResult =
-                    ForegroundAppReadResult.Available(
-                        ForegroundAppInfo(
-                            packageName = GROUNDED_PACKAGE,
-                            appLabel = "Example",
-                            lastTimeUsedMillis = 1L,
-                        ),
-                    )
-            },
-            contactSummaryProvider = object : ContactSummaryProvider {
-                override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult =
-                    ContactSummaryReadResult.Available(emptyList())
-            },
-            notificationSummaryProvider = object : NotificationSummaryProvider {
-                override fun recentNotifications(maxCount: Int): NotificationSummaryReadResult =
-                    NotificationSummaryReadResult.Available(emptyList())
-            },
-            recentFileProvider = object : RecentFileProvider {
-                override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult =
-                    RecentFileReadResult.Available(emptyList())
-            },
-            webSearchProvider = object : WebSearchProvider {
-                override fun search(request: WebSearchRequest): WebSearchReadResult =
-                    WebSearchReadResult.Failed("unused")
-            },
-            delegate = object : ToolExecutor {
-                override fun execute(request: ToolRequest): ToolResult =
-                    request.failed(
-                        code = ToolErrorCode.UnknownTool,
-                        summary = "delegate not reached for ${request.toolName}",
-                        retryable = false,
-                    )
-            },
-            currentScreenshotOcrProvider = object : CurrentScreenshotOcrProvider {
-                override fun setOneShotConsent(
-                    requestId: String,
-                    resultCode: Int,
-                    data: android.content.Intent?,
-                    issuedAtMillis: Long,
-                ) = Unit
+            { DeviceLockState.Unlocked }
+    ): RoutingToolExecutor = RoutingToolExecutor(
+        calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
+            override fun queryAvailability(
+                window: CalendarAvailabilityWindow
+            ): CalendarAvailabilityReadResult = CalendarAvailabilityReadResult.Available(
+                CalendarAvailabilityQuery.snapshotFromBusyIntervals(
+                    window = window,
+                    busyIntervals = emptyList()
+                )
+            )
+        },
+        foregroundAppProvider = object : ForegroundAppProvider {
+            override fun currentForegroundApp(): ForegroundAppReadResult = ForegroundAppReadResult.Available(
+                ForegroundAppInfo(
+                    packageName = GROUNDED_PACKAGE,
+                    appLabel = "Example",
+                    lastTimeUsedMillis = 1L
+                )
+            )
+        },
+        contactSummaryProvider = object : ContactSummaryProvider {
+            override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult = ContactSummaryReadResult.Available(emptyList())
+        },
+        notificationSummaryProvider = object : NotificationSummaryProvider {
+            override fun recentNotifications(maxCount: Int): NotificationSummaryReadResult = NotificationSummaryReadResult.Available(emptyList())
+        },
+        recentFileProvider = object : RecentFileProvider {
+            override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult = RecentFileReadResult.Available(emptyList())
+        },
+        webSearchProvider = object : WebSearchProvider {
+            override fun search(request: WebSearchRequest): WebSearchReadResult = WebSearchReadResult.Failed("unused")
+        },
+        delegate = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult = request.failed(
+                code = ToolErrorCode.UnknownTool,
+                summary = "delegate not reached for ${request.toolName}",
+                retryable = false
+            )
+        },
+        currentScreenshotOcrProvider = object : CurrentScreenshotOcrProvider {
+            override fun setOneShotConsent(
+                requestId: String,
+                resultCode: Int,
+                data: android.content.Intent?,
+                issuedAtMillis: Long
+            ) = Unit
 
-                override fun clearOneShotConsent(requestId: String) = Unit
+            override fun clearOneShotConsent(requestId: String) = Unit
 
-                override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean = true
+            override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean = true
 
-                override fun captureCurrentScreenshotOcr(
-                    requestId: String,
-                    nowMillis: Long,
-                ): CurrentScreenshotOcrReadResult =
-                    CurrentScreenshotOcrReadResult.Available(
+            override fun captureCurrentScreenshotOcr(
+                requestId: String,
+                nowMillis: Long
+            ): CurrentScreenshotOcrReadResult = CurrentScreenshotOcrReadResult.Available(
+                text = ocrText,
+                truncated = false,
+                ocrBlocks = listOf(
+                    OcrTextBlock(
                         text = ocrText,
-                        truncated = false,
-                        ocrBlocks = listOf(
-                            OcrTextBlock(
-                                text = ocrText,
-                                bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
-                                lines = listOf(OcrTextLine(text = ocrText)),
-                            ),
-                        ),
+                        bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
+                        lines = listOf(OcrTextLine(text = ocrText))
                     )
-            },
-            currentScreenControlProvider = provider,
-            currentScreenshotDeviceLockState = lockState,
-        )
+                )
+            )
+        },
+        currentScreenControlProvider = provider,
+        currentScreenshotDeviceLockState = lockState
+    )
 
     /**
      * Control provider that records every grounding hint it is handed. Deliberately backed by
@@ -411,7 +402,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
      * at once, so an unsynchronized recorder would itself be racy and could mask the defect.
      */
     private class RecordingControlProvider(
-        private val observeResult: ScreenStateReadResult,
+        private val observeResult: ScreenStateReadResult
     ) : CurrentScreenControlProvider {
         val observeCallCount = AtomicInteger(0)
         val tapOcrGroundingHints: MutableList<UiOcrGroundingHint?> =
@@ -423,8 +414,8 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
                 before = groundedSnapshot(),
                 after = groundedSnapshot(),
                 summary = "action completed",
-                retryable = false,
-            ),
+                retryable = false
+            )
         )
 
         override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
@@ -432,13 +423,12 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
             return observeResult
         }
 
-        override fun tap(target: String, timeoutMillis: Long): UiActionReadResult =
-            tapWithOcrGrounding(target = target, ocrGroundingHint = null, timeoutMillis = timeoutMillis)
+        override fun tap(target: String, timeoutMillis: Long): UiActionReadResult = tapWithOcrGrounding(target = target, ocrGroundingHint = null, timeoutMillis = timeoutMillis)
 
         override fun tapWithOcrGrounding(
             target: String,
             ocrGroundingHint: UiOcrGroundingHint?,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ): UiActionReadResult {
             tapOcrGroundingHints += ocrGroundingHint
             return actionResult
@@ -448,7 +438,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
             text: String,
             target: String?,
             timeoutMillis: Long,
-            allowClipboardPasteFallback: Boolean,
+            allowClipboardPasteFallback: Boolean
         ): UiActionReadResult = actionResult
 
         override fun submitSearch(timeoutMillis: Long): UiActionReadResult = actionResult
@@ -456,7 +446,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         override fun scroll(
             direction: UiScrollDirection,
             target: String?,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ): UiActionReadResult = actionResult
 
         override fun pressBack(timeoutMillis: Long): UiActionReadResult = actionResult
@@ -466,7 +456,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         override fun tapByNormalizedCoords(
             normalizedX: Int,
             normalizedY: Int,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ): UiActionReadResult = actionResult
     }
 
@@ -474,28 +464,27 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         const val GROUNDED_TARGET = "继续"
         const val GROUNDED_PACKAGE = "com.example.app"
 
-        fun groundedSnapshot(packageName: String = GROUNDED_PACKAGE): ScreenStateSnapshot =
-            ScreenStateSnapshot(
-                id = "screen-grounded",
-                packageName = packageName,
-                capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
-                nodes = listOf(
-                    ScreenNode(
-                        id = "n0_container",
-                        text = "",
-                        contentDescription = "",
-                        className = "android.widget.FrameLayout",
-                        bounds = ScreenBounds(0, 0, 1080, 2200),
-                        clickable = false,
-                        editable = false,
-                        scrollable = false,
-                        enabled = true,
-                    ),
-                ),
-                textSummary = "无可点击文本",
-                truncated = false,
-                widthPx = 1080,
-                heightPx = 2200,
-            )
+        fun groundedSnapshot(packageName: String = GROUNDED_PACKAGE): ScreenStateSnapshot = ScreenStateSnapshot(
+            id = "screen-grounded",
+            packageName = packageName,
+            capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
+            nodes = listOf(
+                ScreenNode(
+                    id = "n0_container",
+                    text = "",
+                    contentDescription = "",
+                    className = "android.widget.FrameLayout",
+                    bounds = ScreenBounds(0, 0, 1080, 2200),
+                    clickable = false,
+                    editable = false,
+                    scrollable = false,
+                    enabled = true
+                )
+            ),
+            textSummary = "无可点击文本",
+            truncated = false,
+            widthPx = 1080,
+            heightPx = 2200
+        )
     }
 }

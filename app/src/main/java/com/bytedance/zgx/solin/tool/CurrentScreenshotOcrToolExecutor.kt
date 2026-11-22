@@ -16,7 +16,7 @@ internal class CurrentScreenshotOcrToolExecutor(
     private val provider: CurrentScreenshotOcrProvider?,
     private val currentScreenControlProvider: CurrentScreenControlProvider? = null,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
-    private val deviceLockState: () -> DeviceLockState = { DeviceLockState.Unknown },
+    private val deviceLockState: () -> DeviceLockState = { DeviceLockState.Unknown }
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR) {
@@ -25,9 +25,12 @@ internal class CurrentScreenshotOcrToolExecutor(
 
         // T6: MediaProjection mirrors the user's screen, not the scoped background display.
         if (com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.currentBinding() != null) {
-            return request.failed(ToolErrorCode.PermissionDenied,
+            return request.failed(
+                ToolErrorCode.PermissionDenied,
                 "实验后台屏幕不支持主屏截图 OCR，未截取或混合其他屏幕证据",
-                retryable = false, data = request.localOnlyData())
+                retryable = false,
+                data = request.localOnlyData()
+            )
         }
         val nowMillis = clockMillis()
         val hasConsent = provider?.hasOneShotConsent(request.id, nowMillis) == true
@@ -49,8 +52,8 @@ internal class CurrentScreenshotOcrToolExecutor(
                     summary = "需要完成 Android MediaProjection 前台同意后，才能单次截取当前屏幕并本地提取 OCR 文本。",
                     retryable = false,
                     data = request.localOnlyData() + mapOf(
-                        "specialAccess" to CurrentScreenshotOcrContract.CONSENT_REASON,
-                    ),
+                        "specialAccess" to CurrentScreenshotOcrContract.CONSENT_REASON
+                    )
                 )
 
             is CurrentScreenshotOcrReadResult.Failed ->
@@ -58,14 +61,14 @@ internal class CurrentScreenshotOcrToolExecutor(
                     code = ToolErrorCode.ExecutionFailed,
                     summary = result.reason,
                     retryable = true,
-                    data = request.currentScreenshotOcrBaseData(),
+                    data = request.currentScreenshotOcrBaseData()
                 )
 
             is CurrentScreenshotOcrReadResult.Available -> {
                 val ocrText = result.text?.takeIf { it.isNotBlank() }
                 val screenObservationData = currentScreenControlProvider.screenObservationData(
                     ocrBlocks = result.ocrBlocks,
-                    beforeCapture = screenObservationBeforeCapture,
+                    beforeCapture = screenObservationBeforeCapture
                 )
                 // Best-effort re-check right before publication; not atomic with the OS lock.
                 if (!isUnlocked()) return request.lockRefusal()
@@ -78,20 +81,19 @@ internal class CurrentScreenshotOcrToolExecutor(
                     data = request.currentScreenshotOcrBaseData() +
                         mapOf(
                             "truncated" to result.truncated.toString(),
-                            "ocrTextIncluded" to (ocrText != null).toString(),
+                            "ocrTextIncluded" to (ocrText != null).toString()
                         ) +
                         ocrText?.let { mapOf("ocrText" to it) }.orEmpty() +
                         result.ocrBlocks.takeIf { it.isNotEmpty() }
                             ?.let { mapOf("ocrBlocksJson" to it.toOcrBlocksJsonString()) }
                             .orEmpty() +
-                        screenObservationData,
+                        screenObservationData
                 )
             }
         }
     }
 
-    private fun isUnlocked(): Boolean =
-        runCatching { deviceLockState() }.getOrDefault(DeviceLockState.Unknown) == DeviceLockState.Unlocked
+    private fun isUnlocked(): Boolean = runCatching { deviceLockState() }.getOrDefault(DeviceLockState.Unknown) == DeviceLockState.Unlocked
 
     /** Generic refusal: consumes the one-shot consent and reveals neither lock state nor content. */
     private fun ToolRequest.lockRefusal(): ToolResult {
@@ -100,17 +102,17 @@ internal class CurrentScreenshotOcrToolExecutor(
             code = ToolErrorCode.ExecutionFailed,
             summary = "当前屏幕截图 OCR 暂不可用，未返回屏幕内容",
             retryable = false,
-            data = currentScreenshotOcrBaseData(),
+            data = currentScreenshotOcrBaseData()
         )
     }
 
     private fun CurrentScreenControlProvider?.screenObservationData(
         ocrBlocks: List<OcrTextBlock>,
-        beforeCapture: ScreenStateReadResult?,
+        beforeCapture: ScreenStateReadResult?
     ): Map<String, String> {
         val provider = this ?: return mapOf(
             "screenObservationIncluded" to false.toString(),
-            "screenObservationFailureKind" to "provider_unavailable",
+            "screenObservationFailureKind" to "provider_unavailable"
         )
         return when (val beforeResult = beforeCapture ?: provider.observeCurrentScreen()) {
             is ScreenStateReadResult.Available ->
@@ -121,14 +123,14 @@ internal class CurrentScreenshotOcrToolExecutor(
                         if (beforeSignature != afterSignature) {
                             mapOf(
                                 "screenObservationIncluded" to false.toString(),
-                                "screenObservationFailureKind" to "page_changed",
+                                "screenObservationFailureKind" to "page_changed"
                             )
                         } else {
                             mapOf(
                                 "screenObservationIncluded" to true.toString(),
                                 "screenObservationJson" to afterResult.snapshot.toScreenObservationJsonString(
-                                    ocrBlocks = ocrBlocks,
-                                ),
+                                    ocrBlocks = ocrBlocks
+                                )
                             )
                         }
                     }
@@ -136,35 +138,34 @@ internal class CurrentScreenshotOcrToolExecutor(
                     is ScreenStateReadResult.PermissionDenied ->
                         mapOf(
                             "screenObservationIncluded" to false.toString(),
-                            "screenObservationFailureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
+                            "screenObservationFailureKind" to UiActionFailureKind.PermissionMissing.schemaValue
                         )
 
                     is ScreenStateReadResult.Failed ->
                         mapOf(
                             "screenObservationIncluded" to false.toString(),
-                            "screenObservationFailureKind" to afterResult.failureKind.schemaValue,
+                            "screenObservationFailureKind" to afterResult.failureKind.schemaValue
                         )
                 }
 
             is ScreenStateReadResult.PermissionDenied ->
                 mapOf(
                     "screenObservationIncluded" to false.toString(),
-                    "screenObservationFailureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
+                    "screenObservationFailureKind" to UiActionFailureKind.PermissionMissing.schemaValue
                 )
 
             is ScreenStateReadResult.Failed ->
                 mapOf(
                     "screenObservationIncluded" to false.toString(),
-                    "screenObservationFailureKind" to beforeResult.failureKind.schemaValue,
+                    "screenObservationFailureKind" to beforeResult.failureKind.schemaValue
                 )
         }
     }
 }
 
-private fun ToolRequest.currentScreenshotOcrBaseData(): Map<String, String> =
-    localOnlyData() + mapOf(
-        "source" to CurrentScreenshotOcrContract.SOURCE,
-        "captureMode" to CurrentScreenshotOcrContract.CAPTURE_MODE,
-        "metadataPolicy" to CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
-        "rawPayloadIncluded" to false.toString(),
-    )
+private fun ToolRequest.currentScreenshotOcrBaseData(): Map<String, String> = localOnlyData() + mapOf(
+    "source" to CurrentScreenshotOcrContract.SOURCE,
+    "captureMode" to CurrentScreenshotOcrContract.CAPTURE_MODE,
+    "metadataPolicy" to CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
+    "rawPayloadIncluded" to false.toString()
+)

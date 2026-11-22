@@ -84,16 +84,19 @@ class BackgroundPhoneOcrIsolationTest {
             .invoke(unsafe, BackgroundPhoneSession::class.java) as BackgroundPhoneSession
         val constructor = BackgroundPhoneSession.Binding::class.java.getDeclaredConstructor(
             BackgroundPhoneSession::class.java,
-            BackgroundPhoneState::class.java,
+            BackgroundPhoneState::class.java
         ).apply { isAccessible = true }
-        return constructor.newInstance(session, BackgroundPhoneState(
-            displayId = 7,
-            foregroundPackage = "example.background",
-            width = 320,
-            height = 640,
-            densityDpi = 160,
-            isolatedFocus = true,
-        ))
+        return constructor.newInstance(
+            session,
+            BackgroundPhoneState(
+                displayId = 7,
+                foregroundPackage = "example.background",
+                width = 320,
+                height = 640,
+                densityDpi = 160,
+                isolatedFocus = true
+            )
+        )
     }
 
     private class Fixture {
@@ -103,7 +106,7 @@ class BackgroundPhoneOcrIsolationTest {
         val request = ToolRequest(
             id = "background-ocr-isolation",
             toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
-            arguments = mapOf("captureMode" to "current_screen"),
+            arguments = mapOf("captureMode" to "current_screen")
         )
         private val provider = object : CurrentScreenshotOcrProvider {
             override fun setOneShotConsent(requestId: String, resultCode: Int, data: Intent?, issuedAtMillis: Long) = Unit
@@ -119,7 +122,7 @@ class BackgroundPhoneOcrIsolationTest {
         }
         private val screen = Proxy.newProxyInstance(
             CurrentScreenControlProvider::class.java.classLoader,
-            arrayOf(CurrentScreenControlProvider::class.java),
+            arrayOf(CurrentScreenControlProvider::class.java)
         ) { _, method, _ ->
             check(method.name == "observeCurrentScreen") { "Unexpected device operation: ${method.name}" }
             observeCalls++
@@ -129,7 +132,7 @@ class BackgroundPhoneOcrIsolationTest {
             provider,
             screen,
             clockMillis = { 1_000L },
-            deviceLockState = { DeviceLockState.Unlocked },
+            deviceLockState = { DeviceLockState.Unlocked }
         )
     }
 }
