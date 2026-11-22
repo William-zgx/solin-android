@@ -17,27 +17,27 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
-import java.net.ServerSocket
-import java.net.Socket
-import java.net.InetAddress
-import java.net.InetSocketAddress
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
-import android.graphics.Point
 import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Base64
-import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
 import java.util.Timer
 import java.util.TimerTask
+import org.json.JSONObject
 
 /** Entry point for an explicitly user-started adb app_process, never an Android exported service. */
 object BackgroundPhoneHelper {
@@ -56,7 +56,9 @@ object BackgroundPhoneHelper {
         val context = ShellIdentity.create()
         val helper = Helper(context, appUid, token, expires)
         Thread({
-            try { helper.serve() } catch (_: Exception) {
+            try {
+                helper.serve()
+            } catch (_: Exception) {
                 // Transport closure/expiry is terminal; never print framework or protocol content.
             } finally {
                 helper.close()
@@ -71,7 +73,9 @@ object BackgroundPhoneHelper {
         private val server = ServerSocket().apply { bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 4) }
         private val deadline = SystemClock.elapsedRealtime() + (expires - System.currentTimeMillis()).coerceAtLeast(0)
         private val lock = Any()
+
         @Volatile private var closed = false
+
         @Volatile private var connection: Socket? = null
         private var display: VirtualDisplay? = null
         private var reader: ImageReader? = null
@@ -89,45 +93,78 @@ object BackgroundPhoneHelper {
         private val timer = Timer("solin-background-expiry", true)
 
         init {
-            timer.schedule(object : TimerTask() {
-                override fun run() {
-                    // Expiry/disconnect/lock always destroys the display, including during idle periods.
-                    val invalid = SystemClock.elapsedRealtime() >= deadline || locked() ||
-                        synchronized(lock) { display != null && runCatching { state(); false }.getOrDefault(true) }
-                    if (invalid) close()
-                }
-            }, 1_000, 1_000)
+            timer.schedule(
+                object : TimerTask() {
+                    override fun run() {
+                        // Expiry/disconnect/lock always destroys the display, including during idle periods.
+                        val invalid = SystemClock.elapsedRealtime() >= deadline ||
+                            locked() ||
+                            synchronized(lock) {
+                                display != null &&
+                                    runCatching {
+                                        state()
+                                        false
+                                    }.getOrDefault(true)
+                            }
+                        if (invalid) close()
+                    }
+                },
+                1_000,
+                1_000
+            )
         }
 
         fun serve() {
             println("PORT=${server.localPort}")
             System.out.flush()
             while (!closed) {
-                val peer = try { server.accept() } catch (_: Exception) { return }
-                if (!peer.inetAddress.isLoopbackAddress) { peer.close(); continue }
+                val peer = try {
+                    server.accept()
+                } catch (_: Exception) {
+                    return
+                }
+                if (!peer.inetAddress.isLoopbackAddress) {
+                    peer.close()
+                    continue
+                }
                 connection = peer
                 peer.soTimeout = 5_000
                 val input = DataInputStream(peer.getInputStream())
                 val output = DataOutputStream(peer.getOutputStream())
                 // A hard handshake deadline also defeats clients that trickle bytes under SO_TIMEOUT.
-                val handshakeDeadline = object : TimerTask() { override fun run() { runCatching { peer.close() } } }
+                val handshakeDeadline = object : TimerTask() {
+                    override fun run() {
+                        runCatching { peer.close() }
+                    }
+                }
                 timer.schedule(handshakeDeadline, 5_000)
                 val channel = try {
                     BackgroundPhoneProtocol.serverHandshake(input, output, token, appUid, expires)
                 } catch (_: Exception) {
-                    peer.close(); connection = null; continue
-                } finally { handshakeDeadline.cancel() }
+                    peer.close()
+                    connection = null
+                    continue
+                } finally {
+                    handshakeDeadline.cancel()
+                }
                 peer.soTimeout = 0 // Legitimate idle is bounded by the session's overall expiry.
                 try {
                     while (!closed) {
                         var frameDeadline: TimerTask? = null
-                        val request = JSONObject(channel.receive(4096,
-                            frameStarted = {
-                                frameDeadline = object : TimerTask() { override fun run() { runCatching { peer.close() } } }
-                                timer.schedule(frameDeadline, 5_000)
-                            },
-                            frameFinished = { frameDeadline?.cancel() },
-                        ))
+                        val request = JSONObject(
+                            channel.receive(
+                                4096,
+                                frameStarted = {
+                                    frameDeadline = object : TimerTask() {
+                                        override fun run() {
+                                            runCatching { peer.close() }
+                                        }
+                                    }
+                                    timer.schedule(frameDeadline, 5_000)
+                                },
+                                frameFinished = { frameDeadline?.cancel() }
+                            )
+                        )
                         val response = try {
                             synchronized(lock) {
                                 check(!closed && SystemClock.elapsedRealtime() < deadline && !locked()) { "session_unavailable" }
@@ -147,14 +184,18 @@ object BackgroundPhoneHelper {
                         channel.send(response.toString())
                         if (request.optString("method") == "stop" || !response.optBoolean("ok")) return
                     }
-                } finally { close() }
+                } finally {
+                    close()
+                }
                 return // One authenticated owner only; reconnect requires new explicit provisioning.
             }
         }
 
         private fun create(request: JSONObject): JSONObject {
             check(display == null) { "already_created" }
-            width = request.getInt("width"); height = request.getInt("height"); dpi = request.getInt("densityDpi")
+            width = request.getInt("width")
+            height = request.getInt("height")
+            dpi = request.getInt("densityDpi")
             BackgroundPhoneProtocol.requireGeometry(width, height, dpi)
             tasks() // Refuse creation when task ownership cannot be inspected.
             val images = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
@@ -166,8 +207,14 @@ object BackgroundPhoneHelper {
             val manager = DisplayManager::class.java.getDeclaredConstructor(Context::class.java)
                 .apply { isAccessible = true }.newInstance(context)
             val created = manager.createVirtualDisplay(
-                "Solin experimental background", width, height, dpi, images.surface,
-                BackgroundDisplayPolicy.flags(Build.VERSION.SDK_INT), null, Handler(Looper.getMainLooper()),
+                "Solin experimental background",
+                width,
+                height,
+                dpi,
+                images.surface,
+                BackgroundDisplayPolicy.flags(Build.VERSION.SDK_INT),
+                null,
+                Handler(Looper.getMainLooper())
             ) ?: error("display_unavailable")
             display = created
             expectedRotation = created.display.rotation
@@ -183,8 +230,12 @@ object BackgroundPhoneHelper {
             val size = Point().also { current.display.getRealSize(it) }
             check(size.x == width && size.y == height && current.display.rotation == expectedRotation) { "display_geometry_changed" }
             launchedPackage?.let { target ->
-                check(tasks.none { displayId(it) != id &&
-                    (it.topActivity?.packageName == target || it.baseActivity?.packageName == target) }) { "app_in_use" }
+                check(
+                    tasks.none {
+                        displayId(it) != id &&
+                            (it.topActivity?.packageName == target || it.baseActivity?.packageName == target)
+                    }
+                ) { "app_in_use" }
             }
             val top = tasks.firstOrNull { displayId(it) == id }
             return JSONObject().put("ok", true).put("displayId", current.display.displayId)
@@ -199,8 +250,12 @@ object BackgroundPhoneHelper {
             val id = checkNotNull(display).display.displayId
             val currentTasks = tasks()
             // Do not steal any existing task from another display, even a task behind the foreground.
-            check(currentTasks.none { displayId(it) != id &&
-                (it.topActivity?.packageName == packageName || it.baseActivity?.packageName == packageName) }) { "app_in_use" }
+            check(
+                currentTasks.none {
+                    displayId(it) != id &&
+                        (it.topActivity?.packageName == packageName || it.baseActivity?.packageName == packageName)
+                }
+            ) { "app_in_use" }
             val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: error("launcher_unavailable")
             check(intent.component?.packageName == packageName)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
@@ -208,8 +263,10 @@ object BackgroundPhoneHelper {
             val start = taskManager.javaClass.methods.singleOrNull {
                 it.name == "startActivityAsUser" && it.parameterTypes.size == 12
             } ?: error("launch_api_unavailable")
-            val result = start.invoke(taskManager, null, "com.android.shell", null, intent,
-                null, null, null, 0, 0, null, options, appUid / 100_000) as Int
+            val result = start.invoke(
+                taskManager, null, "com.android.shell", null, intent,
+                null, null, null, 0, 0, null, options, appUid / 100_000
+            ) as Int
             check(result >= 0) { "launch_rejected" }
             launchedPackage = packageName
             // A successful launch request is not a verified app outcome. Client must observe freshly.
@@ -229,7 +286,8 @@ object BackgroundPhoneHelper {
                     if (closed) return
                     val buffer = latestFrame?.takeIf { it.width == strideWidth && it.height == height }
                         ?: Bitmap.createBitmap(strideWidth, height, Bitmap.Config.ARGB_8888).also {
-                            latestFrame?.recycle(); latestFrame = it
+                            latestFrame?.recycle()
+                            latestFrame = it
                         }
                     buffer.copyPixelsFromBuffer(plane.buffer.rewind())
                     latestTimestampNanos = timestamp
@@ -260,7 +318,9 @@ object BackgroundPhoneHelper {
                     check(cropped.compress(Bitmap.CompressFormat.PNG, 100, bytes))
                     bytes.toByteArray().also { check(it.size <= 5 * 1024 * 1024) }
                 }
-            } finally { cropped.recycle() }
+            } finally {
+                cropped.recycle()
+            }
             state()
             check(!locked() && !closed)
             return JSONObject().put("ok", true).put("png", Base64.encodeToString(png, Base64.NO_WRAP))
@@ -270,18 +330,28 @@ object BackgroundPhoneHelper {
         @Suppress("UNCHECKED_CAST")
         private fun tasks(): List<ActivityManager.RunningTaskInfo> {
             val method = taskManager.javaClass.methods.firstOrNull {
-                it.name == "getTasks" && it.parameterTypes.toList() == listOf(Int::class.javaPrimitiveType,
-                    Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                it.name == "getTasks" &&
+                    it.parameterTypes.toList() == listOf(
+                        Int::class.javaPrimitiveType,
+                        Boolean::class.javaPrimitiveType,
+                        Boolean::class.javaPrimitiveType,
+                        Int::class.javaPrimitiveType
+                    )
             }
-            val result = if (method != null) method.invoke(taskManager, 100, false, false, -1) else {
-                taskManager.javaClass.getMethod("getTasks", Int::class.javaPrimitiveType,
-                    Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType).invoke(taskManager, 100, false, false)
+            val result = if (method != null) {
+                method.invoke(taskManager, 100, false, false, -1)
+            } else {
+                taskManager.javaClass.getMethod(
+                    "getTasks",
+                    Int::class.javaPrimitiveType,
+                    Boolean::class.javaPrimitiveType,
+                    Boolean::class.javaPrimitiveType
+                ).invoke(taskManager, 100, false, false)
             }
             return result as List<ActivityManager.RunningTaskInfo>
         }
 
-        private fun displayId(task: ActivityManager.RunningTaskInfo): Int =
-            Class.forName("android.app.TaskInfo").getField("displayId").getInt(task)
+        private fun displayId(task: ActivityManager.RunningTaskInfo): Int = Class.forName("android.app.TaskInfo").getField("displayId").getInt(task)
 
         private fun locked() = runCatching { context.getSystemService(KeyguardManager::class.java).isDeviceLocked }.getOrDefault(true)
 
@@ -291,10 +361,16 @@ object BackgroundPhoneHelper {
             runCatching { connection?.close() }
             runCatching { server.close() }
             synchronized(lock) {
-                runCatching { display?.release() }; display = null
+                runCatching { display?.release() }
+                display = null
                 runCatching { reader?.setOnImageAvailableListener(null, null) }
-                runCatching { reader?.close() }; reader = null
-                synchronized(framesLock) { latestFrame?.recycle(); latestFrame = null; latestTimestampNanos = 0L }
+                runCatching { reader?.close() }
+                reader = null
+                synchronized(framesLock) {
+                    latestFrame?.recycle()
+                    latestFrame = null
+                    latestTimestampNanos = 0L
+                }
                 frameThread.quitSafely()
             }
             timer.cancel()
@@ -304,6 +380,7 @@ object BackgroundPhoneHelper {
     private class ShellIdentity(base: Context) : ContextWrapper(base) {
         override fun getPackageName() = "com.android.shell"
         override fun getOpPackageName() = "com.android.shell"
+
         @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
         override fun getAttributionSource(): AttributionSource = AttributionSource.Builder(2000).setPackageName(packageName).build()
         override fun getApplicationContext(): Context = this

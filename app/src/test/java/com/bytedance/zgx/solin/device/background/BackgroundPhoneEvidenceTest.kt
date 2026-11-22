@@ -1,39 +1,57 @@
 package com.bytedance.zgx.solin.device.background
 
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Pure checks: no socket, Looper, sleep or device. */
 class BackgroundPhoneEvidenceTest {
-    private fun state(pkg: String?, focus: Boolean = true, display: Int = 7) =
-        BackgroundPhoneState(display, pkg, 320, 640, 160, focus)
+    private fun state(pkg: String?, focus: Boolean = true, display: Int = 7) = BackgroundPhoneState(display, pkg, 320, 640, 160, focus)
 
-    private fun code(block: () -> Unit): String =
-        assertThrows(BackgroundPhoneFailure::class.java) { block() }.code
+    private fun code(block: () -> Unit): String = assertThrows(BackgroundPhoneFailure::class.java) { block() }.code
 
     @Test fun waitsUntilRequestedPackageIsTopmost() {
         var now = 0L
         val sleeps = mutableListOf<Long>()
         val polls = ArrayDeque(listOf(state("android.chooser"), state("example.target")))
-        val result = BackgroundPhoneSession.awaitTopmost("example.target", state("com.launcher"),
-            nowNanos = { now }, sleep = { sleeps += it; now += 200_000_000L }) { polls.removeFirst() }
+        val result = BackgroundPhoneSession.awaitTopmost(
+            "example.target",
+            state("com.launcher"),
+            nowNanos = { now },
+            sleep = {
+                sleeps += it
+                now += 200_000_000L
+            }
+        ) { polls.removeFirst() }
         assertEquals("example.target", result.foregroundPackage)
         assertEquals(2, sleeps.size)
     }
 
     @Test fun neverAcceptsChooserOrOtherPackageAndTimesOutClosed() {
         var now = 0L
-        assertEquals("target_not_foreground", code {
-            BackgroundPhoneSession.awaitTopmost("example.target", state("com.launcher"),
-                nowNanos = { now }, sleep = { now += 1_000_000_000L }) { state("android.chooser") }
-        })
+        assertEquals(
+            "target_not_foreground",
+            code {
+                BackgroundPhoneSession.awaitTopmost(
+                    "example.target",
+                    state("com.launcher"),
+                    nowNanos = { now },
+                    sleep = { now += 1_000_000_000L }
+                ) { state("android.chooser") }
+            }
+        )
         assertTrue(now in 1L..10_000_000_000L)
     }
 
     @Test fun waitFailsClosedWithoutOwnFocusOrOnDisplayChange() {
-        assertEquals("independent_focus_unavailable", code {
-            BackgroundPhoneSession.awaitTopmost("example.target", state("example.target", focus = false)) { error("no poll") }
-        })
+        assertEquals(
+            "independent_focus_unavailable",
+            code {
+                BackgroundPhoneSession.awaitTopmost("example.target", state("example.target", focus = false)) { error("no poll") }
+            }
+        )
         assertThrows(IllegalStateException::class.java) {
             BackgroundPhoneSession.awaitTopmost("example.target", state(null), nowNanos = { 0L }, sleep = {}) { state("example.target", display = 1) }
         }
@@ -45,9 +63,12 @@ class BackgroundPhoneEvidenceTest {
         assertThrows(IllegalStateException::class.java) {
             BackgroundPhoneSession.verifyBound(state("other.app"), initial, "example.target")
         }
-        assertEquals("independent_focus_unavailable", code {
-            BackgroundPhoneSession.verifyBound(state("example.target", focus = false), initial, "example.target")
-        })
+        assertEquals(
+            "independent_focus_unavailable",
+            code {
+                BackgroundPhoneSession.verifyBound(state("example.target", focus = false), initial, "example.target")
+            }
+        )
     }
 
     @Test fun staleOrMissingFrameTimestampsAreRejected() {

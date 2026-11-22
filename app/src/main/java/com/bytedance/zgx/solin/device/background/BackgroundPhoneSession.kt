@@ -9,19 +9,19 @@ package com.bytedance.zgx.solin.device.background
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import java.net.Socket
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
-import java.security.SecureRandom
 import android.os.Process
 import android.util.Base64
-import org.json.JSONObject
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import org.json.JSONObject
 
 /** Only fixed diagnostic codes cross the debug UI boundary, never framework exception messages. */
 class BackgroundPhoneFailure(val code: String) : IllegalStateException(code)
@@ -33,7 +33,7 @@ data class BackgroundPhoneState(
     val width: Int,
     val height: Int,
     val densityDpi: Int,
-    val isolatedFocus: Boolean,
+    val isolatedFocus: Boolean
 )
 
 /**
@@ -45,16 +45,19 @@ class BackgroundPhoneSession private constructor(
     private val socket: Socket,
     private val input: DataInputStream,
     private val output: DataOutputStream,
-    private val expiresAtMs: Long,
+    private val expiresAtMs: Long
 ) : AutoCloseable {
     @Volatile private var closed = false
+
     @Volatile private var runStartNanos: Long = System.nanoTime()
     private lateinit var channel: BackgroundPhoneProtocol.Channel
 
     /** Bound to an explicit caller scope, then propagated to the service worker. Never a global mode. */
     class Binding internal constructor(private val session: BackgroundPhoneSession, val initial: BackgroundPhoneState) {
         private var expectedPackage: String? = initial.foregroundPackage
-        init { requireOwnFocus(initial) }
+        init {
+            requireOwnFocus(initial)
+        }
         fun launch(packageName: String): BackgroundPhoneState {
             requireActive()
             val launched = session.launch(packageName)
@@ -88,8 +91,12 @@ class BackgroundPhoneSession private constructor(
     fun create(width: Int, height: Int, densityDpi: Int): BackgroundPhoneState {
         BackgroundPhoneProtocol.requireGeometry(width, height, densityDpi)
         runStartNanos = System.nanoTime()
-        return state(call(JSONObject().put("method", "create").put("width", width)
-            .put("height", height).put("densityDpi", densityDpi)))
+        return state(
+            call(
+                JSONObject().put("method", "create").put("width", width)
+                    .put("height", height).put("densityDpi", densityDpi)
+            )
+        )
     }
 
     @Synchronized
@@ -113,7 +120,9 @@ class BackgroundPhoneSession private constructor(
         return png
     }
 
-    internal fun markRunStart(nowNanos: Long = System.nanoTime()) { runStartNanos = nowNanos }
+    internal fun markRunStart(nowNanos: Long = System.nanoTime()) {
+        runStartNanos = nowNanos
+    }
 
     internal fun acceptFrameTimestamp(timestampNanos: Long): Long = requireFreshFrame(timestampNanos, runStartNanos)
 
@@ -121,21 +130,21 @@ class BackgroundPhoneSession private constructor(
     @Volatile var lastCaptureTimestampNanos: Long = 0L
         private set
 
-    private fun call(request: JSONObject): JSONObject {
-        return try {
-            check(!closed && System.currentTimeMillis() < expiresAtMs) { "Background session expired or closed" }
-            channel.send(request.toString())
-            val response = JSONObject(channel.receive())
-            if (!response.optBoolean("ok")) throw BackgroundPhoneFailure(
-                BackgroundPhoneProtocol.safeFailure(response.optString("error")),
+    private fun call(request: JSONObject): JSONObject = try {
+        check(!closed && System.currentTimeMillis() < expiresAtMs) { "Background session expired or closed" }
+        channel.send(request.toString())
+        val response = JSONObject(channel.receive())
+        if (!response.optBoolean("ok")) {
+            throw BackgroundPhoneFailure(
+                BackgroundPhoneProtocol.safeFailure(response.optString("error"))
             )
-            response
-        } catch (error: Exception) {
-            // Outcome may be unknown after a timeout. Close; never replay a launch or any mutation.
-            closed = true
-            runCatching { socket.close() }
-            throw error
         }
+        response
+    } catch (error: Exception) {
+        // Outcome may be unknown after a timeout. Close; never replay a launch or any mutation.
+        closed = true
+        runCatching { socket.close() }
+        throw error
     }
 
     @Synchronized
@@ -150,11 +159,13 @@ class BackgroundPhoneSession private constructor(
         const val AUTH_FILE = "background-phone-session.json"
         private val controlBinding = ThreadLocal<Binding>()
         private val agentSelection = java.util.concurrent.atomic.AtomicReference<BackgroundPhoneSession?>()
+
         /** Explicit UI selection only. Caller must capture it once per run, not reselect each step. */
         fun selectForAgent(session: BackgroundPhoneSession?) {
             if (session != null) check(!session.closed && System.currentTimeMillis() < session.expiresAtMs) { "Session expired" }
             agentSelection.set(session)
         }
+
         // Preserve an expired/closed selection as a tombstone: never silently switch to main.
         fun selectedForAgent(): BackgroundPhoneSession? = agentSelection.get()
         private data class RunSelection(val session: BackgroundPhoneSession?)
@@ -182,17 +193,24 @@ class BackgroundPhoneSession private constructor(
             }
             runs[runId] = RunSelection(session)
         }
+
         @Synchronized fun forRun(runId: String): BackgroundPhoneSession? {
             runs[runId]?.let { return it.session }
             check(runId !in backgroundRunMarkers) { "Background run cannot resume after process restart" }
             // Legacy/restored foreground runs have no background marker; never consult current selection.
             return null
         }
+
         /** Owner teardown is not task completion: retain its background marker across restart. */
-        @Synchronized fun releaseRun(runId: String) { runs.remove(runId) }
+        @Synchronized fun releaseRun(runId: String) {
+            runs.remove(runId)
+        }
+
         @Synchronized fun forgetRun(runId: String) {
             if (backgroundRunMarkers.remove(runId)) {
-                try { persistRunMarkers() } catch (error: Exception) {
+                try {
+                    persistRunMarkers()
+                } catch (error: Exception) {
                     backgroundRunMarkers.add(runId)
                     throw error
                 }
@@ -210,7 +228,9 @@ class BackgroundPhoneSession private constructor(
         fun <T> withBinding(binding: Binding?, block: () -> T): T {
             val previous = controlBinding.get()
             if (binding == null) controlBinding.remove() else controlBinding.set(binding)
-            return try { block() } finally {
+            return try {
+                block()
+            } finally {
                 if (previous == null) controlBinding.remove() else controlBinding.set(previous)
             }
         }
@@ -268,7 +288,7 @@ class BackgroundPhoneSession private constructor(
             first: BackgroundPhoneState,
             nowNanos: () -> Long = System::nanoTime,
             sleep: (Long) -> Unit = Thread::sleep,
-            poll: () -> BackgroundPhoneState,
+            poll: () -> BackgroundPhoneState
         ): BackgroundPhoneState {
             val deadline = nowNanos() + TOPMOST_WAIT_NANOS
             var current = first
@@ -291,8 +311,14 @@ class BackgroundPhoneSession private constructor(
         private fun state(value: JSONObject): BackgroundPhoneState {
             val id = value.getInt("displayId")
             check(id > 0) { "Background display is unavailable" }
-            return BackgroundPhoneState(id, value.optString("foregroundPackage").takeIf { it.isNotBlank() },
-                value.getInt("width"), value.getInt("height"), value.getInt("densityDpi"), value.getBoolean("isolatedFocus"))
+            return BackgroundPhoneState(
+                id,
+                value.optString("foregroundPackage").takeIf { it.isNotBlank() },
+                value.getInt("width"),
+                value.getInt("height"),
+                value.getInt("densityDpi"),
+                value.getBoolean("isolatedFocus")
+            )
         }
     }
 }
@@ -301,9 +327,11 @@ class BackgroundPhoneSession private constructor(
 internal object BackgroundPhoneProtocol {
     const val MAX_LIFETIME_MS = 15 * 60 * 1000L
     const val MAX_MESSAGE_BYTES = 8 * 1024 * 1024
-    private val failureCodes = setOf("session_unavailable", "already_created", "display_unavailable",
+    private val failureCodes = setOf(
+        "session_unavailable", "already_created", "display_unavailable",
         "main_display_forbidden", "not_created", "display_geometry_changed", "app_in_use", "independent_focus_unavailable",
-        "launcher_unavailable", "target_not_foreground", "stale_frame", "launch_api_unavailable", "launch_rejected", "frame_unavailable", "blank_frame", "unsupported_operation")
+        "launcher_unavailable", "target_not_foreground", "stale_frame", "launch_api_unavailable", "launch_rejected", "frame_unavailable", "blank_frame", "unsupported_operation"
+    )
     fun safeFailure(value: String?): String = value?.takeIf { it in failureCodes } ?: "background_operation_refused"
     private fun nonce(): String = ByteArray(32).also(SecureRandom()::nextBytes).joinToString("") { "%02x".format(it) }
     private fun mac(token: String, vararg fields: String): String {
@@ -311,13 +339,16 @@ internal object BackgroundPhoneProtocol {
         val key = token.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         digest.init(SecretKeySpec(key, "HmacSHA256"))
         val bytes = java.io.ByteArrayOutputStream()
-        DataOutputStream(bytes).use { out -> fields.forEach { field ->
-            val value = field.toByteArray(Charsets.UTF_8); out.writeInt(value.size); out.write(value)
-        } }
+        DataOutputStream(bytes).use { out ->
+            fields.forEach { field ->
+                val value = field.toByteArray(Charsets.UTF_8)
+                out.writeInt(value.size)
+                out.write(value)
+            }
+        }
         return digest.doFinal(bytes.toByteArray()).joinToString("") { "%02x".format(it) }
     }
-    private fun proof(token: String, role: String, client: String, server: String, uid: Int, expires: Long) =
-        mac(token, "solin-background-v2", role, client, server, uid.toString(), expires.toString())
+    private fun proof(token: String, role: String, client: String, server: String, uid: Int, expires: Long) = mac(token, "solin-background-v2", role, client, server, uid.toString(), expires.toString())
 
     fun clientHandshake(input: DataInputStream, output: DataOutputStream, token: String, uid: Int, expires: Long): Channel {
         require(validToken(token))
@@ -346,14 +377,18 @@ internal object BackgroundPhoneProtocol {
 
     /** Every frame is direction-, session- and sequence-bound. Authentication never sends the key. */
     class Channel internal constructor(
-        private val input: DataInputStream, private val output: DataOutputStream,
-        private val token: String, private val client: String, private val server: String,
-        private val uid: Int, private val expires: Long, private val clientSide: Boolean,
+        private val input: DataInputStream,
+        private val output: DataOutputStream,
+        private val token: String,
+        private val client: String,
+        private val server: String,
+        private val uid: Int,
+        private val expires: Long,
+        private val clientSide: Boolean
     ) {
         private var sent = 0L
         private var received = 0L
-        private fun signature(direction: String, sequence: Long, payload: String) =
-            mac(token, "solin-background-frame-v2", client, server, uid.toString(), expires.toString(), direction, sequence.toString(), payload)
+        private fun signature(direction: String, sequence: Long, payload: String) = mac(token, "solin-background-frame-v2", client, server, uid.toString(), expires.toString(), direction, sequence.toString(), payload)
         fun send(payload: String) {
             check(System.currentTimeMillis() < expires && sent < Long.MAX_VALUE)
             val sequence = sent++
@@ -363,7 +398,7 @@ internal object BackgroundPhoneProtocol {
         fun receive(
             maximumPayload: Int = MAX_MESSAGE_BYTES - 128,
             frameStarted: () -> Unit = {},
-            frameFinished: () -> Unit = {},
+            frameFinished: () -> Unit = {}
         ): String {
             check(System.currentTimeMillis() < expires && received < Long.MAX_VALUE)
             // Waiting for the first byte is legitimate idle; a partially delivered frame is bounded.
@@ -375,7 +410,9 @@ internal object BackgroundPhoneProtocol {
                     (input.readUnsignedByte() shl 8) or input.readUnsignedByte()
                 require(size in 1..minOf(MAX_MESSAGE_BYTES, maximumPayload + 128))
                 ByteArray(size).also(input::readFully).toString(Charsets.UTF_8)
-            } finally { frameFinished() }
+            } finally {
+                frameFinished()
+            }
             val parts = frame.split(':', limit = 3)
             check(parts.size == 3 && parts[0] == received.toString()) { "Replay or invalid frame sequence" }
             check(parts[2].toByteArray(Charsets.UTF_8).size <= maximumPayload)

@@ -199,8 +199,7 @@ internal fun AccessibilityNodeInfo.findTargetCandidate(
     target: String,
     snapshot: ScreenStateSnapshot? = null,
     predicate: (NodeCandidate) -> Boolean = { true }
-): NodeCandidate? =
-    findTargetCandidates(target = target, predicate = predicate, limit = 1, snapshot = snapshot).firstOrNull()
+): NodeCandidate? = findTargetCandidates(target = target, predicate = predicate, limit = 1, snapshot = snapshot).firstOrNull()
 
 /**
  * The dismiss control of a transient overlay, if this window has one.

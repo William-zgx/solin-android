@@ -447,8 +447,10 @@ class SolinAccessibilityService : AccessibilityService() {
         val inputClass = editableNode.className?.toString()
         val inputViewId = editableNode.viewIdResourceName
         prepareEditableForTextInput(editableNode)
-        if (!editableNode.refresh() || !editableNode.isSafeEditableForTyping() ||
-            !editableNode.isFocused || editableNode.windowId != inputWindow ||
+        if (!editableNode.refresh() ||
+            !editableNode.isSafeEditableForTyping() ||
+            !editableNode.isFocused ||
+            editableNode.windowId != inputWindow ||
             editableNode.packageName?.toString() != inputPackage ||
             editableNode.className?.toString() != inputClass ||
             editableNode.viewIdResourceName != inputViewId
@@ -473,7 +475,8 @@ class SolinAccessibilityService : AccessibilityService() {
                 requireActive = ::throwIfInterrupted,
                 read = {
                     // T5/T8: refresh the original node only, never find a replacement field.
-                    if (!editableNode.refresh() || !editableNode.isSafeEditableForTyping() ||
+                    if (!editableNode.refresh() ||
+                        !editableNode.isSafeEditableForTyping() ||
                         editableNode.windowId != inputWindow ||
                         editableNode.packageName?.toString() != inputPackage ||
                         editableNode.className?.toString() != inputClass ||

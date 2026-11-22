@@ -81,7 +81,7 @@ internal val uiTapSchemaJson = """
           "minimum": 100,
           "maximum": 10000
         },
-        ${foregroundPackageGuardProperties}
+        $foregroundPackageGuardProperties
       },
       "additionalProperties": false
     }
@@ -112,7 +112,7 @@ internal val uiTypeTextSchemaJson = """
           "type": "boolean",
           "description": "When true, allows falling back to temporary clipboard paste if direct Accessibility text setting fails. Defaults to false."
         },
-        ${foregroundPackageGuardProperties}
+        $foregroundPackageGuardProperties
       },
       "additionalProperties": false
     }
@@ -127,7 +127,7 @@ internal val uiSubmitSearchSchemaJson = """
           "minimum": 100,
           "maximum": 10000
         },
-        ${foregroundPackageGuardProperties}
+        $foregroundPackageGuardProperties
       },
       "additionalProperties": false
     }
@@ -153,7 +153,7 @@ internal val uiScrollSchemaJson = """
           "minimum": 100,
           "maximum": 10000
         },
-        ${foregroundPackageGuardProperties}
+        $foregroundPackageGuardProperties
       },
       "additionalProperties": false
     }
@@ -189,7 +189,7 @@ internal val uiSwipeSchemaJson = """
           "description": "Swipe duration in ms; longer is slower/more deliberate."
         },
         "timeoutMillis": { "type": "integer", "minimum": 100, "maximum": 10000 },
-        ${foregroundPackageGuardProperties}
+        $foregroundPackageGuardProperties
       },
       "additionalProperties": false
     }
@@ -209,7 +209,7 @@ internal val uiLongPressSchemaJson = """
           "description": "Long-press hold duration in ms."
         },
         "timeoutMillis": { "type": "integer", "minimum": 100, "maximum": 10000 },
-        ${foregroundPackageGuardProperties}
+        $foregroundPackageGuardProperties
       },
       "additionalProperties": false
     }
@@ -226,7 +226,7 @@ internal val uiPressKeySchemaJson = """
           "description": "Whitelisted system key. No arbitrary keycodes are accepted."
         },
         "timeoutMillis": { "type": "integer", "minimum": 100, "maximum": 10000 },
-        ${foregroundPackageGuardProperties}
+        $foregroundPackageGuardProperties
       },
       "additionalProperties": false
     }
@@ -339,7 +339,7 @@ internal val uiActionOutputSchemaJson = uiActionOutputSchema()
 /** `ui_wait` also reports whether its wait condition held; absent when no condition was given. */
 internal val uiWaitOutputSchemaJson = uiActionOutputSchema(
     extraProperties = """,
-        "conditionMet": {"type": "boolean"}""",
+        "conditionMet": {"type": "boolean"}"""
 )
 
 private fun uiActionOutputSchema(extraProperties: String = ""): String = """

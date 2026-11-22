@@ -29,7 +29,7 @@ private const val OCR_GROUNDING_SIGNATURE_MAX_ELEMENTS = 24
 
 internal class OcrGroundingCurrentScreenControlProvider(
     private val delegate: CurrentScreenControlProvider,
-    private val cache: CurrentScreenOcrGroundingCache,
+    private val cache: CurrentScreenOcrGroundingCache
 ) : CurrentScreenControlProvider {
     override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
         cache.clear()
@@ -40,24 +40,23 @@ internal class OcrGroundingCurrentScreenControlProvider(
         }
     }
 
-    override fun tap(target: String, timeoutMillis: Long): UiActionReadResult =
-        tapWithOcrGrounding(target = target, ocrGroundingHint = null, timeoutMillis = timeoutMillis)
+    override fun tap(target: String, timeoutMillis: Long): UiActionReadResult = tapWithOcrGrounding(target = target, ocrGroundingHint = null, timeoutMillis = timeoutMillis)
 
     override fun tapWithOcrGrounding(
         target: String,
         ocrGroundingHint: UiOcrGroundingHint?,
-        timeoutMillis: Long,
+        timeoutMillis: Long
     ): UiActionReadResult {
         val validationSnapshot = ocrGroundingValidationSnapshot()
         val hint = ocrGroundingHint ?: cache.consumeFor(
-                target,
-                currentSnapshot = validationSnapshot,
-            )
+            target,
+            currentSnapshot = validationSnapshot
+        )
         hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
         return delegate.tapWithOcrGrounding(
             target = target,
             ocrGroundingHint = hint,
-            timeoutMillis = timeoutMillis,
+            timeoutMillis = timeoutMillis
         )
     }
 
@@ -65,7 +64,7 @@ internal class OcrGroundingCurrentScreenControlProvider(
         text: String,
         target: String?,
         timeoutMillis: Long,
-        allowClipboardPasteFallback: Boolean,
+        allowClipboardPasteFallback: Boolean
     ): UiActionReadResult {
         val validationSnapshot = ocrGroundingValidationSnapshot()
         val hint = if (target.isNullOrBlank()) {
@@ -80,26 +79,25 @@ internal class OcrGroundingCurrentScreenControlProvider(
             target = target,
             ocrGroundingHint = hint,
             timeoutMillis = timeoutMillis,
-            allowClipboardPasteFallback = allowClipboardPasteFallback,
+            allowClipboardPasteFallback = allowClipboardPasteFallback
         )
     }
 
-    override fun submitSearch(timeoutMillis: Long): UiActionReadResult =
-        submitSearchWithOcrGrounding(ocrGroundingHint = null, timeoutMillis = timeoutMillis)
+    override fun submitSearch(timeoutMillis: Long): UiActionReadResult = submitSearchWithOcrGrounding(ocrGroundingHint = null, timeoutMillis = timeoutMillis)
 
     override fun submitSearchWithOcrGrounding(
         ocrGroundingHint: UiOcrGroundingHint?,
-        timeoutMillis: Long,
+        timeoutMillis: Long
     ): UiActionReadResult {
         val validationSnapshot = ocrGroundingValidationSnapshot()
         val hint = ocrGroundingHint ?: cache.consumeForSubmitSearch(
-            currentSnapshot = validationSnapshot,
+            currentSnapshot = validationSnapshot
         )
         hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
         validationSnapshot.rejectSubmitWithoutSearchContext(hint)?.let { return it }
         return delegate.submitSearchWithOcrGrounding(
             ocrGroundingHint = hint,
-            timeoutMillis = timeoutMillis,
+            timeoutMillis = timeoutMillis
         )
     }
 
@@ -121,13 +119,13 @@ internal class OcrGroundingCurrentScreenControlProvider(
     override fun tapByNormalizedCoords(
         normalizedX: Int,
         normalizedY: Int,
-        timeoutMillis: Long,
+        timeoutMillis: Long
     ): UiActionReadResult {
         cache.clear()
         return delegate.tapByNormalizedCoords(
             normalizedX = normalizedX,
             normalizedY = normalizedY,
-            timeoutMillis = timeoutMillis,
+            timeoutMillis = timeoutMillis
         )
     }
 
@@ -143,7 +141,7 @@ internal class OcrGroundingCurrentScreenControlProvider(
         endXNorm: Int,
         endYNorm: Int,
         durationMillis: Long,
-        timeoutMillis: Long,
+        timeoutMillis: Long
     ): UiActionReadResult {
         cache.clear()
         return delegate.swipe(
@@ -152,7 +150,7 @@ internal class OcrGroundingCurrentScreenControlProvider(
             endXNorm = endXNorm,
             endYNorm = endYNorm,
             durationMillis = durationMillis,
-            timeoutMillis = timeoutMillis,
+            timeoutMillis = timeoutMillis
         )
     }
 
@@ -160,14 +158,14 @@ internal class OcrGroundingCurrentScreenControlProvider(
         xNorm: Int,
         yNorm: Int,
         holdMillis: Long,
-        timeoutMillis: Long,
+        timeoutMillis: Long
     ): UiActionReadResult {
         cache.clear()
         return delegate.longPress(
             xNorm = xNorm,
             yNorm = yNorm,
             holdMillis = holdMillis,
-            timeoutMillis = timeoutMillis,
+            timeoutMillis = timeoutMillis
         )
     }
 
@@ -176,70 +174,68 @@ internal class OcrGroundingCurrentScreenControlProvider(
         return delegate.pressKey(key = key, timeoutMillis = timeoutMillis)
     }
 
-    private fun ocrGroundingValidationSnapshot(): ScreenStateSnapshot? =
-        when (val result = delegate.observeCurrentScreen()) {
-            is ScreenStateReadResult.Available -> result.snapshot
-            else -> null
-        }
+    private fun ocrGroundingValidationSnapshot(): ScreenStateSnapshot? = when (val result = delegate.observeCurrentScreen()) {
+        is ScreenStateReadResult.Available -> result.snapshot
+        else -> null
+    }
 
     private fun ScreenStateSnapshot?.rejectSubmitWithoutSearchContext(
-        hint: UiOcrGroundingHint?,
+        hint: UiOcrGroundingHint?
     ): UiActionReadResult? {
         if (hint != null) return null
         if (this != null && hasSearchSubmitContext()) return null
         return toGuardFailure(
             reason = "当前屏幕没有搜索输入框、搜索提交控件或 OCR 搜索提交证据",
-            failureKind = UiActionFailureKind.SubmitNotFound,
+            failureKind = UiActionFailureKind.SubmitNotFound
         )
     }
 
     private fun ScreenStateSnapshot?.rejectTargetlessTypingWithoutContext(
         target: String?,
-        hint: UiOcrGroundingHint?,
+        hint: UiOcrGroundingHint?
     ): UiActionReadResult? {
         if (!target.isNullOrBlank()) return null
         if (hint != null) return null
         if (this != null && hasTargetlessTypingContext()) return null
         return toGuardFailure(
             reason = "当前屏幕没有明确的搜索输入目标，请先点击或指定输入框",
-            failureKind = UiActionFailureKind.EditableNotFound,
+            failureKind = UiActionFailureKind.EditableNotFound
         )
     }
 
     private fun UiOcrGroundingHint?.rejectDangerousOcrAction(
-        snapshot: ScreenStateSnapshot?,
+        snapshot: ScreenStateSnapshot?
     ): UiActionReadResult? {
         if (this == null || !text.hasOcrDangerousActionText()) return null
         return snapshot.toGuardFailure(
             reason = "当前屏幕 OCR 显示支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。",
             failureKind = UiActionFailureKind.DangerousAction,
-            retryable = false,
+            retryable = false
         )
     }
 
     private fun ScreenStateSnapshot?.toGuardFailure(
         reason: String,
         failureKind: UiActionFailureKind,
-        retryable: Boolean = true,
-    ): UiActionReadResult =
-        if (this == null) {
-            UiActionReadResult.Failed(
-                reason = reason,
+        retryable: Boolean = true
+    ): UiActionReadResult = if (this == null) {
+        UiActionReadResult.Failed(
+            reason = reason,
+            retryable = retryable,
+            failureKind = failureKind
+        )
+    } else {
+        UiActionReadResult.Available(
+            UiActionExecutionResult(
+                status = UiActionStatus.Failed,
+                before = this,
+                after = this,
+                summary = reason,
                 retryable = retryable,
-                failureKind = failureKind,
+                failureKind = failureKind
             )
-        } else {
-            UiActionReadResult.Available(
-                UiActionExecutionResult(
-                    status = UiActionStatus.Failed,
-                    before = this,
-                    after = this,
-                    summary = reason,
-                    retryable = retryable,
-                    failureKind = failureKind,
-                ),
-            )
-        }
+        )
+    }
 }
 
 /**
@@ -259,7 +255,7 @@ internal class OcrGroundingCurrentScreenControlProvider(
  * would expose it. `getAndSet(null)` makes "consume invalidates" atomic and unconditional.
  */
 internal class CurrentScreenOcrGroundingCache(
-    private val clockMillis: () -> Long,
+    private val clockMillis: () -> Long
 ) {
     private val cachedHint = AtomicReference<CachedOcrGroundingHint?>(null)
 
@@ -271,22 +267,25 @@ internal class CurrentScreenOcrGroundingCache(
         cachedHint.set(parseGroundingHint(result))
     }
 
-    private fun parseGroundingHint(result: ToolResult): CachedOcrGroundingHint? =
-        runCatching {
-            val observationJson = result.data["screenObservationJson"]?.takeIf { value -> value.isNotBlank() }
-                ?: return@runCatching null
-            val observation = JSONObject(observationJson)
-            val screenSignature = observation.toOcrGroundingScreenSignature()
-                ?: return@runCatching null
-            val elements = observation.optJSONArray("elements") ?: return@runCatching null
-            val ocrElements = (0 until elements.length())
-                .mapNotNull { index -> elements.optJSONObject(index)?.toOcrGroundingHint(observation) }
-            if (ocrElements.isEmpty()) null else CachedOcrGroundingHint(
+    private fun parseGroundingHint(result: ToolResult): CachedOcrGroundingHint? = runCatching {
+        val observationJson = result.data["screenObservationJson"]?.takeIf { value -> value.isNotBlank() }
+            ?: return@runCatching null
+        val observation = JSONObject(observationJson)
+        val screenSignature = observation.toOcrGroundingScreenSignature()
+            ?: return@runCatching null
+        val elements = observation.optJSONArray("elements") ?: return@runCatching null
+        val ocrElements = (0 until elements.length())
+            .mapNotNull { index -> elements.optJSONObject(index)?.toOcrGroundingHint(observation) }
+        if (ocrElements.isEmpty()) {
+            null
+        } else {
+            CachedOcrGroundingHint(
                 capturedAtMillis = clockMillis(),
                 screenSignature = screenSignature,
-                hints = ocrElements,
+                hints = ocrElements
             )
-        }.getOrNull()
+        }
+    }.getOrNull()
 
     fun consumeFor(target: String, currentSnapshot: ScreenStateSnapshot?): UiOcrGroundingHint? {
         val cache = consume() ?: return null
@@ -325,39 +324,36 @@ internal class CurrentScreenOcrGroundingCache(
 
     private fun isExpiredOrMismatched(
         cache: CachedOcrGroundingHint,
-        currentSnapshot: ScreenStateSnapshot?,
-    ): Boolean =
-        clockMillis() - cache.capturedAtMillis > CURRENT_SCREEN_OCR_GROUNDING_TTL_MILLIS ||
-            !cache.screenSignature.matches(currentSnapshot)
+        currentSnapshot: ScreenStateSnapshot?
+    ): Boolean = clockMillis() - cache.capturedAtMillis > CURRENT_SCREEN_OCR_GROUNDING_TTL_MILLIS ||
+        !cache.screenSignature.matches(currentSnapshot)
 }
 
 private data class CachedOcrGroundingHint(
     val capturedAtMillis: Long,
     val screenSignature: OcrGroundingScreenSignature,
-    val hints: List<UiOcrGroundingHint>,
+    val hints: List<UiOcrGroundingHint>
 )
 
 internal data class OcrGroundingScreenSignature(
     val packageName: String?,
     val nodeCount: Int,
     val actionableNodeCount: Int,
-    val elementFingerprint: String,
+    val elementFingerprint: String
 ) {
-    fun matches(snapshot: ScreenStateSnapshot?): Boolean =
-        snapshot?.toOcrGroundingScreenSignature() == this
+    fun matches(snapshot: ScreenStateSnapshot?): Boolean = snapshot?.toOcrGroundingScreenSignature() == this
 }
 
-internal fun ScreenStateSnapshot.toOcrGroundingScreenSignature(): OcrGroundingScreenSignature =
-    OcrGroundingScreenSignature(
-        packageName = packageName,
-        nodeCount = nodeCount,
-        actionableNodeCount = actionableNodeCount,
-        elementFingerprint = nodes
-            .asSequence()
-            .map { node -> node.ocrGroundingFingerprint() }
-            .take(OCR_GROUNDING_SIGNATURE_MAX_ELEMENTS)
-            .joinToString(separator = ";"),
-    )
+internal fun ScreenStateSnapshot.toOcrGroundingScreenSignature(): OcrGroundingScreenSignature = OcrGroundingScreenSignature(
+    packageName = packageName,
+    nodeCount = nodeCount,
+    actionableNodeCount = actionableNodeCount,
+    elementFingerprint = nodes
+        .asSequence()
+        .map { node -> node.ocrGroundingFingerprint() }
+        .take(OCR_GROUNDING_SIGNATURE_MAX_ELEMENTS)
+        .joinToString(separator = ";")
+)
 
 private fun JSONObject.toOcrGroundingScreenSignature(): OcrGroundingScreenSignature? {
     val elements = optJSONArray("elements") ?: return null
@@ -373,7 +369,7 @@ private fun JSONObject.toOcrGroundingScreenSignature(): OcrGroundingScreenSignat
             .asSequence()
             .map { element -> element.ocrGroundingFingerprint() }
             .take(OCR_GROUNDING_SIGNATURE_MAX_ELEMENTS)
-            .joinToString(separator = ";"),
+            .joinToString(separator = ";")
     )
 }
 
@@ -386,15 +382,14 @@ private fun JSONObject.toOcrGroundingScreenSignature(): OcrGroundingScreenSignat
  * functions below are compared cross-representation. They are NOT interchangeable today — see the
  * KNOWN DIVERGENCES note on the JSON variant before touching either.
  */
-private fun ScreenNode.ocrGroundingFingerprint(): String =
-    listOf(
-        clickable.toString(),
-        editable.toString(),
-        scrollable.toString(),
-        enabled.toString(),
-        bounds?.boundsFingerprint().orEmpty(),
-        text.ifBlank { contentDescription }.normalizedLookupKey(),
-    ).joinToString(separator = ",")
+private fun ScreenNode.ocrGroundingFingerprint(): String = listOf(
+    clickable.toString(),
+    editable.toString(),
+    scrollable.toString(),
+    enabled.toString(),
+    bounds?.boundsFingerprint().orEmpty(),
+    text.ifBlank { contentDescription }.normalizedLookupKey()
+).joinToString(separator = ",")
 
 /**
  * Same fingerprint, read back from a serialized observation element.
@@ -431,7 +426,7 @@ private fun JSONObject.ocrGroundingFingerprint(): String {
         clickability?.optBoolean("scrollable", false).toString(),
         clickability?.optBoolean("enabled", true).toString(),
         optJSONObject("bounds")?.boundsFingerprint().orEmpty(),
-        optString("text").normalizedLookupKey(),
+        optString("text").normalizedLookupKey()
     ).joinToString(separator = ",")
 }
 
@@ -456,15 +451,12 @@ private fun JSONObject.isActionableObservationElement(): Boolean {
  * practice; they only matter for a hand-written partial payload, which would fingerprint as `0` edges
  * here and so simply fail the match (fail-closed — the grounding hint is dropped, never mis-applied).
  */
-private fun ScreenBounds.boundsFingerprint(): String =
-    "$left,$top,$right,$bottom"
+private fun ScreenBounds.boundsFingerprint(): String = "$left,$top,$right,$bottom"
 
-private fun JSONObject.boundsFingerprint(): String =
-    "${optInt("left")},${optInt("top")},${optInt("right")},${optInt("bottom")}"
+private fun JSONObject.boundsFingerprint(): String = "${optInt("left")},${optInt("top")},${optInt("right")},${optInt("bottom")}"
 
-private fun List<UiOcrGroundingHint>.hasOcrSearchSubmitContext(): Boolean =
-    any { hint -> hint.matchesSubmitSearchTarget() } &&
-        any { hint -> hint.hasSearchContextText() }
+private fun List<UiOcrGroundingHint>.hasOcrSearchSubmitContext(): Boolean = any { hint -> hint.matchesSubmitSearchTarget() } &&
+    any { hint -> hint.hasSearchContextText() }
 
 private fun UiOcrGroundingHint.hasSearchContextText(): Boolean {
     val normalizedText = text.normalizedLookupKey()
@@ -483,7 +475,7 @@ private fun UiOcrGroundingHint.hasSearchContextText(): Boolean {
         "searchbox",
         "searchfield",
         "omnibox",
-        "keyword",
+        "keyword"
     ).any { marker -> normalizedText.contains(marker.normalizedLookupKey()) }
 }
 
@@ -498,7 +490,7 @@ private fun JSONObject.toOcrGroundingHint(observation: JSONObject): UiOcrGroundi
         capturedAtMillis = observation.optLong("capturedAtMillis").takeIf { value -> value > 0L },
         elementId = optString("id", "ocr"),
         text = text,
-        bounds = bounds,
+        bounds = bounds
     )
 }
 
@@ -537,7 +529,7 @@ private val SUBMIT_SEARCH_OCR_HINTS = listOf(
     "转到",
     "search",
     "go",
-    "enter",
+    "enter"
 ).map { value -> value.normalizedLookupKey() }
 
 private fun UiOcrGroundingHint.matchesSubmitSearchTarget(): Boolean {
@@ -569,8 +561,6 @@ private fun UiOcrGroundingHint.scoreForSearchEntryTarget(): Int {
     return contextScore + topBias + leftBias + widthScore - shortTextPenalty
 }
 
-private fun ScreenBounds.area(): Int =
-    boundsDimension(width()) * boundsDimension(height())
+private fun ScreenBounds.area(): Int = boundsDimension(width()) * boundsDimension(height())
 
-private fun boundsDimension(value: Int): Int =
-    value.coerceAtLeast(0).coerceAtMost(10_000)
+private fun boundsDimension(value: Int): Int = value.coerceAtLeast(0).coerceAtMost(10_000)

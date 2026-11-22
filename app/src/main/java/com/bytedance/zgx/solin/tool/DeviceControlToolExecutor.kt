@@ -6,15 +6,18 @@ import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.NormalizedTarget
 import com.bytedance.zgx.solin.action.ScreenshotPerception
-import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
-import com.bytedance.zgx.solin.device.DEVICE_CONTROL_METADATA_POLICY
-import com.bytedance.zgx.solin.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
 import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.device.AppSearchResultVerifier
-import com.bytedance.zgx.solin.device.SearchResultVerification
+import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
+import com.bytedance.zgx.solin.device.DEFAULT_UI_GESTURE_DURATION_MILLIS
+import com.bytedance.zgx.solin.device.DEFAULT_UI_LONG_PRESS_HOLD_MILLIS
+import com.bytedance.zgx.solin.device.DEVICE_CONTROL_METADATA_POLICY
+import com.bytedance.zgx.solin.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
+import com.bytedance.zgx.solin.device.MAX_UI_ACTION_TIMEOUT_MILLIS
 import com.bytedance.zgx.solin.device.ScreenNode
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
+import com.bytedance.zgx.solin.device.SearchResultVerification
 import com.bytedance.zgx.solin.device.SnapshotRefRegistry
 import com.bytedance.zgx.solin.device.UiActionExecutionResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
@@ -22,9 +25,6 @@ import com.bytedance.zgx.solin.device.UiActionReadResult
 import com.bytedance.zgx.solin.device.UiActionStatus
 import com.bytedance.zgx.solin.device.UiScrollDirection
 import com.bytedance.zgx.solin.device.UiSystemKey
-import com.bytedance.zgx.solin.device.DEFAULT_UI_GESTURE_DURATION_MILLIS
-import com.bytedance.zgx.solin.device.DEFAULT_UI_LONG_PRESS_HOLD_MILLIS
-import com.bytedance.zgx.solin.device.MAX_UI_ACTION_TIMEOUT_MILLIS
 import com.bytedance.zgx.solin.device.blockingOverlayDismissTarget
 import com.bytedance.zgx.solin.device.hasBlockingOverlay
 import com.bytedance.zgx.solin.device.hasDangerousActionControl
@@ -33,13 +33,12 @@ import com.bytedance.zgx.solin.device.normalizedPointHitsDangerousControl
 import com.bytedance.zgx.solin.device.tapTargetHitsDangerousControl
 import com.bytedance.zgx.solin.device.toScreenNodesJsonString
 import com.bytedance.zgx.solin.device.toScreenObservationJsonString
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 
 class DeviceControlToolExecutor(
     private val provider: CurrentScreenControlProvider?,
-    private val preflightProvider: CurrentScreenControlProvider? = provider,
+    private val preflightProvider: CurrentScreenControlProvider? = provider
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         val controlProvider = provider
@@ -47,7 +46,7 @@ class DeviceControlToolExecutor(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "当前屏幕控制服务不可用",
                 retryable = true,
-                data = request.deviceControlBaseData(),
+                data = request.deviceControlBaseData()
             )
         return when (request.toolName) {
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN -> executeObserve(request, controlProvider)
@@ -66,7 +65,7 @@ class DeviceControlToolExecutor(
 
     private fun executeObserve(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
+        provider: CurrentScreenControlProvider
     ): ToolResult {
         val maxTextChars = request.arguments["maxTextChars"]?.toIntOrNull() ?: DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS
         val maxNodes = request.arguments["maxNodes"]?.toIntOrNull() ?: DEFAULT_MAX_SCREEN_STATE_NODES
@@ -80,7 +79,7 @@ class DeviceControlToolExecutor(
                 provider = provider,
                 maxTextChars = maxTextChars,
                 maxNodes = maxNodes,
-                expectedPackage = expectedPackage,
+                expectedPackage = expectedPackage
             )
         }
         if (expectedPackage != null && (result as? ScreenStateReadResult.Available)?.snapshot?.packageName != expectedPackage) {
@@ -92,8 +91,8 @@ class DeviceControlToolExecutor(
                 retryable = true,
                 data = request.deviceControlBaseData() + mapOf(
                     "failureKind" to UiActionFailureKind.Timeout.schemaValue,
-                    "expectedPackageName" to expectedPackage,
-                ),
+                    "expectedPackageName" to expectedPackage
+                )
             )
         }
         return when (result) {
@@ -102,8 +101,8 @@ class DeviceControlToolExecutor(
                     summary = result.snapshot.observationSummary(),
                     data = request.deviceControlBaseData() + result.snapshot.toObservationData(
                         requestedMaxTextChars = maxTextChars,
-                        requestedMaxNodes = maxNodes,
-                    ),
+                        requestedMaxNodes = maxNodes
+                    )
                 )
 
             is ScreenStateReadResult.PermissionDenied ->
@@ -115,8 +114,8 @@ class DeviceControlToolExecutor(
                     summary = result.reason,
                     retryable = true,
                     data = request.deviceControlBaseData() + mapOf(
-                        "failureKind" to result.failureKind.schemaValue,
-                    ),
+                        "failureKind" to result.failureKind.schemaValue
+                    )
                 )
         }
     }
@@ -132,7 +131,7 @@ class DeviceControlToolExecutor(
         provider: CurrentScreenControlProvider,
         maxTextChars: Int,
         maxNodes: Int,
-        expectedPackage: String?,
+        expectedPackage: String?
     ): ScreenStateReadResult {
         var result = provider.observeCurrentScreen(maxTextChars = maxTextChars, maxNodes = maxNodes)
         var attempt = 0
@@ -146,18 +145,17 @@ class DeviceControlToolExecutor(
         return result
     }
 
-    private fun ScreenStateReadResult.needsForegroundSettleRetry(expectedPackage: String?): Boolean =
-        if (expectedPackage != null) {
-            (this as? ScreenStateReadResult.Available)?.snapshot?.packageName != expectedPackage
-        } else {
-            (this as? ScreenStateReadResult.Failed)
-                ?.failureKind
-                ?.let { it != UiActionFailureKind.PermissionMissing } == true
-        }
+    private fun ScreenStateReadResult.needsForegroundSettleRetry(expectedPackage: String?): Boolean = if (expectedPackage != null) {
+        (this as? ScreenStateReadResult.Available)?.snapshot?.packageName != expectedPackage
+    } else {
+        (this as? ScreenStateReadResult.Failed)
+            ?.failureKind
+            ?.let { it != UiActionFailureKind.PermissionMissing } == true
+    }
 
     private fun executeTap(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
+        provider: CurrentScreenControlProvider
     ): ToolResult {
         // Support normalized 0-1000 coordinate targeting (inspired by Open-AutoGLM).
         // When targetX/targetY are present, use direct coordinate tapping instead of
@@ -178,7 +176,7 @@ class DeviceControlToolExecutor(
                 target = targetLabel,
                 dangerScope = DangerScope.Point(normalizedTarget.x, normalizedTarget.y),
                 failClosedOnUnavailable = true,
-                dismissBlockingOverlays = false,
+                dismissBlockingOverlays = false
             )?.let { return it }
             return actionResult(
                 request = request,
@@ -187,8 +185,8 @@ class DeviceControlToolExecutor(
                 result = provider.tapByNormalizedCoords(
                     normalizedX = normalizedTarget.x,
                     normalizedY = normalizedTarget.y,
-                    timeoutMillis = request.timeoutMillis(),
-                ).withExpectedForegroundPackageVerification(request),
+                    timeoutMillis = request.timeoutMillis()
+                ).withExpectedForegroundPackageVerification(request)
             )
         }
         val target = request.arguments["target"].orEmpty()
@@ -198,18 +196,18 @@ class DeviceControlToolExecutor(
             target = target,
             dangerScope = DangerScope.Target(target),
             failClosedOnUnavailable = false,
-            dismissBlockingOverlays = true,
+            dismissBlockingOverlays = true
         ) {
             provider.tap(
                 target = target,
-                timeoutMillis = request.timeoutMillis(),
+                timeoutMillis = request.timeoutMillis()
             )
         }
     }
 
     private fun executeTypeText(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
+        provider: CurrentScreenControlProvider
     ): ToolResult {
         val target = request.arguments["target"].orEmpty()
         return guardedAction(
@@ -219,38 +217,36 @@ class DeviceControlToolExecutor(
             // Finding the field may tap the named target, so a named target is checked like a tap.
             dangerScope = if (target.isBlank()) DangerScope.None else DangerScope.Target(target),
             failClosedOnUnavailable = false,
-            dismissBlockingOverlays = true,
+            dismissBlockingOverlays = true
         ) {
             provider.typeText(
                 text = request.arguments["text"].orEmpty(),
                 target = request.arguments["target"],
                 timeoutMillis = request.timeoutMillis(),
-                allowClipboardPasteFallback = request.allowClipboardPasteFallback(),
+                allowClipboardPasteFallback = request.allowClipboardPasteFallback()
             )
         }
     }
 
     private fun executeSubmitSearch(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
-    ): ToolResult {
-        return guardedAction(
-            request,
-            actionType = "submit_search",
-            target = "",
-            dangerScope = DangerScope.WholeScreen,
-            failClosedOnUnavailable = false,
-            dismissBlockingOverlays = false,
-        ) {
-            provider.submitSearch(
-                timeoutMillis = request.timeoutMillis(),
-            )
-        }
+        provider: CurrentScreenControlProvider
+    ): ToolResult = guardedAction(
+        request,
+        actionType = "submit_search",
+        target = "",
+        dangerScope = DangerScope.WholeScreen,
+        failClosedOnUnavailable = false,
+        dismissBlockingOverlays = false
+    ) {
+        provider.submitSearch(
+            timeoutMillis = request.timeoutMillis()
+        )
     }
 
     private fun executeScroll(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
+        provider: CurrentScreenControlProvider
     ): ToolResult {
         val direction = UiScrollDirection.fromSchemaValue(request.arguments["direction"])
             ?: return request.invalidDeviceControlRequest("不支持的滚动方向：${request.arguments["direction"]}")
@@ -262,19 +258,19 @@ class DeviceControlToolExecutor(
             dangerScope = DangerScope.None,
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = false,
-            extraData = mapOf("direction" to direction.schemaValue),
+            extraData = mapOf("direction" to direction.schemaValue)
         ) {
             provider.scroll(
                 direction = direction,
                 target = request.arguments["target"],
-                timeoutMillis = request.timeoutMillis(),
+                timeoutMillis = request.timeoutMillis()
             )
         }
     }
 
     private fun executeSwipe(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
+        provider: CurrentScreenControlProvider
     ): ToolResult {
         val startX = request.arguments["startXNorm"]?.trim()?.toIntOrNull()
         val startY = request.arguments["startYNorm"]?.trim()?.toIntOrNull()
@@ -294,7 +290,7 @@ class DeviceControlToolExecutor(
             target = "",
             dangerScope = DangerScope.WholeScreen,
             failClosedOnUnavailable = true,
-            dismissBlockingOverlays = false,
+            dismissBlockingOverlays = false
         ) {
             provider.swipe(
                 startXNorm = startX,
@@ -302,14 +298,14 @@ class DeviceControlToolExecutor(
                 endXNorm = endX,
                 endYNorm = endY,
                 durationMillis = durationMillis,
-                timeoutMillis = request.timeoutMillis(),
+                timeoutMillis = request.timeoutMillis()
             )
         }
     }
 
     private fun executeLongPress(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
+        provider: CurrentScreenControlProvider
     ): ToolResult {
         val xNorm = request.arguments["xNorm"]?.trim()?.toIntOrNull()
         val yNorm = request.arguments["yNorm"]?.trim()?.toIntOrNull()
@@ -324,20 +320,20 @@ class DeviceControlToolExecutor(
             target = "",
             dangerScope = DangerScope.WholeScreen,
             failClosedOnUnavailable = true,
-            dismissBlockingOverlays = false,
+            dismissBlockingOverlays = false
         ) {
             provider.longPress(
                 xNorm = xNorm,
                 yNorm = yNorm,
                 holdMillis = holdMillis,
-                timeoutMillis = request.timeoutMillis(),
+                timeoutMillis = request.timeoutMillis()
             )
         }
     }
 
     private fun executePressKey(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
+        provider: CurrentScreenControlProvider
     ): ToolResult {
         val key = UiSystemKey.fromSchemaValue(request.arguments["key"])
             ?: return request.invalidDeviceControlRequest("不支持的系统按键：${request.arguments["key"]}（仅支持 home/recents/enter/delete）")
@@ -348,11 +344,11 @@ class DeviceControlToolExecutor(
             dangerScope = DangerScope.WholeScreen,
             failClosedOnUnavailable = true,
             dismissBlockingOverlays = false,
-            extraData = mapOf("key" to key.schemaValue),
+            extraData = mapOf("key" to key.schemaValue)
         ) {
             provider.pressKey(
                 key = key,
-                timeoutMillis = request.timeoutMillis(),
+                timeoutMillis = request.timeoutMillis()
             )
         }
     }
@@ -370,7 +366,7 @@ class DeviceControlToolExecutor(
         failClosedOnUnavailable: Boolean,
         dismissBlockingOverlays: Boolean,
         extraData: Map<String, String> = emptyMap(),
-        perform: () -> UiActionReadResult,
+        perform: () -> UiActionReadResult
     ): ToolResult {
         guardedActionPreflight(
             request,
@@ -378,14 +374,14 @@ class DeviceControlToolExecutor(
             target = target,
             dangerScope = dangerScope,
             failClosedOnUnavailable = failClosedOnUnavailable,
-            dismissBlockingOverlays = dismissBlockingOverlays,
+            dismissBlockingOverlays = dismissBlockingOverlays
         )?.let { return it }
         return actionResult(
             request = request,
             actionType = actionType,
             target = target,
             result = perform().withExpectedForegroundPackageVerification(request),
-            extraData = extraData,
+            extraData = extraData
         )
     }
 
@@ -407,7 +403,7 @@ class DeviceControlToolExecutor(
         target: String,
         dangerScope: DangerScope,
         failClosedOnUnavailable: Boolean,
-        dismissBlockingOverlays: Boolean,
+        dismissBlockingOverlays: Boolean
     ): ToolResult? {
         expectedForegroundPackagePreflight(request, actionType = actionType, target = target)?.let { return it }
         dangerousUiActionPreflight(
@@ -415,7 +411,7 @@ class DeviceControlToolExecutor(
             actionType = actionType,
             target = target,
             dangerScope = dangerScope,
-            failClosedOnUnavailable = failClosedOnUnavailable,
+            failClosedOnUnavailable = failClosedOnUnavailable
         )?.let { return it }
         if (dismissBlockingOverlays) {
             dismissBlockingOverlaysIfPresent()
@@ -424,7 +420,7 @@ class DeviceControlToolExecutor(
                 actionType = actionType,
                 target = target,
                 dangerScope = dangerScope,
-                failClosedOnUnavailable = failClosedOnUnavailable,
+                failClosedOnUnavailable = failClosedOnUnavailable
             )?.let { return it }
         }
         return null
@@ -433,13 +429,13 @@ class DeviceControlToolExecutor(
     private fun expectedForegroundPackagePreflight(
         request: ToolRequest,
         actionType: String,
-        target: String,
+        target: String
     ): ToolResult? {
         val expectedPackage = request.expectedForegroundPackageName() ?: return null
         return when (
             val result = preflightProvider?.observeCurrentScreen(
                 maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
-                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
+                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
             )
         ) {
             is ScreenStateReadResult.Available -> {
@@ -452,7 +448,7 @@ class DeviceControlToolExecutor(
                         target = target,
                         expectedPackage = expectedPackage,
                         actualPackage = snapshot.packageName,
-                        snapshot = snapshot,
+                        snapshot = snapshot
                     )
                 }
             }
@@ -467,7 +463,7 @@ class DeviceControlToolExecutor(
                     expectedPackage = expectedPackage,
                     actualPackage = null,
                     snapshot = null,
-                    summary = "无法确认目标应用仍在前台，已停止自动 UI 动作。",
+                    summary = "无法确认目标应用仍在前台，已停止自动 UI 动作。"
                 )
 
             null ->
@@ -477,7 +473,7 @@ class DeviceControlToolExecutor(
                     expectedPackage = expectedPackage,
                     actualPackage = null,
                     snapshot = null,
-                    summary = "当前屏幕控制 preflight 不可用，无法确认目标应用仍在前台。",
+                    summary = "当前屏幕控制 preflight 不可用，无法确认目标应用仍在前台。"
                 )
         }
     }
@@ -487,7 +483,7 @@ class DeviceControlToolExecutor(
         actionType: String,
         target: String,
         dangerScope: DangerScope,
-        failClosedOnUnavailable: Boolean,
+        failClosedOnUnavailable: Boolean
     ): ToolResult? {
         // Typing and scrolling never activate a control, so a pay/send button elsewhere on the
         // screen (every chat screen has "发送") must not stop them.
@@ -500,7 +496,7 @@ class DeviceControlToolExecutor(
         // failClosedOnUnavailable=true and we BLOCK when the screen cannot be confirmed dangerous-free.
         val screenRead = preflightProvider?.observeCurrentScreen(
             maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
-            maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
+            maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
         )
         // A named critical target is refused whatever the read returned, so an unreadable screen
         // cannot let it through.
@@ -509,7 +505,7 @@ class DeviceControlToolExecutor(
                 actionType = actionType,
                 target = dangerScope.target,
                 wholeScreen = false,
-                snapshot = (screenRead as? ScreenStateReadResult.Available)?.snapshot,
+                snapshot = (screenRead as? ScreenStateReadResult.Available)?.snapshot
             )
         }
         val snapshot = when (screenRead) {
@@ -522,12 +518,12 @@ class DeviceControlToolExecutor(
                     is ScreenStateReadResult.Failed -> request.dangerousActionPreflightUnavailable(
                         actionType = actionType,
                         target = target,
-                        summary = "无法读取当前屏幕以确认没有危险控件，已停止自动 UI 动作。",
+                        summary = "无法读取当前屏幕以确认没有危险控件，已停止自动 UI 动作。"
                     )
                     else -> request.dangerousActionPreflightUnavailable(
                         actionType = actionType,
                         target = target,
-                        summary = "当前屏幕控制 preflight 不可用，无法确认没有危险控件，已停止自动 UI 动作。",
+                        summary = "当前屏幕控制 preflight 不可用，无法确认没有危险控件，已停止自动 UI 动作。"
                     )
                 }
             }
@@ -546,25 +542,24 @@ class DeviceControlToolExecutor(
         actionType: String,
         target: String,
         wholeScreen: Boolean,
-        snapshot: ScreenStateSnapshot?,
-    ): ToolResult =
-        blockedBeforeExecution(
-            actionType = actionType,
-            target = target,
-            summary = if (wholeScreen) {
-                "当前屏幕包含支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。"
-            } else {
-                "这一步会点击支付、发送、删除、发布、下单、转账或授权类控件，需要你亲自操作。"
-            },
-            retryable = false,
-            summaryCode = "dangerous_ui_action_control_detected",
-            failureKind = UiActionFailureKind.DangerousAction,
-            beforeObservationId = snapshot?.id.orEmpty(),
-            afterObservationId = "",
-            verificationSummary = "动作前检测到危险控件，未执行 UI 动作。",
-            blockReason = "dangerous_action_control",
-            observationData = snapshot?.toPrefixedObservationData("before").orEmpty(),
-        )
+        snapshot: ScreenStateSnapshot?
+    ): ToolResult = blockedBeforeExecution(
+        actionType = actionType,
+        target = target,
+        summary = if (wholeScreen) {
+            "当前屏幕包含支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。"
+        } else {
+            "这一步会点击支付、发送、删除、发布、下单、转账或授权类控件，需要你亲自操作。"
+        },
+        retryable = false,
+        summaryCode = "dangerous_ui_action_control_detected",
+        failureKind = UiActionFailureKind.DangerousAction,
+        beforeObservationId = snapshot?.id.orEmpty(),
+        afterObservationId = "",
+        verificationSummary = "动作前检测到危险控件，未执行 UI 动作。",
+        blockReason = "dangerous_action_control",
+        observationData = snapshot?.toPrefixedObservationData("before").orEmpty()
+    )
 
     /**
      * A failed result for a UI action stopped before it touched the screen. The three builders it
@@ -584,35 +579,33 @@ class DeviceControlToolExecutor(
         verificationSummary: String,
         blockReason: String,
         extraData: Map<String, String> = emptyMap(),
-        observationData: Map<String, String> = emptyMap(),
-    ): ToolResult =
-        failed(
-            code = ToolErrorCode.ExecutionFailed,
-            summary = summary,
-            retryable = retryable,
-            data = (
-                deviceControlBaseData() +
-                    mapOf(
-                        "actionType" to actionType,
-                        "status" to UiActionStatus.Failed.schemaValue(),
-                        "retryable" to retryable.toString(),
-                        "summary" to summaryCode,
-                        "failureKind" to failureKind.schemaValue,
-                    ) +
-                    extraData +
-                    mapOf(
-                        "beforeObservationId" to beforeObservationId,
-                        "afterObservationId" to afterObservationId,
-                        "verificationSummary" to verificationSummary,
-                        "screenObservationDiffSummary" to "blocked_before_execution;reason=$blockReason",
-                    ) +
-                    target.targetData() +
-                    observationData
-                ).withAppSearchProgressEvidence(),
-        )
+        observationData: Map<String, String> = emptyMap()
+    ): ToolResult = failed(
+        code = ToolErrorCode.ExecutionFailed,
+        summary = summary,
+        retryable = retryable,
+        data = (
+            deviceControlBaseData() +
+                mapOf(
+                    "actionType" to actionType,
+                    "status" to UiActionStatus.Failed.schemaValue(),
+                    "retryable" to retryable.toString(),
+                    "summary" to summaryCode,
+                    "failureKind" to failureKind.schemaValue
+                ) +
+                extraData +
+                mapOf(
+                    "beforeObservationId" to beforeObservationId,
+                    "afterObservationId" to afterObservationId,
+                    "verificationSummary" to verificationSummary,
+                    "screenObservationDiffSummary" to "blocked_before_execution;reason=$blockReason"
+                ) +
+                target.targetData() +
+                observationData
+            ).withAppSearchProgressEvidence()
+    )
 
-    private fun String.targetData(): Map<String, String> =
-        takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty()
+    private fun String.targetData(): Map<String, String> = takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty()
 
     /**
      * Before a low-risk UI action, if a blocking promotional overlay/interstitial occludes the
@@ -632,10 +625,12 @@ class DeviceControlToolExecutor(
      */
     private fun dismissBlockingOverlaysIfPresent() {
         val provider = preflightProvider ?: return
-        var snapshot = (provider.observeCurrentScreen(
-            maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
-            maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
-        ) as? ScreenStateReadResult.Available)?.snapshot ?: return
+        var snapshot = (
+            provider.observeCurrentScreen(
+                maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
+            ) as? ScreenStateReadResult.Available
+            )?.snapshot ?: return
         repeat(SolinConstants.AgentLoop.AD_DISMISS_MAX_ROUNDS) {
             val dismissTarget = snapshot.blockingOverlayDismissTarget() ?: return
             val label = dismissTarget.text.ifBlank { dismissTarget.contentDescription }
@@ -643,10 +638,12 @@ class DeviceControlToolExecutor(
             val beforeSignature = snapshot.overlayContentSignature()
             val tapResult = provider.tap(target = label, timeoutMillis = DEFAULT_UI_ACTION_TIMEOUT_MILLIS)
             val after = (tapResult as? UiActionReadResult.Available)?.result?.after
-                ?: (provider.observeCurrentScreen(
-                    maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
-                    maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
-                ) as? ScreenStateReadResult.Available)?.snapshot
+                ?: (
+                    provider.observeCurrentScreen(
+                        maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+                        maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
+                    ) as? ScreenStateReadResult.Available
+                    )?.snapshot
             // Stop when: observation failed, the overlay cleared, or the tap had no effect (the
             // content signature is unchanged — a sticky overlay). Uses a salt/timestamp-free
             // signature because ScreenStateSnapshot.id embeds a random salt, so id equality would
@@ -666,23 +663,21 @@ class DeviceControlToolExecutor(
      * (sticky) dismiss tap. Excludes [ScreenStateSnapshot.id] (which embeds a random salt) so equal
      * content compares equal across observations.
      */
-    private fun ScreenStateSnapshot.overlayContentSignature(): String =
-        "${packageName.orEmpty()}|$nodeCount|$textSummary"
+    private fun ScreenStateSnapshot.overlayContentSignature(): String = "${packageName.orEmpty()}|$nodeCount|$textSummary"
 
     private fun executePressBack(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
-    ): ToolResult =
-        actionResult(
-            request = request,
-            actionType = "press_back",
-            target = "",
-            result = provider.pressBack(timeoutMillis = request.timeoutMillis()),
-        )
+        provider: CurrentScreenControlProvider
+    ): ToolResult = actionResult(
+        request = request,
+        actionType = "press_back",
+        target = "",
+        result = provider.pressBack(timeoutMillis = request.timeoutMillis())
+    )
 
     private fun executeWait(
         request: ToolRequest,
-        provider: CurrentScreenControlProvider,
+        provider: CurrentScreenControlProvider
     ): ToolResult {
         UiWaitCondition.fromArguments(request.arguments)?.let { condition ->
             return executeConditionWait(request, provider, condition)
@@ -693,7 +688,7 @@ class DeviceControlToolExecutor(
                 code = ToolErrorCode.InvalidRequest,
                 summary = reason,
                 retryable = false,
-                data = request.deviceControlBaseData(),
+                data = request.deviceControlBaseData()
             )
         }
         val result = provider.waitForScreen(timeoutMillis = request.timeoutMillis())
@@ -704,7 +699,7 @@ class DeviceControlToolExecutor(
             actionType = "wait",
             target = "",
             result = result.withSearchVerification(verification),
-            extraData = verification.toData(),
+            extraData = verification.toData()
         )
     }
 
@@ -717,7 +712,7 @@ class DeviceControlToolExecutor(
     private fun executeConditionWait(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
-        condition: UiWaitCondition,
+        condition: UiWaitCondition
     ): ToolResult {
         // No dispatcher, for the same reason as executeObserve: delay suspends on this thread's loop.
         val outcome = runBlocking {
@@ -727,11 +722,11 @@ class DeviceControlToolExecutor(
                 observe = {
                     provider.observeCurrentScreen(
                         maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
-                        maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
+                        maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
                     )
                 },
                 clock = System::currentTimeMillis,
-                sleep = { millis -> delay(millis) },
+                sleep = { millis -> delay(millis) }
             )
         }
         val met = outcome.stop == UiWaitStop.Met
@@ -755,8 +750,8 @@ class DeviceControlToolExecutor(
                 after = outcome.last,
                 summary = summary,
                 retryable = retryable,
-                failureKind = failureKind,
-            ),
+                failureKind = failureKind
+            )
         ).withExpectedForegroundPackageVerification(request)
         val verification = waited.searchVerificationFor(request)
         return actionResult(
@@ -764,7 +759,7 @@ class DeviceControlToolExecutor(
             actionType = "wait",
             target = "",
             result = waited.withSearchVerification(verification),
-            extraData = verification.toData() + mapOf("conditionMet" to met.toString()),
+            extraData = verification.toData() + mapOf("conditionMet" to met.toString())
         )
     }
 
@@ -773,16 +768,15 @@ class DeviceControlToolExecutor(
         actionType: String,
         target: String,
         result: UiActionReadResult,
-        extraData: Map<String, String> = emptyMap(),
-    ): ToolResult =
-        when (result) {
-            is UiActionReadResult.Available -> {
-                val execution = result.result
-                val after = execution.after
-                // The after snapshot is handed to the model here, so it is the observation scoped refs name.
-                after?.let(SnapshotRefRegistry::publish)
-                val data = (
-                    request.deviceControlBaseData() +
+        extraData: Map<String, String> = emptyMap()
+    ): ToolResult = when (result) {
+        is UiActionReadResult.Available -> {
+            val execution = result.result
+            val after = execution.after
+            // The after snapshot is handed to the model here, so it is the observation scoped refs name.
+            after?.let(SnapshotRefRegistry::publish)
+            val data = (
+                request.deviceControlBaseData() +
                     mapOf(
                         "actionType" to actionType,
                         "status" to execution.status.schemaValue(),
@@ -793,8 +787,8 @@ class DeviceControlToolExecutor(
                         "verificationSummary" to (after?.observationSummary() ?: "动作后未能读取屏幕状态"),
                         "screenObservationDiffSummary" to screenObservationDiffSummary(
                             before = execution.before,
-                            after = after,
-                        ),
+                            after = after
+                        )
                     ) +
                     target.targetData() +
                     execution.inputVerification?.let { mapOf("inputVerification" to it.schemaValue) }.orEmpty() +
@@ -809,55 +803,52 @@ class DeviceControlToolExecutor(
                         mapOf("screenHeightPx" to it.toString())
                     }.orEmpty() +
                     extraData
-                    ).withAppSearchProgressEvidence()
-                if (execution.status == UiActionStatus.Succeeded) {
-                    request.succeeded(
-                        summary = execution.summary,
-                        data = data,
-                    )
-                } else {
-                    request.failed(
-                        code = ToolErrorCode.ExecutionFailed,
-                        summary = execution.summary,
-                        retryable = execution.retryable,
-                        data = data,
-                    )
-                }
-            }
-
-            is UiActionReadResult.PermissionDenied ->
-                request.deviceControlPermissionDenied(result.reason)
-
-            is UiActionReadResult.Failed ->
-                request.failed(
-                    code = if (result.failureKind == UiActionFailureKind.PermissionMissing) {
-                        ToolErrorCode.PermissionDenied
-                    } else {
-                        ToolErrorCode.ExecutionFailed
-                    },
-                    summary = result.reason,
-                    retryable = result.retryable,
-                    data = (
-                        request.deviceControlBaseData() + mapOf(
-                            "actionType" to actionType,
-                            "status" to UiActionStatus.Failed.schemaValue(),
-                            "retryable" to result.retryable.toString(),
-                            "summary" to result.reason,
-                            "failureKind" to result.failureKind.schemaValue,
-                        ) + target.targetData()
-                    ).withAppSearchProgressEvidence(),
+                ).withAppSearchProgressEvidence()
+            if (execution.status == UiActionStatus.Succeeded) {
+                request.succeeded(
+                    summary = execution.summary,
+                    data = data
                 )
+            } else {
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = execution.summary,
+                    retryable = execution.retryable,
+                    data = data
+                )
+            }
         }
 
-    private fun ToolRequest.timeoutMillis(): Long =
-        arguments["timeoutMillis"]?.trim()?.toLongOrNull() ?: DEFAULT_UI_ACTION_TIMEOUT_MILLIS
+        is UiActionReadResult.PermissionDenied ->
+            request.deviceControlPermissionDenied(result.reason)
 
-    private fun ToolRequest.allowClipboardPasteFallback(): Boolean =
-        arguments["allowClipboardPasteFallback"]?.toBooleanStrictOrNull() == true
+        is UiActionReadResult.Failed ->
+            request.failed(
+                code = if (result.failureKind == UiActionFailureKind.PermissionMissing) {
+                    ToolErrorCode.PermissionDenied
+                } else {
+                    ToolErrorCode.ExecutionFailed
+                },
+                summary = result.reason,
+                retryable = result.retryable,
+                data = (
+                    request.deviceControlBaseData() + mapOf(
+                        "actionType" to actionType,
+                        "status" to UiActionStatus.Failed.schemaValue(),
+                        "retryable" to result.retryable.toString(),
+                        "summary" to result.reason,
+                        "failureKind" to result.failureKind.schemaValue
+                    ) + target.targetData()
+                    ).withAppSearchProgressEvidence()
+            )
+    }
 
-    private fun ToolRequest.expectedForegroundPackageName(): String? =
-        arguments["expectedPackageName"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: arguments["targetPackageName"]?.trim()?.takeIf { it.isNotBlank() }
+    private fun ToolRequest.timeoutMillis(): Long = arguments["timeoutMillis"]?.trim()?.toLongOrNull() ?: DEFAULT_UI_ACTION_TIMEOUT_MILLIS
+
+    private fun ToolRequest.allowClipboardPasteFallback(): Boolean = arguments["allowClipboardPasteFallback"]?.toBooleanStrictOrNull() == true
+
+    private fun ToolRequest.expectedForegroundPackageName(): String? = arguments["expectedPackageName"]?.trim()?.takeIf { it.isNotBlank() }
+        ?: arguments["targetPackageName"]?.trim()?.takeIf { it.isNotBlank() }
 
     private fun ToolRequest.foregroundPackageGateFailure(
         actionType: String,
@@ -865,49 +856,47 @@ class DeviceControlToolExecutor(
         expectedPackage: String,
         actualPackage: String?,
         snapshot: ScreenStateSnapshot?,
-        summary: String = "目标应用未保持在前台，已停止自动 UI 动作。",
-    ): ToolResult =
-        blockedBeforeExecution(
-            actionType = actionType,
-            target = target,
-            summary = summary,
-            retryable = false,
-            summaryCode = "foreground_package_mismatch",
-            failureKind = UiActionFailureKind.AppNotForeground,
-            beforeObservationId = snapshot?.id.orEmpty(),
-            afterObservationId = snapshot?.id.orEmpty(),
-            verificationSummary = summary,
-            blockReason = "app_not_foreground",
-            extraData = mapOf(
-                "expectedPackageName" to expectedPackage,
-                "actualPackageName" to actualPackage.orEmpty(),
-            ),
-            observationData = snapshot?.let {
-                SnapshotRefRegistry.publish(it)
-                it.toPrefixedObservationData("before") + it.toPrefixedObservationData("after")
-            }.orEmpty(),
-        )
+        summary: String = "目标应用未保持在前台，已停止自动 UI 动作。"
+    ): ToolResult = blockedBeforeExecution(
+        actionType = actionType,
+        target = target,
+        summary = summary,
+        retryable = false,
+        summaryCode = "foreground_package_mismatch",
+        failureKind = UiActionFailureKind.AppNotForeground,
+        beforeObservationId = snapshot?.id.orEmpty(),
+        afterObservationId = snapshot?.id.orEmpty(),
+        verificationSummary = summary,
+        blockReason = "app_not_foreground",
+        extraData = mapOf(
+            "expectedPackageName" to expectedPackage,
+            "actualPackageName" to actualPackage.orEmpty()
+        ),
+        observationData = snapshot?.let {
+            SnapshotRefRegistry.publish(it)
+            it.toPrefixedObservationData("before") + it.toPrefixedObservationData("after")
+        }.orEmpty()
+    )
 
     private fun ToolRequest.dangerousActionPreflightUnavailable(
         actionType: String,
         target: String,
-        summary: String,
-    ): ToolResult =
-        blockedBeforeExecution(
-            actionType = actionType,
-            target = target,
-            summary = summary,
-            retryable = true,
-            summaryCode = "dangerous_ui_action_preflight_unavailable",
-            failureKind = UiActionFailureKind.DangerousAction,
-            beforeObservationId = "",
-            afterObservationId = "",
-            verificationSummary = summary,
-            blockReason = "dangerous_action_preflight_unavailable",
-        )
+        summary: String
+    ): ToolResult = blockedBeforeExecution(
+        actionType = actionType,
+        target = target,
+        summary = summary,
+        retryable = true,
+        summaryCode = "dangerous_ui_action_preflight_unavailable",
+        failureKind = UiActionFailureKind.DangerousAction,
+        beforeObservationId = "",
+        afterObservationId = "",
+        verificationSummary = summary,
+        blockReason = "dangerous_action_preflight_unavailable"
+    )
 
     private fun UiActionReadResult.withExpectedForegroundPackageVerification(
-        request: ToolRequest,
+        request: ToolRequest
     ): UiActionReadResult {
         val expectedPackage = request.expectedForegroundPackageName() ?: return this
         if (this !is UiActionReadResult.Available) return this
@@ -919,8 +908,8 @@ class DeviceControlToolExecutor(
                 status = UiActionStatus.Failed,
                 summary = "目标应用未保持在前台，已停止自动 UI 动作。",
                 retryable = false,
-                failureKind = UiActionFailureKind.AppNotForeground,
-            ),
+                failureKind = UiActionFailureKind.AppNotForeground
+            )
         )
     }
 
@@ -932,12 +921,12 @@ class DeviceControlToolExecutor(
             after = execution.after,
             query = query,
             expectedPackageName = request.expectedForegroundPackageName(),
-            expectedAppName = request.arguments["expectedAppName"],
+            expectedAppName = request.arguments["expectedAppName"]
         )
     }
 
     private fun UiActionReadResult.withSearchVerification(
-        verification: SearchResultVerification?,
+        verification: SearchResultVerification?
     ): UiActionReadResult {
         verification ?: return this
         if (this !is UiActionReadResult.Available) return this
@@ -945,8 +934,8 @@ class DeviceControlToolExecutor(
         if (verification.verified) {
             return copy(
                 result = result.copy(
-                    summary = verification.summary,
-                ),
+                    summary = verification.summary
+                )
             )
         }
         return copy(
@@ -954,69 +943,63 @@ class DeviceControlToolExecutor(
                 status = UiActionStatus.Failed,
                 summary = verification.summary,
                 retryable = true,
-                failureKind = verification.failureKind ?: UiActionFailureKind.ResultNotVerified,
-            ),
+                failureKind = verification.failureKind ?: UiActionFailureKind.ResultNotVerified
+            )
         )
     }
 
-    private fun SearchResultVerification?.toData(): Map<String, String> =
-        this?.let { verification ->
-            mapOf(
-                "searchVerificationStatus" to if (verification.verified) "verified" else "not_verified",
-                "searchVerificationEvidence" to verification.evidence,
+    private fun SearchResultVerification?.toData(): Map<String, String> = this?.let { verification ->
+        mapOf(
+            "searchVerificationStatus" to if (verification.verified) "verified" else "not_verified",
+            "searchVerificationEvidence" to verification.evidence
+        )
+    }.orEmpty()
+
+    private fun ToolRequest.deviceControlPermissionDenied(reason: String): ToolResult = failed(
+        code = ToolErrorCode.PermissionDenied,
+        summary = reason.ifBlank { "需要开启Solin无障碍服务才能控制当前屏幕" },
+        retryable = true,
+        data = (
+            deviceControlBaseData() + mapOf(
+                "specialAccess" to SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,
+                "settingsAction" to Settings.ACTION_ACCESSIBILITY_SETTINGS,
+                "failureKind" to UiActionFailureKind.PermissionMissing.schemaValue
             )
-        }.orEmpty()
+            ).withAppSearchProgressEvidence()
+    )
 
-    private fun ToolRequest.deviceControlPermissionDenied(reason: String): ToolResult =
-        failed(
-            code = ToolErrorCode.PermissionDenied,
-            summary = reason.ifBlank { "需要开启Solin无障碍服务才能控制当前屏幕" },
-            retryable = true,
-            data = (
-                deviceControlBaseData() + mapOf(
-                    "specialAccess" to SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,
-                    "settingsAction" to Settings.ACTION_ACCESSIBILITY_SETTINGS,
-                    "failureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
-                )
-            ).withAppSearchProgressEvidence(),
-        )
+    private fun ToolRequest.invalidDeviceControlRequest(summary: String): ToolResult = failed(
+        code = ToolErrorCode.InvalidRequest,
+        summary = summary,
+        retryable = false,
+        data = deviceControlBaseData()
+    )
 
-    private fun ToolRequest.invalidDeviceControlRequest(summary: String): ToolResult =
-        failed(
-            code = ToolErrorCode.InvalidRequest,
-            summary = summary,
-            retryable = false,
-            data = deviceControlBaseData(),
-        )
+    private fun ToolRequest.deviceControlBaseData(): Map<String, String> = localOnlyData() + mapOf(
+        "source" to DEVICE_CONTROL_SOURCE_ACCESSIBILITY,
+        "metadataPolicy" to DEVICE_CONTROL_METADATA_POLICY
+    )
 
-    private fun ToolRequest.deviceControlBaseData(): Map<String, String> =
-        localOnlyData() + mapOf(
-            "source" to DEVICE_CONTROL_SOURCE_ACCESSIBILITY,
-            "metadataPolicy" to DEVICE_CONTROL_METADATA_POLICY,
-        )
-
-    private fun Map<String, String>.withAppSearchProgressEvidence(): Map<String, String> =
-        this + AppSearchProgressEvidence.fromData(this).toData()
+    private fun Map<String, String>.withAppSearchProgressEvidence(): Map<String, String> = this + AppSearchProgressEvidence.fromData(this).toData()
 
     private fun ScreenStateSnapshot.toObservationData(
         requestedMaxTextChars: Int,
-        requestedMaxNodes: Int,
-    ): Map<String, String> =
-        mapOf(
-            "observationId" to id,
-            "capturedAtMillis" to capturedAtMillis.toString(),
-            "nodeCount" to nodeCount.toString(),
-            "actionableNodeCount" to actionableNodeCount.toString(),
-            "textSummary" to textSummary,
-            "truncated" to truncated.toString(),
-            "nodesJson" to nodes.toScreenNodesJsonString(),
-            "screenObservationJson" to toScreenObservationJsonString(),
-            "maxTextChars" to requestedMaxTextChars.toString(),
-            "maxNodes" to requestedMaxNodes.toString(),
-        ) + packageName?.takeIf { it.isNotBlank() }?.let { mapOf("packageName" to it) }.orEmpty() +
-            widthPx?.let { mapOf("screenWidthPx" to it.toString()) }.orEmpty() +
-            heightPx?.let { mapOf("screenHeightPx" to it.toString()) }.orEmpty() +
-            toScreenshotPerception()?.let { mapOf("screenshotPerception" to it.formatForPrompt()) }.orEmpty()
+        requestedMaxNodes: Int
+    ): Map<String, String> = mapOf(
+        "observationId" to id,
+        "capturedAtMillis" to capturedAtMillis.toString(),
+        "nodeCount" to nodeCount.toString(),
+        "actionableNodeCount" to actionableNodeCount.toString(),
+        "textSummary" to textSummary,
+        "truncated" to truncated.toString(),
+        "nodesJson" to nodes.toScreenNodesJsonString(),
+        "screenObservationJson" to toScreenObservationJsonString(),
+        "maxTextChars" to requestedMaxTextChars.toString(),
+        "maxNodes" to requestedMaxNodes.toString()
+    ) + packageName?.takeIf { it.isNotBlank() }?.let { mapOf("packageName" to it) }.orEmpty() +
+        widthPx?.let { mapOf("screenWidthPx" to it.toString()) }.orEmpty() +
+        heightPx?.let { mapOf("screenHeightPx" to it.toString()) }.orEmpty() +
+        toScreenshotPerception()?.let { mapOf("screenshotPerception" to it.formatForPrompt()) }.orEmpty()
 
     private fun ScreenStateSnapshot.toScreenshotPerception(): ScreenshotPerception? {
         val w = widthPx ?: return null
@@ -1024,7 +1007,7 @@ class DeviceControlToolExecutor(
         return ScreenshotPerception(
             widthPx = w,
             heightPx = h,
-            captureTimeMillis = capturedAtMillis,
+            captureTimeMillis = capturedAtMillis
         )
     }
 
@@ -1033,28 +1016,27 @@ class DeviceControlToolExecutor(
      * These key names are part of the private-output contract (uiActionPrivateOutputKeys and
      * the ui action output schema) and must not change.
      */
-    private fun ScreenStateSnapshot.toPrefixedObservationData(prefix: String): Map<String, String> =
-        mapOf(
-            "${prefix}PackageName" to packageName.orEmpty(),
-            "${prefix}CapturedAtMillis" to capturedAtMillis.toString(),
-            "${prefix}NodeCount" to nodeCount.toString(),
-            "${prefix}ActionableNodeCount" to actionableNodeCount.toString(),
-            "${prefix}TextSummary" to textSummary,
-            "${prefix}Truncated" to truncated.toString(),
-            "${prefix}NodesJson" to nodes.toScreenNodesJsonString(),
-            "${prefix}ScreenObservationJson" to toScreenObservationJsonString(),
-        ) + widthPx?.let { mapOf("${prefix}ScreenWidthPx" to it.toString()) }.orEmpty() +
-            heightPx?.let { mapOf("${prefix}ScreenHeightPx" to it.toString()) }.orEmpty() +
-            toScreenshotPerception()?.let { mapOf("${prefix}ScreenshotPerception" to it.formatForPrompt()) }.orEmpty()
+    private fun ScreenStateSnapshot.toPrefixedObservationData(prefix: String): Map<String, String> = mapOf(
+        "${prefix}PackageName" to packageName.orEmpty(),
+        "${prefix}CapturedAtMillis" to capturedAtMillis.toString(),
+        "${prefix}NodeCount" to nodeCount.toString(),
+        "${prefix}ActionableNodeCount" to actionableNodeCount.toString(),
+        "${prefix}TextSummary" to textSummary,
+        "${prefix}Truncated" to truncated.toString(),
+        "${prefix}NodesJson" to nodes.toScreenNodesJsonString(),
+        "${prefix}ScreenObservationJson" to toScreenObservationJsonString()
+    ) + widthPx?.let { mapOf("${prefix}ScreenWidthPx" to it.toString()) }.orEmpty() +
+        heightPx?.let { mapOf("${prefix}ScreenHeightPx" to it.toString()) }.orEmpty() +
+        toScreenshotPerception()?.let { mapOf("${prefix}ScreenshotPerception" to it.formatForPrompt()) }.orEmpty()
 
     private fun ScreenStateSnapshot.observationSummary(): String {
         val packagePart = packageName?.takeIf { it.isNotBlank() }?.let { "包名 $it，" }.orEmpty()
-        return "已观察当前屏幕：${packagePart}${nodeCount} 个节点，${actionableNodeCount} 个可交互节点。"
+        return "已观察当前屏幕：${packagePart}$nodeCount 个节点，$actionableNodeCount 个可交互节点。"
     }
 
     private fun screenObservationDiffSummary(
         before: ScreenStateSnapshot?,
-        after: ScreenStateSnapshot?,
+        after: ScreenStateSnapshot?
     ): String {
         if (before == null && after == null) return "before_after_unavailable"
         if (before == null) return "before_unavailable;afterNodes=${after?.nodeCount ?: 0}"
@@ -1085,18 +1067,15 @@ class DeviceControlToolExecutor(
             ";removedActionable=${removedActions.joinToStringLimited()}"
     }
 
-    private fun List<String>.toOrderedSet(): Set<String> =
-        map { value -> value.trim() }
-            .filter { value -> value.isNotBlank() }
-            .toCollection(linkedSetOf())
+    private fun List<String>.toOrderedSet(): Set<String> = map { value -> value.trim() }
+        .filter { value -> value.isNotBlank() }
+        .toCollection(linkedSetOf())
 
-    private fun List<String>.joinToStringLimited(): String =
-        joinToString(separator = "|") { value -> value.take(64) }.ifBlank { "none" }
+    private fun List<String>.joinToStringLimited(): String = joinToString(separator = "|") { value -> value.take(64) }.ifBlank { "none" }
 
-    private fun ScreenNode.diffTextLabel(): String? =
-        (text.ifBlank { contentDescription })
-            .trim()
-            .takeIf { value -> value.isNotBlank() }
+    private fun ScreenNode.diffTextLabel(): String? = (text.ifBlank { contentDescription })
+        .trim()
+        .takeIf { value -> value.isNotBlank() }
 
     private fun ScreenNode.diffActionableLabel(): String? {
         if (!clickable && !editable && !scrollable) return null
@@ -1110,11 +1089,10 @@ class DeviceControlToolExecutor(
         return "$role:$label"
     }
 
-    private fun UiActionStatus.schemaValue(): String =
-        when (this) {
-            UiActionStatus.Succeeded -> "succeeded"
-            UiActionStatus.Failed -> "failed"
-        }
+    private fun UiActionStatus.schemaValue(): String = when (this) {
+        UiActionStatus.Succeeded -> "succeeded"
+        UiActionStatus.Failed -> "failed"
+    }
 
     internal companion object {
         const val DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS = 2_000
@@ -1167,7 +1145,7 @@ internal data class UiWaitCondition(
     val expectText: String?,
     val expectGoneText: String?,
     val expectPackage: String?,
-    val timeoutMillis: Long,
+    val timeoutMillis: Long
 ) {
     fun holds(snapshot: ScreenStateSnapshot): Boolean {
         expectText?.let { want -> if (!snapshot.showsText(want)) return false }
@@ -1189,7 +1167,7 @@ internal data class UiWaitCondition(
                 expectText = expectText,
                 expectGoneText = expectGoneText,
                 expectPackage = expectPackage,
-                timeoutMillis = timeout.coerceIn(UI_WAIT_CONDITION_MIN_TIMEOUT_MILLIS, UI_WAIT_CONDITION_MAX_TIMEOUT_MILLIS),
+                timeoutMillis = timeout.coerceIn(UI_WAIT_CONDITION_MIN_TIMEOUT_MILLIS, UI_WAIT_CONDITION_MAX_TIMEOUT_MILLIS)
             )
         }
     }
@@ -1216,7 +1194,7 @@ internal data class UiWaitOutcome(
     val stop: UiWaitStop,
     val first: ScreenStateSnapshot?,
     val last: ScreenStateSnapshot?,
-    val reason: String? = null,
+    val reason: String? = null
 )
 
 /**
@@ -1237,7 +1215,7 @@ internal suspend fun awaitUiWaitCondition(
     observe: () -> ScreenStateReadResult,
     clock: () -> Long,
     sleep: suspend (Long) -> Unit,
-    pollIntervalMillis: Long = UI_WAIT_CONDITION_POLL_INTERVAL_MILLIS,
+    pollIntervalMillis: Long = UI_WAIT_CONDITION_POLL_INTERVAL_MILLIS
 ): UiWaitOutcome {
     val start = clock()
     val maxRounds = condition.timeoutMillis / pollIntervalMillis + 2
@@ -1260,7 +1238,13 @@ internal suspend fun awaitUiWaitCondition(
                     else -> null
                 }
                 if (odd == null && condition.holds(snapshot)) return UiWaitOutcome(UiWaitStop.Met, first, last)
-                suspectReads = if (odd != null && odd == suspect) suspectReads + 1 else if (odd != null) 1 else 0
+                suspectReads = if (odd != null && odd == suspect) {
+                    suspectReads + 1
+                } else if (odd != null) {
+                    1
+                } else {
+                    0
+                }
                 suspect = odd
                 if (odd != null && suspectReads >= UI_WAIT_CONFIRM_READS) return UiWaitOutcome(odd, first, last)
             }

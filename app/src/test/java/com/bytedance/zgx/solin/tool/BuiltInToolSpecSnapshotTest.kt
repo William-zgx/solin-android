@@ -30,8 +30,8 @@ class BuiltInToolSpecSnapshotTest {
             val skippable = defaultBuiltInToolRegistry.isLowRiskDeviceActionConfirmationSkippable(
                 ToolRequest(
                     toolName = MobileActionFunctions.UI_TAP,
-                    arguments = mapOf("target" to target),
-                ),
+                    arguments = mapOf("target" to target)
+                )
             )
             "$target -> ${if (skippable) "skip" else "confirm"}"
         }
@@ -43,29 +43,28 @@ class BuiltInToolSpecSnapshotTest {
         assertEquals(
             "Snapshot changed. Full actual:\nACTUAL_BEGIN\n${actual.trim()}\nACTUAL_END\n",
             expected.trim(),
-            actual.trim(),
+            actual.trim()
         )
     }
 
-    private fun ToolSpec.snapshotLine(): String =
-        listOf(
-            name,
-            "capability=$capability",
-            "risk=$riskLevel",
-            "confirm=$confirmationPolicy",
-            "continuation=$resultContinuationPolicy",
-            "exec=$executionMode",
-            "tags=${tags.map { it.name }.sorted()}",
-            "private=${privateOutputKeys.sorted()}",
-            "permissions=${permissions.map { it.name }.sorted()}",
-            "pending=${pendingArgumentAllowlist.sorted()}",
-            "redacted=$redactedResultSummary",
-            "runtime=${androidRuntimePermissions.map { "${it.kind}:${it.argumentName}" }}",
-            "exactlyOneOf=${exactlyOneOf.map { it.sorted() }}",
-            "egress=${egressTextArguments.sorted()}",
-            "hint=${planningPromptHint != null}",
-            "contentHash=${contentHash()}",
-        ).joinToString(" | ")
+    private fun ToolSpec.snapshotLine(): String = listOf(
+        name,
+        "capability=$capability",
+        "risk=$riskLevel",
+        "confirm=$confirmationPolicy",
+        "continuation=$resultContinuationPolicy",
+        "exec=$executionMode",
+        "tags=${tags.map { it.name }.sorted()}",
+        "private=${privateOutputKeys.sorted()}",
+        "permissions=${permissions.map { it.name }.sorted()}",
+        "pending=${pendingArgumentAllowlist.sorted()}",
+        "redacted=$redactedResultSummary",
+        "runtime=${androidRuntimePermissions.map { "${it.kind}:${it.argumentName}" }}",
+        "exactlyOneOf=${exactlyOneOf.map { it.sorted() }}",
+        "egress=${egressTextArguments.sorted()}",
+        "hint=${planningPromptHint != null}",
+        "contentHash=${contentHash()}"
+    ).joinToString(" | ")
 
     private fun ToolSpec.contentHash(): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -95,7 +94,7 @@ class BuiltInToolSpecSnapshotTest {
             "Send",
             "Confirm",
             "Order",
-            "Search",
+            "Search"
         )
 
         const val EXPECTED_UI_TAP_PROBES = """

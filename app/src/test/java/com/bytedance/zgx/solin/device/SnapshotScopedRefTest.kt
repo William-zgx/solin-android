@@ -28,7 +28,7 @@ class SnapshotScopedRefTest {
         clickable = true,
         editable = true,
         scrollable = false,
-        enabled = true,
+        enabled = true
     )
     private val snapshot = ScreenStateSnapshot(
         id = "screen_1700_f00dbeef",
@@ -36,14 +36,14 @@ class SnapshotScopedRefTest {
         capturedAtMillis = 1700L,
         nodes = listOf(node),
         textSummary = "搜索",
-        truncated = false,
+        truncated = false
     )
 
     @Test
     fun parserAcceptsOnlyScopedShape() {
         assertEquals(
             SnapshotScopedRef("screen_1700_f00dbeef", "n0_abcd1234_f00dbeef"),
-            SnapshotRefs.parse(" screen_1700_f00dbeef/n0_abcd1234_f00dbeef "),
+            SnapshotRefs.parse(" screen_1700_f00dbeef/n0_abcd1234_f00dbeef ")
         )
         assertEquals("n3_ab::affordance", SnapshotRefs.parse("s/n3_ab::affordance")?.nodeId)
         listOf("n0_abcd1234", "n0_abcd1234_f00dbeef", "设置/通知", "a/b/n0_x", "/n0_x", "s/n0", "s/node", "a b/n0_x", "", null)
@@ -60,8 +60,7 @@ class SnapshotScopedRefTest {
         error("unreachable")
     }
 
-    private fun validate(ref: String, snap: ScreenStateSnapshot? = snapshot, pkg: String? = "com.example.app") =
-        SnapshotRefs.validate(SnapshotRefs.parse(ref)!!, snap, pkg)
+    private fun validate(ref: String, snap: ScreenStateSnapshot? = snapshot, pkg: String? = "com.example.app") = SnapshotRefs.validate(SnapshotRefs.parse(ref)!!, snap, pkg)
 
     @Test
     fun validationFailuresAreClosedAndOrdered() {
@@ -79,7 +78,7 @@ class SnapshotScopedRefTest {
         SnapshotRefs.requireSameBounds(node, ScreenBounds(0, 0, 100, 48))
         assertEquals(
             UiActionFailureKind.ElementMoved,
-            failure { SnapshotRefs.requireSameBounds(node, ScreenBounds(0, 10, 100, 58)) },
+            failure { SnapshotRefs.requireSameBounds(node, ScreenBounds(0, 10, 100, 58)) }
         )
         assertEquals(UiActionFailureKind.ElementMoved, failure { SnapshotRefs.requireSameBounds(node, null) })
     }
@@ -94,7 +93,7 @@ class SnapshotScopedRefTest {
         assertEquals(UiActionFailureKind.SnapshotUnknown, failure { RuntimeTargetQuery(ref, bounds) })
         assertEquals(
             UiActionFailureKind.PackageChanged,
-            failure { RuntimeTargetQuery(ref, bounds, snapshot, "com.other") },
+            failure { RuntimeTargetQuery(ref, bounds, snapshot, "com.other") }
         )
     }
 
@@ -102,7 +101,7 @@ class SnapshotScopedRefTest {
     fun resolverReturnsClosedFailureInsteadOfRanking() {
         val cases = mapOf(
             "screen_9/n0_abcd1234_f00dbeef" to UiActionFailureKind.RefRetired,
-            "screen_1700_f00dbeef/n5_deadbeef" to UiActionFailureKind.RefNotInSnapshot,
+            "screen_1700_f00dbeef/n5_deadbeef" to UiActionFailureKind.RefNotInSnapshot
         )
         cases.forEach { (ref, kind) ->
             val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, ref)
@@ -114,7 +113,7 @@ class SnapshotScopedRefTest {
             snapshot,
             UiTargetKind.SearchEntry,
             "screen_1700_f00dbeef/n0_abcd1234_f00dbeef",
-            livePackage = "com.other",
+            livePackage = "com.other"
         )
         assertEquals(UiActionFailureKind.PackageChanged, changed.failureKind)
         assertNull(changed.selectedNodeId)
@@ -155,7 +154,7 @@ class SnapshotScopedRefTest {
             UiActionFailureKind.RefRetired,
             UiActionFailureKind.RefNotInSnapshot,
             UiActionFailureKind.PackageChanged,
-            UiActionFailureKind.ElementMoved,
+            UiActionFailureKind.ElementMoved
         ).forEach { kind ->
             val quoted = "\"${kind.schemaValue}\""
             assertTrue(kind.schemaValue, registry.contains(quoted))
@@ -176,7 +175,7 @@ class SnapshotScopedRefTest {
 
     private class FakeProvider(
         var next: ScreenStateSnapshot,
-        var tapResult: UiActionReadResult = UiActionReadResult.Failed("fake"),
+        var tapResult: UiActionReadResult = UiActionReadResult.Failed("fake")
     ) : CurrentScreenControlProvider {
         override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int) = ScreenStateReadResult.Available(next)
         override fun tap(target: String, timeoutMillis: Long): UiActionReadResult = tapResult
@@ -221,17 +220,17 @@ class SnapshotScopedRefTest {
                         before = snapshot,
                         after = after,
                         summary = "ok",
-                        retryable = false,
-                    ),
-                ),
+                        retryable = false
+                    )
+                )
             )
             val result = DeviceControlToolExecutor(provider).execute(
                 ToolRequest(
                     id = "tap-1",
                     toolName = MobileActionFunctions.UI_TAP,
                     arguments = mapOf("target" to "搜索"),
-                    reason = "test",
-                ),
+                    reason = "test"
+                )
             )
             assertEquals(result.summary, ToolStatus.Succeeded, result.status)
             assertEquals(after.id, result.data["afterObservationId"])
