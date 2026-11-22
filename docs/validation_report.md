@@ -18165,3 +18165,10 @@ git diff --check
   待审批原因，无 SHA mismatch；notice candidate SHA 为
   `d1fea2b1827cc0317a1a8df9ae7979f7ccf15aa7727446bded3fca3270fda412`，三项人工审批保持
   pending。Hosted CI 与本批物理结果另行记录，不由 JVM 或格式检查推断。
+- Hosted [#194](https://github.com/William-zgx/solin-android/actions/runs/45045445444)（`5cd841a5`）：
+  Verify **success**，emulator 在 8m46s **failure**，已执行 102 / skipped 2。失败不是 OCR 或语音
+  断言，而是 `MainActivityLongTermMemoryUiTest` 收尾时 legacy model verification 访问已关闭的
+  SQLCipher pool。`97d7b167` 仅在既有测试内复用 Smoke 模式：Activity 存活时捕获公开
+  `viewModelScope` Job，scenario close 后有界 join，再允许下一类 reset；10 秒超时明确失败，
+  不新增生产 API。Opus 5.5 ACCEPT、简化 CLEAN，androidTest 编译、Spotless、隐私扫描通过；
+  完整 JVM task 为 **UP-TO-DATE / SUCCESS**（只改 androidTest），实际设备结果待下一次 run。
