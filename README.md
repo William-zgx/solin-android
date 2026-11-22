@@ -213,9 +213,14 @@ The formatting check uses `origin/main` as its incremental baseline. If it is ab
 `SOLIN_SPOTLESS_SKIP=1` as an explicit local-only skip; CI keeps the check enabled.
 
 A complete emulator pass requires `regression-emulator.properties` with
-`status=passed`. A green CI job reporting an infrastructure skip, such as
-unavailable HVF, is not executed device coverage. Model-driven app-search checks
-also require the intended model and verified query/package/app guards.
+`status=passed`. Hosted PR/push `emulator-regression` is a **non-release** API 36
+x86_64 smoke on Ubuntu KVM, with infrastructure skips disabled;
+`android-emulator-regression-evidence` never fills an arm64 release-evidence slot.
+The release API matrix still requires supported ARM64 acceleration. Its former
+macOS 14 runner was retired by GitHub on 2026-11-02, so schedule/dispatch matrix
+execution remains pending a suitable ARM64 runner rather than an x86 substitution.
+Model-driven app-search checks also require the intended model and verified
+query/package/app guards.
 
 See the [current validation evidence index](docs/validation_report.md#当前证据索引)
 for commit-specific results.

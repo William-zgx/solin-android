@@ -17941,3 +17941,39 @@ git diff --check
 - 真机/模拟器验收仍为 **pending**：真实 Accessibility 动作后的 scoped ref、live bounds、
   直接 tap/scroll、请求包到顶/chooser、实际 display 独立焦点、producer 帧时间戳及复用 session
   均不能由 JVM 测试推断通过。本条目不记录 hosted CI 或设备通过，也不构成发布批准。
+
+## 2026-11-22 Scoped Target Adoption And KVM Emulator Smoke
+
+本轮覆盖项：
+
+- local `targetShortlist` 对当前/after observation 中真实 Accessibility 节点发出
+  `<observationId>/<nodeId>`，但 `type` 与 OCR fallback 保持 bare；before 保持历史 bare 证据，
+  after 在 anchors/compression 中优先。editable+clickable 节点可同时给出 bare `type=` 和
+  scoped `tap=`，不会触发 C 的 scoped-typing 拒绝。
+- 草稿守卫只把最新 after（否则 current）快照中的精确节点解析为证据；同一节点驱动 unsupported、
+  dangerous 和 repeat 检查，返回给执行器的仍是原 scoped draft。before、外部快照和未知节点拒绝。
+  纠错 prompt 改为列出完整 bare node id，不再把 scoped ref 截断成不可执行文本。
+- 真实长度 ID 触发原 1200 字 prompt fallback 后，预算只按实际新增 observation-id 前缀扩展；
+  其余内容预算不变。普通、after、fused、ranking、compression、危险节点和 corrective 路径均有回归。
+- emulator 根因由官方 [runner-images #13518](https://github.com/actions/runner-images/issues/13518)
+  确认：GitHub Actions 的 macOS 14（含 arm64）于 2026-11-02 退役。PR/push 的
+  `emulator-regression` 改为 Ubuntu KVM + API 36 x86_64，`ALLOW_EMULATOR_INFRA_UNAVAILABLE=0`
+  和 `-accel on` 禁止基础设施跳过，明确标为**非 release 冒烟**。
+- arm64 API matrix 原样保留。x86_64 冒烟和 artifact 不能填充 release arm64 证据槽；
+  schedule/dispatch matrix 仍等待 CI/emulator owner 提供受支持的 ARM64 加速 runner。
+
+验证命令与结果：
+
+- 测试先行：首组 scoped renderer 测试生产修改前 5/8 失败；per-mode/before-after/cap 修复前
+  5/12 失败；真实草稿 acceptance/corrective 修复前 5/9 失败。实现后分别 8/8、12/12、9/9，
+  最终相关 replanner/compression/corrective 套件 **186 tests / 0 failures**。
+- 最终 `786cbcae` 完整 `./gradlew :app:testDebugUnitTest`：**3064 tests / 0 failures /
+  0 errors / 15 skipped**。`./gradlew spotlessCheck` 通过，格式变化单独提交。
+- 集成后的 workflow 通过 `yaml.safe_load`；使用临时 driver 依序 source `00_harness.sh`、
+  `10_verify_local_contracts.sh`、`20_ai_behavior_eval.sh` 和
+  `30_release_preflight_and_capabilities.sh`，输出 `PART30_OK`。
+- 独立 Claude Opus 5.5 对 E 最终 `ce3ce796` 无阻断项，对 F1 最终 `a4357175` 的限定范围无阻断项。
+  两轮 E 评审分别修复 scoped typing/before-after 和 draft-guard/corrective 断点；未扩大隐私、
+  确认或 critical-control 权限。
+- 本条目只记录本地、静态和独立评审证据，不提前记录 hosted emulator、arm64-native、release
+  或真机通过。实际 push run、KVM/boot/abilist/install/instrumentation 结果须另按 run 核验。

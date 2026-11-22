@@ -253,10 +253,12 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 ```
 
 完整模拟器回归只以 `regression-emulator.properties` 中的 `status=passed` 为准。
-CI 的 push/定时路径允许报告基础设施跳过；例如 `emulator-infra-hvf-unsupported` 只说明
-托管主机无法运行目标模拟器，即使 workflow job 为绿色也不计作设备回归通过。人工
-`workflow_dispatch` 不使用这项宽免。API matrix 是独立任务，不能由 API 36 单机或一次
-push 的结果推断已覆盖 API 28/32/33/34。
+托管 PR/push 的 `emulator-regression` 使用 Ubuntu KVM 和 API 36 x86_64，属于
+**非 release 冒烟**；`ALLOW_EMULATOR_INFRA_UNAVAILABLE=0` 使基础设施失败直接变红，
+其 artifact 不能填充 arm64 release 证据槽。API matrix 仍保持 arm64 合同，不能由 API 36
+单机、x86 翻译或一次 push 推断已覆盖 API 28/32/33/34。GitHub 已于 2026-11-02 退役
+原 macOS 14 runner，schedule/dispatch matrix 等待受支持的 ARM64 加速 runner；需要
+CI/emulator owner 提供该资源，不能把 x86 matrix 当作替代验收。
 
 在 x86 Linux 工作站做 UI 实效检查时，先准备 x86_64 AVD，再跑截图链路：
 

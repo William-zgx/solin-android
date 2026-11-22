@@ -31,7 +31,7 @@ every historical phase. Current owner requirements are listed below and in
 - **Privacy approvals**: Review the current privacy notice and capability matrix, including opt-in remote vision and the debug background backend.
 - **Model/license approvals**: License source, attribution, notice, and redistribution decisions for every recommended model.
 - **Signing owner**: Production signing material outside Git, upload/app-signing fingerprints, final APK/AAB and mapping provenance.
-- **CI / emulator owner**: Runnable API 28/32/33/34/36 arm64 infrastructure and complete passed nested reports.
+- **CI / emulator owner**: Runnable API 28/32/33/34/36 arm64 infrastructure and complete passed nested reports. The former hosted macOS 14 arm64 runner was retired on 2026-11-02; a supported accelerated ARM...
 - **AI behavior owner**: Fresh public-strict `agent_loop_runtime` trace for the current fixtures and hashes, with no mismatches or unresolved allowed failures.
 - **Phone capability owner**: Valid paired task benchmark, real NumberPicker readback, background critical-control negative fixture and complete model-task acceptance.
 - **Release / model owner**: Any external handoff of bundled-model tester APKs needs model redistribution approval and separate split-package/install provenance.

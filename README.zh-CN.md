@@ -162,8 +162,12 @@ AVD_NAME=<your-avd-name> scripts/regression_emulator.sh
 无 Git 元数据的源码包可用 `SOLIN_SPOTLESS_SKIP=1` 显式跳过本地格式检查，CI 不跳过。
 
 完整模拟器通过必须有 `regression-emulator.properties` 的 `status=passed`。
-CI 任务因基础设施不支持（如 HVF 不可用）而跳过，即使显示绿色也不代表实际设备覆盖。
-模型驱动的应用搜索还要求指定模型和经过验证的 query/package/app 守卫。
+托管 PR/push 的 `emulator-regression` 是 Ubuntu KVM 上的 **非 release** API 36
+x86_64 冒烟，已禁用基础设施跳过；`android-emulator-regression-evidence`
+不能填充 arm64 release 证据槽。release API matrix 仍要求受支持的 ARM64 加速环境。
+原 macOS 14 runner 已于 2026-11-02 被 GitHub 退役，因此 schedule/dispatch matrix
+仍等待合适的 ARM64 runner，不能用 x86 替代。模型驱动的应用搜索还要求指定模型和
+经过验证的 query/package/app 守卫。
 
 按提交记录的结果见[当前验证证据索引](docs/validation_report.md#当前证据索引)。
 语音输入、系统选择器、MediaProjection 同意、物理设备行为和发布批准需要各自证据。

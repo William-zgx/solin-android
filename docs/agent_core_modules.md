@@ -131,6 +131,13 @@ Current status:
   matching live bounds and direct clickability/scrollability; they never relocate through OCR or
   swipe fallback, and scoped typing is refused. JVM tests cover validation and the executor
   handoff, not physical Accessibility behavior.
+- The local observation replanner now emits those refs for `tap` and `scroll` candidates from the
+  current or after observation. `type` and OCR-fallback targets stay bare; before observations stay
+  legacy historical evidence and after targets take precedence in anchors/compression. Draft guards
+  resolve a scoped ref only against the latest matching snapshot and exact Accessibility node, using
+  that same node for unsupported-target, dangerous-control and repeat checks while returning the
+  original scoped draft. The corrective prompt lists a full bare node id instead of truncating a ref.
+  Prompt-budget growth is limited to the added observation-id prefixes.
 - Phone control also covers Accessibility gestures — swipe (normalized 0-1000
   coordinates), long-press, and an allowlisted system-key set
   (home/recents/enter/delete, never an arbitrary keycode) — all
@@ -169,6 +176,8 @@ Tests:
 - `ExecutorBoundingTest`
 - `WebSearchProviderTest`
 - `SnapshotScopedRefTest`
+- `ObservationReplannerScopedTargetShortlistTest`
+- `ModelObservationReplannerScopedTargetAcceptanceTest`
 - `BackgroundPhoneEvidenceTest`
 - `ActionExecutorTest`
 
