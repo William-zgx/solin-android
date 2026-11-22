@@ -22,7 +22,7 @@ for the coding-agent protocol.
 
 Implementation and repository links were refreshed on 2026-11-22. The
 [current scoped-target and KVM-smoke verification](validation_report.md#2026-11-22--scoped-target-adoption-and-kvm-emulator-smoke)
-at `e661db93` passed locally on the integrated tree. The earlier
+at `d1bb95fc` passed locally on the integrated tree. The earlier
 [snapshot-ref/background](validation_report.md#2026-11-22--snapshot-scoped-refs-and-background-evidence)
 and [deterministic boundary](validation_report.md#2026-11-21--deterministic-boundaries-and-input-lifecycle)
 entries retain their original evidence scope. Hosted CI must be checked on the pushed commit; the

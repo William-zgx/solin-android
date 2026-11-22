@@ -18042,3 +18042,14 @@ git diff --check
   诊断新增最近 run 的 state、binding dispatchState、bootCount 和末 8 个 step types，用现有 DAO
   区分 parent/binding/claim/runtime，且不输出 runId、prompt、revision 或 key。Opus 5.5 clean，
   androidTest 编译、Spotless、隐私扫描通过；实际拒绝阶段待下一次 hosted artifact。
+- Hosted [#181](https://github.com/William-zgx/solin-android/actions/runs/45003741008)（`70fa3cc8`）：
+  Verify 成功。最近 run 为 `AwaitingUserConfirmation`，但 `dispatch=null` 且没有
+  `PlacementSelected`，把失败定位到 bindAndReserve 而非 runtime。homePrivacyEntry 已通过；
+  privacyButton 的剩余问题最终定位为默认折叠的“用户控制”行，先展开再断言完整文案，
+  Opus 5.5 clean。整体 **failure**。
+- Reserve 诊断 `e4973791` + `d1bb95fc`：reserve 各拒绝阶段只记录 stage 和异常类名，
+  continuation/main-chat 的 fromDecision 同样只记录异常类名；新增同窗口、同上限的
+  `logcat -s Solin/Model Solin/Lifecycle` 第二份 artifact。无 runId、prompt、revision、SQL 或
+  异常正文。PART90 输出 `PART90_OK`，相关 placement/recovery/coordinator 测试通过，Opus 5.5 clean。
+  最终完整 JVM **3072 tests / 0 failures / 0 errors / 15 skipped**，androidTest 编译、Spotless、
+  隐私扫描通过；下一次 artifact 才确定具体 reserve 原因。
