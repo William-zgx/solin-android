@@ -102,12 +102,10 @@ internal class VoiceRecognitionCoordinator(
                 is String -> intent.putExtra(key, value)
             }
         }
-        // Second boundary: permission/consent callbacks may re-enter after another start won.
-        if (!session.start(
+        session.start(
             installListener = { generation -> recognizer.setRecognitionListener(recognitionListener(generation)) },
             startListening = { recognizer.startListening(intent) },
         )
-        ) return
     }
 
     fun finish() {
@@ -241,9 +239,9 @@ internal class VoiceRecognitionSession(
 
     val isActive: Boolean get() = gate.activeSessionId != 0L
 
-    /** Returns false (and does nothing) while a generation is already active. */
-    fun start(installListener: (Long) -> Unit, startListening: () -> Unit): Boolean {
-        if (isActive) return false
+    /** No-op while a generation is already active. */
+    fun start(installListener: (Long) -> Unit, startListening: () -> Unit) {
+        if (isActive) return
         val generation = gate.startSession()
         installListener(generation)
         sink.captureStarted()
@@ -254,7 +252,6 @@ internal class VoiceRecognitionSession(
         runCatching(startListening).onFailure {
             if (claim(generation)) sink.unavailable("语音输入启动失败")
         }
-        return true
     }
 
     /** Non-terminal: the generation keeps waiting for results under the same deadline. */

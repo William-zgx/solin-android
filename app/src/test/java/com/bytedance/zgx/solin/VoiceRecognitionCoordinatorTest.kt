@@ -35,7 +35,7 @@ class VoiceRecognitionCoordinatorTest {
             deadlineMs = DEADLINE,
         )
 
-        fun begin(): Boolean =
+        fun begin() =
             session.start(
                 installListener = { generation = it },
                 startListening = { startCalls++ },
@@ -47,7 +47,7 @@ class VoiceRecognitionCoordinatorTest {
     @Test
     fun silenceBeforeDeadlineIsNoOpAndAtDeadlineCancelsOnceWithoutRestart() = runTest {
         val h = Harness(this)
-        assertTrue(h.begin())
+        h.begin()
         advanceTimeBy(DEADLINE - 1)
         runCurrent()
         assertEquals(0, h.cancelCalls)
@@ -164,10 +164,10 @@ class VoiceRecognitionCoordinatorTest {
     @Test
     fun repeatedStartWhileActiveCallsRecognizerOnce() = runTest {
         val h = Harness(this)
-        assertTrue(h.begin())
+        h.begin()
         val gen = h.generation
-        assertFalse(h.begin())
-        assertFalse(h.begin())
+        h.begin()
+        h.begin()
         assertEquals(1, h.startCalls)
         assertEquals(gen, h.generation)
         assertEquals(listOf("started"), h.events)
@@ -179,7 +179,7 @@ class VoiceRecognitionCoordinatorTest {
         h.begin()
         val stale = h.generation
         h.session.cancel()
-        assertTrue(h.begin())
+        h.begin()
         h.session.onResults(stale, "stale")
         h.session.onError(stale, "stale")
         assertTrue(h.session.isActive)
