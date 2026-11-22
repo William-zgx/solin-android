@@ -17975,5 +17975,13 @@ git diff --check
 - 独立 Claude Opus 5.5 对 E 最终 `ce3ce796` 无阻断项，对 F1 最终 `a4357175` 的限定范围无阻断项。
   两轮 E 评审分别修复 scoped typing/before-after 和 draft-guard/corrective 断点；未扩大隐私、
   确认或 critical-control 权限。
-- 本条目只记录本地、静态和独立评审证据，不提前记录 hosted emulator、arm64-native、release
-  或真机通过。实际 push run、KVM/boot/abilist/install/instrumentation 结果须另按 run 核验。
+- 本条目中的本地、静态和独立评审证据不提前代表 hosted emulator、arm64-native、release
+  或真机通过。实际 push run、KVM/boot/abilist/install/instrumentation 结果须逐 run 核验。
+- Hosted [#175](https://github.com/William-zgx/solin-android/actions/runs/44990344268)（`b36ce66d`）：
+  Verify、AI behavior 和 `android-local-verification-evidence` / `android-ai-behavior-eval-evidence`
+  均成功。emulator-regression 在 Ubuntu 26.04.1 的官方 udev 步骤后失败于
+  `test -w /dev/kvm`（11 秒），SDK/AVD/emulator 均未执行，没有 emulator evidence artifact，
+  总体为 **failure**。这不是设备或 ABI 测试失败。
+- F2 `fb3ccab5` + `2530cc4a` 固定 `ubuntu-24.04`，在 udev 前显式 `modprobe kvm`，保留设备
+  诊断和 `test -w /dev/kvm` 硬门禁；YAML/PART30 通过，Opus 5.5 focused review clean。
+  后续 hosted run 仍需独立证明 KVM、启动、abilist、安装和 instrumentation，不在本条提前标记通过。
