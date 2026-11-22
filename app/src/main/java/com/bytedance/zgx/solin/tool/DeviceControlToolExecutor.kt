@@ -15,6 +15,7 @@ import com.bytedance.zgx.solin.device.SearchResultVerification
 import com.bytedance.zgx.solin.device.ScreenNode
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
+import com.bytedance.zgx.solin.device.SnapshotRefRegistry
 import com.bytedance.zgx.solin.device.UiActionExecutionResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.UiActionReadResult
@@ -778,6 +779,8 @@ class DeviceControlToolExecutor(
             is UiActionReadResult.Available -> {
                 val execution = result.result
                 val after = execution.after
+                // The after snapshot is handed to the model here, so it is the observation scoped refs name.
+                after?.let(SnapshotRefRegistry::publish)
                 val data = (
                     request.deviceControlBaseData() +
                     mapOf(
@@ -880,6 +883,7 @@ class DeviceControlToolExecutor(
                 "actualPackageName" to actualPackage.orEmpty(),
             ),
             observationData = snapshot?.let {
+                SnapshotRefRegistry.publish(it)
                 it.toPrefixedObservationData("before") + it.toPrefixedObservationData("after")
             }.orEmpty(),
         )
