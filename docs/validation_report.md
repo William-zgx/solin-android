@@ -18061,3 +18061,11 @@ git diff --check
   不再误拦 GET probe；单个连接仅对 `SocketException` 断连结束处理，其他异常仍失败，响应和
   原始断言不变。Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过。未以吞异常宣称
   远程通过，实际结果待下一次 hosted run。
+- Hosted [#183](https://github.com/William-zgx/solin-android/actions/runs/45009310233)（`633dfa26`）：
+  Verify 成功，但远程组仍失败。进一步审查确认 F4 后 connectivity probe 已生效，而多数测试
+  在 `127.0.0.1:16543` 没有服务，production 正确以 `Unreachable` 阻止 Remote placement；
+  仅等待 isReady 不能修复。整体 **failure**。
+- F9 `2b9433ae` + `18720e8c`：为无端点测试提供真实 `/v1/models` 200 响应，其他路径 404
+  并在 after 中失败； readiness 同时要求 expected baseUrl，避免动态端口提前通过。诊断扩为
+  最近 5 个 run、最新 binding 及 live connectivity/placement reason，不含 runId、prompt、revision
+  或 key。Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过；实际通过情况待下一次 run。
