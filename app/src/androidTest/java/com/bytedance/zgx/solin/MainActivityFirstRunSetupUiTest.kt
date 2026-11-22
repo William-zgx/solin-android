@@ -33,7 +33,7 @@ class MainActivityFirstRunSetupUiTest {
             composeRule.onNodeWithTag("model_startup_banner")
                 .performScrollTo()
                 .assertIsDisplayed()
-            composeRule.onNodeWithTag("quick_remote_config_button")
+            composeRule.onNodeWithTag("home_choice_remote")
                 .performScrollTo()
                 .assertIsDisplayed()
             composeRule.onNodeWithTag("home_choice_local")
@@ -60,7 +60,7 @@ class MainActivityFirstRunSetupUiTest {
             composeRule.onNodeWithTag("model_startup_banner")
                 .performScrollTo()
                 .assertIsDisplayed()
-            composeRule.onNodeWithTag("quick_remote_config_button")
+            composeRule.onNodeWithTag("home_choice_remote")
                 .performScrollTo()
                 .assertIsDisplayed()
         }

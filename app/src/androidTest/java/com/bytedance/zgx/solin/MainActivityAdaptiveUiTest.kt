@@ -13,7 +13,9 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -91,7 +93,10 @@ class MainActivityAdaptiveUiTest {
 
                 composeRule.onNodeWithTag("top_model_button").performClick()
                 composeRule.waitForTag("model_manager_sheet")
-                composeRule.onNodeWithText("模型管理").assertIsDisplayed()
+                // The closed session drawer keeps its own "模型管理" row composed, so scope to the sheet.
+                composeRule.onNode(
+                    hasText("模型管理") and hasAnyAncestor(hasTestTag("model_manager_sheet")),
+                ).assertIsDisplayed()
                 composeRule.onNodeWithTag("model_tab_advanced").performClick()
                 composeRule.waitForText("生成参数")
                 composeRule.onNodeWithText("Temperature · 创造性").assertIsDisplayed()

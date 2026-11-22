@@ -233,6 +233,7 @@ jobs:
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
           ARTIFACT_DIR=build/verification/ci-emulator-regression \
+          LOGCAT_TAIL_LINES=20000 \
           scripts/regression_emulator.sh
 
       - name: Upload emulator evidence

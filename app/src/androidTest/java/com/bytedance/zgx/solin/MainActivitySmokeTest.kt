@@ -96,7 +96,7 @@ class MainActivitySmokeTest {
     fun quickRemoteConfigEntryOpensRemoteModelForm() {
         composeRule.waitForTag("app_title")
 
-        composeRule.onNodeWithTag("quick_remote_config_button").performScrollTo().performClick()
+        composeRule.onNodeWithTag("home_choice_remote").performScrollTo().performClick()
         composeRule.waitForTag("model_manager_sheet")
 
         composeRule.onNodeWithText("远程模型候选").assertIsDisplayed()

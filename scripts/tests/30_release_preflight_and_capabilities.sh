@@ -538,6 +538,7 @@ for required in (
     "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
     '-no-snapshot-save',
     '-accel on',
+    'LOGCAT_TAIL_LINES=20000',
 ):
     if required not in emulator_regression_block:
         fail(f"emulator-regression missing hardware-accelerated runner marker: {required}")

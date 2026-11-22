@@ -13,9 +13,11 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.printToLog
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -225,8 +227,16 @@ class MainActivityRuntimePermissionUiTest {
     }
 
     private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+        try {
+            waitUntil(timeoutMillis = timeoutMillis) {
+                onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (error: Throwable) {
+            // Diagnostics only: one bounded dump of the unmerged root, then the original failure.
+            runCatching {
+                onRoot(useUnmergedTree = true).printToLog("SolinUiDump-$tag", maxDepth = 40)
+            }
+            throw error
         }
     }
 
