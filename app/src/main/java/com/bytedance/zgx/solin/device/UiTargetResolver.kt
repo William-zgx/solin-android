@@ -39,19 +39,71 @@ data class UiTargetExplanationContract(
     val reason: String,
 )
 
+/** A closed snapshot-ref failure; [executeUiAction][SolinAccessibilityService] maps it to [failureKind]. */
+internal class SnapshotRefException(val failureKind: UiActionFailureKind) : RuntimeException(failureKind.schemaValue)
+
+/** `<ScreenStateSnapshot.id>/<ScreenNode.id>`; see [SnapshotRefs]. */
+internal data class SnapshotScopedRef(val snapshotId: String, val nodeId: String)
+
+/**
+ * The one parser/validator for snapshot-scoped refs. Threat: a stale or foreign node reference silently
+ * acting on a different screen. Failures are closed; there is no relocation and no text fallback.
+ */
+internal object SnapshotRefs {
+    // Node part must look like a ScreenNode id (n<index>_<hash>[_<salt>][::affordance]), so bare node ids
+    // and free text containing '/' are never scoped refs.
+    private val scopedRef = Regex("""^([^\s/]+)/(n\d+_[0-9A-Za-z]+(?:_[0-9A-Za-z-]+)?(?:::affordance)?)$""")
+
+    fun parse(target: String?): SnapshotScopedRef? =
+        scopedRef.matchEntire(target?.trim().orEmpty())?.let { SnapshotScopedRef(it.groupValues[1], it.groupValues[2]) }
+
+    /** Order: snapshot, prefix, node membership, package. Bounds are checked against the live node later. */
+    fun validate(ref: SnapshotScopedRef, snapshot: ScreenStateSnapshot?, livePackage: String?): ScreenNode {
+        if (snapshot == null) throw SnapshotRefException(UiActionFailureKind.SnapshotUnknown)
+        if (ref.snapshotId != snapshot.id) throw SnapshotRefException(UiActionFailureKind.RefRetired)
+        val node = snapshot.nodes.firstOrNull { it.id == ref.nodeId }
+            ?: throw SnapshotRefException(UiActionFailureKind.RefNotInSnapshot)
+        if (snapshot.packageName != livePackage) throw SnapshotRefException(UiActionFailureKind.PackageChanged)
+        return node
+    }
+
+    fun requireSameBounds(snapshotNode: ScreenNode, liveBounds: ScreenBounds?) {
+        if (snapshotNode.bounds != liveBounds) throw SnapshotRefException(UiActionFailureKind.ElementMoved)
+    }
+}
+
 object UiTargetResolver {
     fun explain(
         snapshot: ScreenStateSnapshot,
         kind: UiTargetKind,
         target: String? = null,
         profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
-    ): UiTargetResolutionEvidence =
-        evidence(
+    ): UiTargetResolutionEvidence {
+        val ref = SnapshotRefs.parse(target)
+        val nodes = if (ref == null) {
+            snapshot.nodes
+        } else {
+            val scoped = try {
+                SnapshotRefs.validate(ref, snapshot, snapshot.packageName)
+            } catch (error: SnapshotRefException) {
+                return UiTargetResolutionEvidence(
+                    kind = kind,
+                    target = target,
+                    packageName = snapshot.packageName,
+                    selectedNodeId = null,
+                    rankedCandidates = emptyList(),
+                    failureKind = error.failureKind,
+                )
+            }
+            listOf(scoped)
+        }
+        return evidence(
             kind = kind,
             target = target,
             packageName = snapshot.packageName,
-            candidates = rankedCandidates(snapshot.nodes.map(::GroundingNode), kind, target, profile),
+            candidates = rankedCandidates(nodes.map(::GroundingNode), kind, if (ref == null) target else null, profile),
         )
+    }
 
     fun explain(
         observation: ScreenObservation,
@@ -341,7 +393,14 @@ internal fun runtimeTargetMatchScore(
  * The per-target inputs of [runtimeTargetMatchScore], derived once per tree walk instead of once per
  * scored node: they depend only on the target text and the window root, never on the node.
  */
-internal class RuntimeTargetQuery(val target: String, rootBounds: ScreenBounds?) {
+internal class RuntimeTargetQuery(
+    val target: String,
+    rootBounds: ScreenBounds?,
+    snapshot: ScreenStateSnapshot? = null,
+    rootPackage: String? = null,
+) {
+    /** Non-null when [target] is a snapshot-scoped ref that validated; throws [SnapshotRefException] otherwise. */
+    val scopedNode: ScreenNode? = SnapshotRefs.parse(target)?.let { SnapshotRefs.validate(it, snapshot, rootPackage) }
     val normalizedTarget: String = target.normalizedLookupKey()
     val kind: UiTargetKind? = UiTargetResolver.kindForTarget(target)
     val metrics: SnapshotBoundsMetrics = SnapshotBoundsMetrics.fromRootBounds(rootBounds)

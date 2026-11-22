@@ -276,6 +276,11 @@ enum class UiActionFailureKind(val schemaValue: String) {
     SubmitNotFound("submit_not_found"),
     ResultNotVerified("result_not_verified"),
     DangerousAction("dangerous_action"),
+    SnapshotUnknown("snapshot_unknown"),
+    RefRetired("ref_retired"),
+    RefNotInSnapshot("ref_not_in_snapshot"),
+    PackageChanged("package_changed"),
+    ElementMoved("element_moved"),
     Unknown("unknown"),
 }
 

@@ -93,7 +93,18 @@ class RunProgressGateTest {
             assertEquals(code, kind.schemaValue)
             assertEquals(kind, released(record(lastResult = failed(code))).lastFailure)
         }
-        val unreviewed = UiActionFailureKind.entries.filterNot { kind -> kind in pinned.values }
+        // Snapshot-ref failures are device-local; they are deliberately not releasable and fail closed to Unknown.
+        val deviceLocalSnapshotRefKinds = setOf(
+            UiActionFailureKind.SnapshotUnknown,
+            UiActionFailureKind.RefRetired,
+            UiActionFailureKind.RefNotInSnapshot,
+            UiActionFailureKind.PackageChanged,
+            UiActionFailureKind.ElementMoved,
+        )
+        deviceLocalSnapshotRefKinds.forEach { kind ->
+            assertEquals(kind.schemaValue, UiActionFailureKind.Unknown, released(record(lastResult = failed(kind.schemaValue))).lastFailure)
+        }
+        val unreviewed = UiActionFailureKind.entries.filterNot { kind -> kind in pinned.values || kind in deviceLocalSnapshotRefKinds }
         assertEquals(
             "review whether these may leave the device, then list them in RELEASABLE_FAILURE_CODES",
             emptyList<UiActionFailureKind>(),

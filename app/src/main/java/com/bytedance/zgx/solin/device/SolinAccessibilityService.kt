@@ -346,13 +346,14 @@ class SolinAccessibilityService : AccessibilityService() {
         target: String,
         timeoutMillis: Long,
         ocrGroundingHint: UiOcrGroundingHint? = null
-    ): UiActionReadResult = executeUiAction(timeoutMillis = timeoutMillis) {
+    ): UiActionReadResult = executeUiAction(timeoutMillis = timeoutMillis) { before ->
         val root = activeWindowRoot()
             ?: return@executeUiAction UiPrimitiveResult.failed(
                 reason = "当前屏幕没有可访问节点根节点",
                 failureKind = UiActionFailureKind.PageChanged
             )
-        if (UiTargetResolver.kindForTarget(target) == UiTargetKind.SearchEntry) {
+        val scopedRef = SnapshotRefs.parse(target) != null
+        if (!scopedRef && UiTargetResolver.kindForTarget(target) == UiTargetKind.SearchEntry) {
             return@executeUiAction when (val result = focusSearchEditableFromEntry(root, target, timeoutMillis)) {
                 is EditableFocusResult.Found ->
                     UiPrimitiveResult.succeeded("已聚焦搜索输入框")
@@ -365,8 +366,8 @@ class SolinAccessibilityService : AccessibilityService() {
                         )
             }
         }
-        val match = root.findTargetCandidate(target)
-            ?: return@executeUiAction tapOcrGroundingHint(root, target, ocrGroundingHint)
+        val match = root.findTargetCandidate(target, snapshot = before)
+            ?: return@executeUiAction (if (scopedRef) null else tapOcrGroundingHint(root, target, ocrGroundingHint))
                 ?: UiPrimitiveResult.failed(
                     reason = "未找到可点击目标：$target",
                     failureKind = missingTargetFailureKind(target)
@@ -554,20 +555,31 @@ class SolinAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun scrollTarget(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult = executeUiAction(timeoutMillis = timeoutMillis) {
+    private fun scrollTarget(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult = executeUiAction(timeoutMillis = timeoutMillis) { before ->
         val root = activeWindowRoot()
             ?: return@executeUiAction UiPrimitiveResult.failed(
                 reason = "当前屏幕没有可访问节点根节点",
                 failureKind = UiActionFailureKind.PageChanged
             )
-        val scrollableNode = target
-            ?.let { query ->
-                root.findTargetCandidate(query) { candidate ->
-                    candidate.node.scrollableSelfOrAncestor() != null
-                }?.node?.scrollableSelfOrAncestor()
-            }
-            ?: root.findNodeCandidate { candidate -> candidate.node.isScrollable }?.node
-            ?: root.scrollableSelfOrDescendant()
+        val scrollableNode = if (SnapshotRefs.parse(target) != null) {
+            // A scoped ref never degrades to "any scrollable node" or to a swipe.
+            root.findTargetCandidate(target.orEmpty(), snapshot = before) { candidate ->
+                candidate.node.scrollableSelfOrAncestor() != null
+            }?.node?.scrollableSelfOrAncestor()
+                ?: return@executeUiAction UiPrimitiveResult.failed(
+                    reason = "未找到可滚动目标：$target",
+                    failureKind = UiActionFailureKind.NodeNotFound
+                )
+        } else {
+            target
+                ?.let { query ->
+                    root.findTargetCandidate(query) { candidate ->
+                        candidate.node.scrollableSelfOrAncestor() != null
+                    }?.node?.scrollableSelfOrAncestor()
+                }
+                ?: root.findNodeCandidate { candidate -> candidate.node.isScrollable }?.node
+                ?: root.scrollableSelfOrDescendant()
+        }
         if (scrollableNode != null) {
             val action = when (direction) {
                 UiScrollDirection.Up,
@@ -787,7 +799,7 @@ class SolinAccessibilityService : AccessibilityService() {
 
     private fun executeUiAction(
         timeoutMillis: Long,
-        operation: () -> UiPrimitiveResult
+        operation: (before: ScreenStateSnapshot?) -> UiPrimitiveResult
     ): UiActionReadResult {
         throwIfInterrupted()
         val before = observeSnapshot(
@@ -795,12 +807,19 @@ class SolinAccessibilityService : AccessibilityService() {
             maxNodes = DEFAULT_DEVICE_CONTROL_MAX_NODES
         ).snapshotOrNull()
         throwIfInterrupted()
-        val primitive = runCatching(operation).getOrElse { error ->
+        val primitive = runCatching { operation(before) }.getOrElse { error ->
             if (error is CriticalControlTapRefused) {
                 return@getOrElse UiPrimitiveResult.failed(
                     reason = CRITICAL_CONTROL_TAP_REFUSED_MESSAGE,
                     retryable = false,
                     failureKind = UiActionFailureKind.DangerousAction
+                )
+            }
+            if (error is SnapshotRefException) {
+                return@getOrElse UiPrimitiveResult.failed(
+                    reason = "快照引用无效：${error.failureKind.schemaValue}",
+                    retryable = false,
+                    failureKind = error.failureKind
                 )
             }
             UiPrimitiveResult.failed(

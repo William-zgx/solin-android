@@ -95,6 +95,12 @@ internal data class NodeCandidate(
     ): Int? {
         if (!node.isEnabled) return null
         val screenNode = node.toScreenNode(id = id)
+        query.scopedNode?.let { scoped ->
+            // A scoped ref names exactly one snapshot node: no text fallback, no relocation.
+            if (transientNodeIdTargetMatchScore(id, scoped.id) == null) return null
+            SnapshotRefs.requireSameBounds(scoped, screenNode.bounds)
+            return 1_000 + screenNodeActionabilityScore(screenNode)
+        }
         // A model addressing an observed node id has named THE node; that is stronger evidence than any
         // text heuristic and deliberately bypasses the kind-specific minimum score. Kept ahead of the
         // shared core (which knows nothing about transient ids) rather than folded into it.
@@ -191,8 +197,10 @@ private fun AccessibilityNodeInfo.walkNodeCandidates(visitor: (NodeCandidate) ->
 
 internal fun AccessibilityNodeInfo.findTargetCandidate(
     target: String,
+    snapshot: ScreenStateSnapshot? = null,
     predicate: (NodeCandidate) -> Boolean = { true }
-): NodeCandidate? = findTargetCandidates(target = target, predicate = predicate, limit = 1).firstOrNull()
+): NodeCandidate? =
+    findTargetCandidates(target = target, predicate = predicate, limit = 1, snapshot = snapshot).firstOrNull()
 
 /**
  * The dismiss control of a transient overlay, if this window has one.
@@ -288,11 +296,12 @@ internal fun AccessibilityNodeInfo.looksLikeSearchBlockingOverlay(): Boolean {
 internal fun AccessibilityNodeInfo.findTargetCandidates(
     target: String,
     predicate: (NodeCandidate) -> Boolean = { true },
-    limit: Int = 5
+    limit: Int = 5,
+    snapshot: ScreenStateSnapshot? = null
 ): List<NodeCandidate> {
     val candidates = mutableListOf<Pair<NodeCandidate, Int>>()
     val profile = AppInteractionProfiles.forPackage(packageName?.toString())
-    val query = RuntimeTargetQuery(target, safeBounds())
+    val query = RuntimeTargetQuery(target, safeBounds(), snapshot, packageName?.toString()?.takeIf { it.isNotBlank() })
     walkNodeCandidates { candidate ->
         val score = candidate.targetMatchScore(query = query, profile = profile)
         if (score != null && predicate(candidate)) {
