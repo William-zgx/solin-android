@@ -258,3 +258,81 @@ class LocalModelProbeServerRule : ExternalResource() {
         const val PROBE_MODELS_BODY = "{\"object\":\"list\",\"data\":[{\"id\":\"android-test-model\",\"object\":\"model\"}]}"
     }
 }
+
+/**
+ * Live view-model facts for failure diagnostics: what placement and the disclosure gate saw.
+ * No prompt text, keys or run ids.
+ */
+internal fun liveRemoteUiSummary(): String = resumedMainActivityUiState()?.let {
+    "liveConnectivity=${it.remoteModelConfig.connectivityStatus} " +
+        "activeRunPlacementReason=${it.activeRunPlacementReason} " +
+        "pendingRemoteSendDisclosure=${it.pendingRemoteSendDisclosure != null} " +
+        "isBusy=${it.isBusy} disclosurePolicy=${it.remoteSendDisclosurePolicy} mode=${it.inferenceMode}"
+} ?: "live state unavailable"
+
+/** Sends [liveRemoteUiSummary] and [placementStateSummary] to the instrumentation output; never throws. */
+internal fun emitRouteDiagnostics(label: String, context: Context) {
+    runCatching {
+        InstrumentationRegistry.getInstrumentation().sendStatus(
+            0,
+            android.os.Bundle().apply {
+                putString("SolinLiveState-$label", liveRemoteUiSummary())
+                putString("SolinPlacementState-$label", placementStateSummary(context))
+            },
+        )
+    }
+}
+
+internal fun placementStateSummary(targetContext: Context): String = runCatching {
+    val database = SolinDatabase.get(targetContext)
+    val sqlite = database.openHelper.writableDatabase
+    val dao = database.runPlacementBindingDao()
+    // Recent runs with their binding (if any); run ids stay out of the output.
+    val recent = sqlite.query(
+        """
+        SELECT r.id, r.state, b.placement, b.dispatchState, b.attempt, b.bootCount
+        FROM agent_runs r
+        LEFT JOIN agent_run_placement_bindings b ON b.runId = r.id
+        ORDER BY r.updatedAtMillis DESC LIMIT 5
+        """.trimIndent()
+    ).use { cursor ->
+        buildList {
+            while (cursor.moveToNext()) {
+                add(
+                    Pair(
+                        cursor.getString(0),
+                        "runState=${cursor.getString(1)} binding=${!cursor.isNull(2)} " +
+                            "placement=${cursor.getStringOrNull(2)} dispatch=${cursor.getStringOrNull(3)} " +
+                            "attempt=${if (cursor.isNull(4)) null else cursor.getInt(4)} " +
+                            "boot=${if (cursor.isNull(5)) null else cursor.getLong(5)}"
+                    )
+                )
+            }
+        }
+    }
+    val runs = if (recent.isEmpty()) {
+        "no runs"
+    } else {
+        recent.mapIndexed { index, (runId, row) ->
+            val steps = dao.steps(runId).takeLast(8).joinToString(",") { it.type }
+            "run$index[$row steps=$steps]"
+        }.joinToString(" ")
+    }
+    val latestBinding = sqlite.query(
+        """
+        SELECT placement, dispatchState, attempt, bootCount
+        FROM agent_run_placement_bindings
+        ORDER BY boundAtElapsedRealtimeMillis DESC LIMIT 1
+        """.trimIndent()
+    ).use { cursor ->
+        if (cursor.moveToFirst()) {
+            "exists placement=${cursor.getString(0)} dispatch=${cursor.getString(1)} " +
+                "attempt=${cursor.getInt(2)} boot=${cursor.getLong(3)}"
+        } else {
+            "none"
+        }
+    }
+    "$runs latestBinding=$latestBinding"
+}.getOrElse { "placement state failed: ${it.javaClass.simpleName}" }
+
+private fun android.database.Cursor.getStringOrNull(index: Int): String? = if (isNull(index)) null else getString(index)

@@ -30,6 +30,7 @@ import java.net.Socket
 import java.net.SocketException
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -357,8 +358,13 @@ class MainActivityComprehensiveTest {
         timeoutMillis: Long = 10_000,
         substring: Boolean = false
     ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        try {
+            waitUntil(timeoutMillis = timeoutMillis) {
+                onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (error: Throwable) {
+            emitRouteDiagnostics("comprehensive_waitForText", targetContext)
+            throw error
         }
     }
 
@@ -401,6 +407,7 @@ private fun String.isLocalDebugDownloadUrl(): Boolean = runCatching { URI(this).
 private class LocalOpenAiServer : Closeable {
     private val serverSocket = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1"))
     private val requests = LinkedBlockingQueue<RequestRecord>()
+    private val seenRequests = CopyOnWriteArrayList<String>()
     private val downloadRequests = LinkedBlockingQueue<RequestRecord>()
     private val worker = thread(start = true, isDaemon = true, name = "solin-test-server") {
         while (!serverSocket.isClosed) {
@@ -422,6 +429,19 @@ private class LocalOpenAiServer : Closeable {
 
     /** Waits for a real POST; connectivity probes (GET /v1/models etc.) stay recorded but are skipped. */
     fun awaitPost(): RequestRecord {
+        try {
+            return awaitPostOrThrow()
+        } catch (error: IllegalStateException) {
+            // Method and path only (no bodies): shows whether a probe arrived but no chat POST did.
+            emitRouteDiagnostics(
+                "comprehensive_awaitPost seen=${seenRequests.joinToString(",")}",
+                InstrumentationRegistry.getInstrumentation().targetContext,
+            )
+            throw error
+        }
+    }
+
+    private fun awaitPostOrThrow(): RequestRecord {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (true) {
             val remaining = deadline - System.nanoTime()
@@ -492,6 +512,16 @@ private class LocalOpenAiServer : Closeable {
                 return
             }
             requests.offer(RequestRecord(method, path, headers, body))
+            seenRequests += "$method ${path.substringBefore('?')}"
+            if (method == "GET" && path.substringBefore('?').endsWith("/models")) {
+                // Connectivity probe: a real model-list answer, not a chat stream.
+                client.getOutputStream().writeFixedResponse(
+                    contentType = "application/json",
+                    body = """{"object":"list","data":[{"id":"mock-model","object":"model"}]}"""
+                        .toByteArray(StandardCharsets.UTF_8),
+                )
+                return
+            }
             if (body.contains(REMOTE_TOOL_CALL_PROMPT)) {
                 client.getOutputStream().writeSseToolCall(
                     toolName = "web_search",

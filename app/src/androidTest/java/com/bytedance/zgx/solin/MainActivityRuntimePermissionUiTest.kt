@@ -24,7 +24,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import com.bytedance.zgx.solin.data.RemoteModelRepository
-import com.bytedance.zgx.solin.data.SolinDatabase
 import java.util.regex.Pattern
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -152,9 +151,11 @@ class MainActivityRuntimePermissionUiTest {
                 .assertIsDisplayed()
             composeRule.onNodeWithText("照片和图片权限：用于在你确认后最多扫描最近 3 张图片像素，并在本地提取第一条 OCR 文本。")
                 .assertIsDisplayed()
-            composeRule.onNodeWithText("确认后只读取本次动作需要的本机内容或权限范围内摘要。")
+            composeRule.onNodeWithText("只读本次需要的本机内容。")
                 .assertIsDisplayed()
-            composeRule.onNodeWithText("读取结果默认仅留在本机，不会自动发送给远程模型。")
+            // The second data-boundary row is collapsed behind the "更多" toggle.
+            composeRule.onNodeWithTag("action_data_boundary_toggle").performClick()
+            composeRule.onNodeWithText("读取结果只留在本机，不会自动发送给远程模型。")
                 .assertIsDisplayed()
             composeRule.assertTagAbsent("special_access_requirements")
 
@@ -183,9 +184,11 @@ class MainActivityRuntimePermissionUiTest {
                 .assertIsDisplayed()
             composeRule.onNodeWithText("照片和图片权限：用于读取最近图片或截图的最小元数据。")
                 .assertIsDisplayed()
-            composeRule.onNodeWithText("确认后只读取本次动作需要的本机内容或权限范围内摘要。")
+            composeRule.onNodeWithText("只读本次需要的本机内容。")
                 .assertIsDisplayed()
-            composeRule.onNodeWithText("读取结果默认仅留在本机，不会自动发送给远程模型。")
+            // The second data-boundary row is collapsed behind the "更多" toggle.
+            composeRule.onNodeWithTag("action_data_boundary_toggle").performClick()
+            composeRule.onNodeWithText("读取结果只留在本机，不会自动发送给远程模型。")
                 .assertIsDisplayed()
             composeRule.assertTagAbsent("special_access_requirements")
 
@@ -261,10 +264,7 @@ class MainActivityRuntimePermissionUiTest {
                     "revisionPresent=${config.profileRevision.isNotBlank()} model=${config.modelName} " +
                     "base=${config.baseUrl}"
                 // Live state of the resumed activity: what placement actually saw.
-                val liveText = resumedMainActivityUiState()?.let {
-                    "liveConnectivity=${it.remoteModelConfig.connectivityStatus} " +
-                        "activeRunPlacementReason=${it.activeRunPlacementReason}"
-                } ?: "live state unavailable"
+                val liveText = liveRemoteUiSummary()
                 "$persisted $liveText"
             }.getOrElse { "remote state failed: ${it.javaClass.simpleName}" }
             runCatching {
@@ -273,68 +273,13 @@ class MainActivityRuntimePermissionUiTest {
                     Bundle().apply {
                         putString("SolinUiDump-$tag", dump)
                         putString("SolinRemoteState-$tag", remoteState)
-                        putString("SolinPlacementState-$tag", placementState())
+                        putString("SolinPlacementState-$tag", placementStateSummary(targetContext))
                     }
                 )
             }
             throw error
         }
     }
-
-    private fun placementState(): String = runCatching {
-        val database = SolinDatabase.get(targetContext)
-        val sqlite = database.openHelper.writableDatabase
-        val dao = database.runPlacementBindingDao()
-        // Recent runs with their binding (if any); run ids stay out of the output.
-        val recent = sqlite.query(
-            """
-            SELECT r.id, r.state, b.placement, b.dispatchState, b.attempt, b.bootCount
-            FROM agent_runs r
-            LEFT JOIN agent_run_placement_bindings b ON b.runId = r.id
-            ORDER BY r.updatedAtMillis DESC LIMIT 5
-            """.trimIndent()
-        ).use { cursor ->
-            buildList {
-                while (cursor.moveToNext()) {
-                    add(
-                        Triple(
-                            cursor.getString(0),
-                            "runState=${cursor.getString(1)} binding=${!cursor.isNull(2)} " +
-                                "placement=${cursor.getStringOrNull(2)} dispatch=${cursor.getStringOrNull(3)} " +
-                                "attempt=${if (cursor.isNull(4)) null else cursor.getInt(4)} " +
-                                "boot=${if (cursor.isNull(5)) null else cursor.getLong(5)}",
-                            Unit
-                        )
-                    )
-                }
-            }
-        }
-        val runs = if (recent.isEmpty()) {
-            "no runs"
-        } else {
-            recent.mapIndexed { index, (runId, row, _) ->
-                val steps = dao.steps(runId).takeLast(8).joinToString(",") { it.type }
-                "run$index[$row steps=$steps]"
-            }.joinToString(" ")
-        }
-        val latestBinding = sqlite.query(
-            """
-            SELECT placement, dispatchState, attempt, bootCount
-            FROM agent_run_placement_bindings
-            ORDER BY boundAtElapsedRealtimeMillis DESC LIMIT 1
-            """.trimIndent()
-        ).use { cursor ->
-            if (cursor.moveToFirst()) {
-                "exists placement=${cursor.getString(0)} dispatch=${cursor.getString(1)} " +
-                    "attempt=${cursor.getInt(2)} boot=${cursor.getLong(3)}"
-            } else {
-                "none"
-            }
-        }
-        "$runs latestBinding=$latestBinding"
-    }.getOrElse { "placement state failed: ${it.javaClass.simpleName}" }
-
-    private fun android.database.Cursor.getStringOrNull(index: Int): String? = if (isNull(index)) null else getString(index)
 
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {

@@ -1,11 +1,13 @@
 package com.bytedance.zgx.solin
 
 import android.content.Context
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
@@ -21,6 +23,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import org.junit.Rule
 import org.junit.Test
@@ -71,7 +74,7 @@ class MainActivitySkillUiTest {
         composeRule.sendPrompt("总结剪贴板并分享")
 
         composeRule.waitForTag("action_confirm_button")
-        composeRule.onNodeWithText("读取剪贴板").assertIsDisplayed()
+        composeRule.onNodeWithTag("action_title_text").assertTextEquals("读取剪贴板")
         composeRule.onNodeWithText("将读取当前剪贴板文本，用于生成可分享摘要。").assertIsDisplayed()
         composeRule.assertTextAbsent("分享摘要")
 
@@ -199,10 +202,19 @@ class MainActivitySkillUiTest {
         timeoutMillis: Long = 5_000,
         substring: Boolean = false
     ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            texts.any { text ->
-                onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        try {
+            waitUntil(timeoutMillis = timeoutMillis) {
+                texts.any { text ->
+                    onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+                }
             }
+        } catch (error: Throwable) {
+            // Diagnostics only: is a confirmation card up, and what did the latest runs record?
+            val confirmPresent = runCatching {
+                onAllNodesWithTag("action_confirm_button").fetchSemanticsNodes().isNotEmpty()
+            }.getOrDefault(false)
+            emitRouteDiagnostics("skill_anyText actionConfirmPresent=$confirmPresent", targetContext)
+            throw error
         }
     }
 
@@ -236,13 +248,38 @@ class MainActivitySkillUiTest {
         timeoutMillis: Long = 5_000
     ) {
         val rowMatcher = hasTestTagPrefix(tagPrefix) and matcher
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodes(rowMatcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        try {
+            waitUntil(timeoutMillis = timeoutMillis) {
+                onAllNodes(rowMatcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (error: Throwable) {
+            emitTaggedRowTexts(tagPrefix)
+            throw error
         }
         onAllNodes(rowMatcher, useUnmergedTree = true)
             .onFirst()
             .performScrollTo()
             .assertIsDisplayed()
+    }
+
+    /** Diagnostics only: the actual text of every row with [tagPrefix], so missing steps are explicit. */
+    private fun ComposeTestRule.emitTaggedRowTexts(tagPrefix: String) {
+        runCatching {
+            fun SemanticsNode.texts(): List<String> =
+                (config.getOrNull(SemanticsProperties.Text)?.map { it.text } ?: emptyList()) +
+                    children.flatMap { it.texts() }
+            val rows = onAllNodes(hasTestTagPrefix(tagPrefix), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .joinToString(separator = "\n") { row ->
+                    // The "Run <id suffix>" header is dropped so no run id reaches the output.
+                    row.texts().filterNot { it.startsWith("Run ") }.joinToString(" | ")
+                }
+                .take(6_000)
+            InstrumentationRegistry.getInstrumentation().sendStatus(
+                0,
+                android.os.Bundle().apply { putString("SolinRows-$tagPrefix", rows) },
+            )
+        }
     }
 
     private fun hasTestTagPrefix(prefix: String): SemanticsMatcher = SemanticsMatcher("has test tag prefix $prefix") { node ->

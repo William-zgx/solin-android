@@ -193,7 +193,12 @@ class MainActivityAdaptiveUiTest {
 
                 composeRule.onNodeWithTag("composer_input").performTextInput("横屏确认远程发送")
                 composeRule.onNodeWithTag("composer_send_button").performClick()
-                composeRule.waitForTag("remote_send_disclosure_sheet")
+                try {
+                    composeRule.waitForTag("remote_send_disclosure_sheet")
+                } catch (error: Throwable) {
+                    emitRouteDiagnostics("landscape_disclosure", targetContext)
+                    throw error
+                }
                 composeRule.onNodeWithTag("remote_send_confirm_button")
                     .assertHasClickAction()
                 composeRule.onNodeWithTag("remote_send_dismiss_button")
