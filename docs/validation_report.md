@@ -18097,3 +18097,6 @@ git diff --check
   对 LazyColumn 执行 `performScrollToNode(hasText("记忆回答"))`，先让中部回复进入组合，再保留原断言。
   该动作针对恢复后自动滚到最新消息导致的视口外节点，不增加超时，Opus 5.5 clean，androidTest
   编译、Spotless、隐私扫描通过；完整 workflow 结果待下一次 run。
+- 关闭 drawer 的后续修复 `b0fe1cc5` + `2922ea3e`：不再等待始终组合的
+  `session_manager_title` 消失，而是在点击关闭按钮后断言其不再显示，保留真实关闭语义且
+  不新增轮询。Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过；完整结果待下一次 run。
