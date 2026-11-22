@@ -93,6 +93,16 @@ message, that new message can be sent. Current-screen screenshots are the one
 exception, and only under the explicit opt-in described in "Remote-Vision GUI
 Automation" below.
 
+The built-in `available_skills` advisory catalog stays in local prompts only;
+it is never added to an ordinary remote request. A remote projection returns
+the exact user input only when there are no memory hits or device context, the
+turn is not a translation, and every included contributor card is allowlisted
+(currently just that catalog). Any other contributor or prompt override returns
+null, so the existing remote-route guard still rejects the send instead of
+trusting a generic `RemoteEligible` label. The remote request and its summary-
+only audit use that projection; the local prompt and deterministic rule-first
+skill dispatch are unchanged.
+
 ### Cloud/Edge Router (opt-in)
 
 With the Trust-Center "云端路由" setting in Shadow or Active and the Auto

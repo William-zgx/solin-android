@@ -18077,3 +18077,14 @@ git diff --check
   图片权限数据边界按真实展开流程断言；剪贴板使用 `action_title_text`；`/v1/models` 返回真实
   模型列表 JSON。共享多 run/确认状态诊断并移除自由 statusText，Skill 行失败额外输出实际行文本，
   不放宽断言或改变确认行为。Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过。
+- Hosted [#185](https://github.com/William-zgx/solin-android/actions/runs/45014494366)（`a6e372f0`）：
+  Verify 成功，但 landscape/Comprehensive 变为 `PRIVACY_REQUIRES_LOCAL`。规范分析确认：
+  `AvailableSkillsContributor` 的公共 RemoteEligible 目录使 `ContextAssembler` 包装 prompt，
+  与 `remoteRouteBoundaryFailure` 的 `promptForModel == userInput` 检查冲突，普通 Remote chat
+  因而在 placement 前被拒绝。Skill 取消行 `007f0ff3` 已改为断言真实取消结果与末 4 步步骤。
+- F11 `cb08eb61` + `5e9b51dd`：新增只读 Remote 投影，仅在无记忆/设备上下文、非翻译且所有
+  贡献卡片都在 allowlist（当前仅 `available-skills`）时返回原始用户输入；其他 contributor 和
+  promptOverride 返回 null。Local prompt 保留目录，guard、记忆/设备拒绝和 summary-only audit
+  不变。普通 Remote 请求与审计不含目录，未放宽 RemoteEligible 信任。规范与质量评审通过，
+  完整 JVM **3078 tests / 0 failures / 0 errors / 15 skipped**，androidTest 编译、Spotless、
+  隐私扫描通过；owner privacy doc 已同步，hosted 结果待下一次 run。

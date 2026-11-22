@@ -592,6 +592,11 @@ Current status:
 - Remote mode filters local memory, shared-input generated text, device
   context, and `LocalOnly` history from automatic requests. Unknown stored
   message privacy restores as `LocalOnly`.
+- Plain Remote chat uses a raw-input projection only when there are no memory hits or device
+  context, the turn is not a translation, and every included contributor card is allowlisted
+  (currently only `available-skills`). Other contributors and prompt overrides return null, so the
+  unchanged boundary guard still rejects. The local prompt keeps the advisory skill catalog;
+  that catalog never reaches the remote model, and remote audit remains summary-only.
 - Resource monitoring samples PSS/heap, available RAM, CPU, and thermal state
   for UI pressure only; it does not read user content.
 - Pending areas remain intentionally outside this module: broad screen semantic
