@@ -31,7 +31,7 @@ private val correctableGuardRejections = mapOf(
     "unsupported_submit_search" to "当前屏幕没有可提交搜索的证据",
     "unsupported_targetless_typing" to "输入文字必须指定输入框 target",
     "unsupported_observed_target" to "target 不在当前屏幕候选中",
-    "unsupported_repeat_target" to "上一步对同一 target 已失败",
+    "unsupported_repeat_target" to "上一步对同一 target 已失败"
 )
 
 internal fun String.isCorrectableGuardRejection(): Boolean = this in correctableGuardRejections
@@ -40,7 +40,7 @@ internal fun AgentObservationReplanContext.correctiveObservationModelPrompt(
     toolRegistry: ToolRegistry,
     rejectedDraft: ActionDraft,
     rejectionReason: String,
-    parseCache: ObservationJsonParseCache? = null,
+    parseCache: ObservationJsonParseCache? = null
 ): String {
     val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
         .userIntentPromptText()

@@ -18,7 +18,7 @@ private fun String.isUserTextPromptLine(): Boolean = userTextPromptLabels.any { 
  * byte-identical; a final recovery check re-inserts any that went missing.
  */
 internal fun String.compressForObservationModelContext(
-    maxChars: Int = MAX_OBSERVATION_MODEL_PROMPT_CHARS,
+    maxChars: Int = MAX_OBSERVATION_MODEL_PROMPT_CHARS
 ): String {
     val normalized = lineSequence()
         .map { line -> line.trimEnd() }
@@ -34,28 +34,28 @@ internal fun String.compressForObservationModelContext(
                     label = "LocalOnly observation evidence:",
                     valueBudget = valueBudgets.localEvidence,
                     protectedPatterns = localEvidenceProtectedPromptPatterns,
-                    maxListEntries = 4,
+                    maxListEntries = 4
                 )
 
             line.startsWith("Observation diagnostics:") ->
                 line.compressLabeledPromptValue(
                     label = "Observation diagnostics:",
                     valueBudget = valueBudgets.diagnostics,
-                    protectedPatterns = diagnosticProtectedPromptPatterns,
+                    protectedPatterns = diagnosticProtectedPromptPatterns
                 )
 
             line.startsWith("Prior request details:") ->
                 line.compressLabeledPromptValue(
                     label = "Prior request details:",
                     valueBudget = valueBudgets.priorRequests,
-                    protectedPatterns = priorRequestProtectedPromptPatterns,
+                    protectedPatterns = priorRequestProtectedPromptPatterns
                 )
 
             line.startsWith("Observation summary:") ->
                 line.compressLabeledPromptValue(
                     label = "Observation summary:",
                     valueBudget = valueBudgets.summary,
-                    protectedPatterns = emptyList(),
+                    protectedPatterns = emptyList()
                 )
 
             else -> line
@@ -99,16 +99,15 @@ private data class ObservationPromptValueBudgets(
     val localEvidence: Int,
     val diagnostics: Int,
     val priorRequests: Int,
-    val summary: Int,
+    val summary: Int
 ) {
     companion object {
-        fun forPrompt(maxChars: Int): ObservationPromptValueBudgets =
-            ObservationPromptValueBudgets(
-                localEvidence = (maxChars * 0.44).toInt().coerceIn(720, 1_600),
-                diagnostics = (maxChars * 0.10).toInt().coerceIn(120, 360),
-                priorRequests = (maxChars * 0.08).toInt().coerceIn(96, 260),
-                summary = (maxChars * 0.06).toInt().coerceIn(80, 180),
-            )
+        fun forPrompt(maxChars: Int): ObservationPromptValueBudgets = ObservationPromptValueBudgets(
+            localEvidence = (maxChars * 0.44).toInt().coerceIn(720, 1_600),
+            diagnostics = (maxChars * 0.10).toInt().coerceIn(120, 360),
+            priorRequests = (maxChars * 0.08).toInt().coerceIn(96, 260),
+            summary = (maxChars * 0.06).toInt().coerceIn(80, 180)
+        )
     }
 }
 
@@ -118,7 +117,7 @@ private val localEvidenceProtectedPromptPatterns = listOf(
     Regex("""addedText=[^;|]+"""),
     Regex("""addedActionable=[^;|]+"""),
     Regex("""afterScreenObservationJson\(id=[^)]+\)"""),
-    Regex("""screenObservationJson\(id=[^)]+\)"""),
+    Regex("""screenObservationJson\(id=[^)]+\)""")
 )
 
 private val diagnosticProtectedPromptPatterns = listOf(
@@ -129,19 +128,19 @@ private val diagnosticProtectedPromptPatterns = listOf(
     Regex("""uiActionOutcomeReason=[^;|]+"""),
     Regex("""appSearchProgressStage=[^;|]+"""),
     Regex("""target=[^;|]+"""),
-    Regex("""errorCode=[^;|]+"""),
+    Regex("""errorCode=[^;|]+""")
 )
 
 private val priorRequestProtectedPromptPatterns = listOf(
     Regex("""ui_[a-z_]+\{[^}]*target=[^}]*\}(\[[^\]]*\])?"""),
-    Regex("""observe_current_screen\{[^}]*\}(\[[^\]]*\])?"""),
+    Regex("""observe_current_screen\{[^}]*\}(\[[^\]]*\])?""")
 )
 
 private fun String.compressLabeledPromptValue(
     label: String,
     valueBudget: Int,
     protectedPatterns: List<Regex>,
-    maxListEntries: Int = 3,
+    maxListEntries: Int = 3
 ): String {
     val value = removePrefix(label).trim()
     if (value.length <= valueBudget) return this
@@ -159,7 +158,7 @@ private fun String.compressLabeledPromptValue(
     val compressibleValue = listOfNotNull(
         shortlistTargetSummary,
         targetEvidenceSummary,
-        compactValueWithoutDuplicatedEvidence,
+        compactValueWithoutDuplicatedEvidence
     )
         .joinToString(separator = " ")
     val queryAwareProtectedPatterns = compressibleValue.targetShortlistTargetValuePatterns() + protectedPatterns
@@ -168,24 +167,21 @@ private fun String.compressLabeledPromptValue(
 
 private fun String.compressPromptLists(
     listName: String,
-    maxEntries: Int,
-): String =
-    replace(Regex("""$listName=\[([^]]*)]""")) { match ->
-        val entries = match.groupValues[1]
-            .split("; ")
-            .filter { entry -> entry.isNotBlank() }
-        if (entries.size <= maxEntries) {
-            match.value
-        } else {
-            val kept = entries.take(maxEntries).joinToString(separator = "; ")
-            "$listName=[$kept; ...+${entries.size - maxEntries}]"
-        }
+    maxEntries: Int
+): String = replace(Regex("""$listName=\[([^]]*)]""")) { match ->
+    val entries = match.groupValues[1]
+        .split("; ")
+        .filter { entry -> entry.isNotBlank() }
+    if (entries.size <= maxEntries) {
+        match.value
+    } else {
+        val kept = entries.take(maxEntries).joinToString(separator = "; ")
+        "$listName=[$kept; ...+${entries.size - maxEntries}]"
     }
-
-private fun String.targetShortlistTargetValuePatterns(): List<Regex> {
-    return targetShortlistTargetValues()
-        .map { targetValue -> Regex("""target=${Regex.escape(targetValue)}""") }
 }
+
+private fun String.targetShortlistTargetValuePatterns(): List<Regex> = targetShortlistTargetValues()
+    .map { targetValue -> Regex("""target=${Regex.escape(targetValue)}""") }
 
 internal fun String.targetShortlistTargetSummary(): String? {
     val values = targetShortlistTargetValues()
@@ -209,23 +205,20 @@ internal fun String.targetShortlistTargetValues(): List<String> {
         .distinct()
 }
 
-internal fun String.targetShortlistSummariesForPrompt(): String =
-    distinctPromptMatches(Regex("""targetShortlist\([^)]*\)"""))
+internal fun String.targetShortlistSummariesForPrompt(): String = distinctPromptMatches(Regex("""targetShortlist\([^)]*\)"""))
 
-internal fun String.targetEvidenceSummariesForPrompt(): String =
-    distinctPromptMatches(Regex("""targetEvidence\([^)]*\)"""))
+internal fun String.targetEvidenceSummariesForPrompt(): String = distinctPromptMatches(Regex("""targetEvidence\([^)]*\)"""))
 
-private fun String.distinctPromptMatches(pattern: Regex): String =
-    pattern
-        .findAll(this)
-        .map { match -> match.value }
-        .distinct()
-        .joinToString(separator = " ")
-        .ifBlank { "none" }
+private fun String.distinctPromptMatches(pattern: Regex): String = pattern
+    .findAll(this)
+    .map { match -> match.value }
+    .distinct()
+    .joinToString(separator = " ")
+    .ifBlank { "none" }
 
 private fun String.extractivePromptCompress(
     maxChars: Int,
-    protectedPatterns: List<Regex>,
+    protectedPatterns: List<Regex>
 ): String {
     if (length <= maxChars) return this
     val protectedSnippets = protectedPatterns
@@ -269,7 +262,7 @@ private fun List<String>.prioritizedForObservationPrompt(): List<String> {
         "Observation status:",
         "App search progress:",
         "Observation diagnostics:",
-        "LocalOnly observation evidence:",
+        "LocalOnly observation evidence:"
     )
     return filter { line ->
         line.isBlank() || line.isUserTextPromptLine() || requiredPrefixes.any { prefix -> line.startsWith(prefix) }
@@ -290,7 +283,7 @@ private fun List<String>.joinPrioritizedObservationPrompt(maxChars: Int): String
     val localEvidenceText = localEvidenceLine
         ?.extractivePromptCompress(
             localEvidenceBudget,
-            localEvidenceLine.targetShortlistTargetValuePatterns() + localEvidenceProtectedPromptPatterns,
+            localEvidenceLine.targetShortlistTargetValuePatterns() + localEvidenceProtectedPromptPatterns
         )
     // Base lines get whatever the evidence/diagnostics lines did not actually use (never less than
     // the old fixed split), so short diagnostics such as "none" stop starving the rule lines.
@@ -359,7 +352,7 @@ private fun List<String>.joinPromptLinesWithinBudget(maxChars: Int): String {
         val candidate = if (line.length > 180 && !line.startsWith("Allowed tools:")) {
             line.extractivePromptCompress(
                 maxChars = 180,
-                protectedPatterns = listOf(Regex("""targetShortlist\([^)]*\)""")),
+                protectedPatterns = listOf(Regex("""targetShortlist\([^)]*\)"""))
             )
         } else {
             line
@@ -390,7 +383,7 @@ private fun List<String>.prioritizedBaseObservationLines(): List<String> {
         "For an app search request",
         "For ui_scroll",
         "Do not output ordinary text",
-        RUN_NOTES_PROMPT_LABEL,
+        RUN_NOTES_PROMPT_LABEL
     )
     return withIndex()
         .sortedWith(
@@ -398,7 +391,7 @@ private fun List<String>.prioritizedBaseObservationLines(): List<String> {
                 priorityPrefixes.indexOfFirst { prefix -> indexed.value.startsWith(prefix) }
                     .takeIf { index -> index >= 0 }
                     ?: Int.MAX_VALUE
-            }.thenBy { indexed -> indexed.index },
+            }.thenBy { indexed -> indexed.index }
         )
         .map { indexed -> indexed.value }
 }

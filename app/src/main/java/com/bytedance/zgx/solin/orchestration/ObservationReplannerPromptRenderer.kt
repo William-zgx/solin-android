@@ -23,6 +23,7 @@ private const val MAX_LOCAL_TARGET_CANDIDATES = 8
 private const val MAX_LOCAL_TARGET_LABELS_PER_MODE = 4
 private const val MAX_LOCAL_EVIDENCE_CHARS = 2_000
 private const val MAX_LOCAL_DIAGNOSTICS_CHARS = 800
+
 /** Longer snapshot-scoped refs fall back to the bare id so evidence lines stay bounded. */
 private const val MAX_SCOPED_TARGET_CHARS = 120
 private const val MAX_MINIMAL_OBSERVATION_PROMPT_CHARS = 1_200
@@ -99,8 +100,7 @@ private data class LocalTargetCandidatePrompt(
 private fun String.isScopedMode(): Boolean = this == "tap" || this == "scroll"
 
 /** Scoped only when no mode of the candidate needs the bare id, so `target=` never disagrees with the shortlist. */
-private fun displayTargetFor(modeTags: List<String>, targetValue: String, scopedRef: String?): String =
-    if ("type" in modeTags || "ocrFallback" in modeTags) targetValue else scopedRef ?: targetValue
+private fun displayTargetFor(modeTags: List<String>, targetValue: String, scopedRef: String?): String = if ("type" in modeTags || "ocrFallback" in modeTags) targetValue else scopedRef ?: targetValue
 
 private data class ResolverTargetRank(
     val mode: String,
@@ -772,12 +772,11 @@ private fun List<UiTargetKind>.prioritizing(kind: UiTargetKind?): List<UiTargetK
     listOf(kind) + filterNot { candidate -> candidate == kind }
 }
 
-private fun UiTargetEvidenceCandidate.modeTargetValue(mode: String, nodeValue: String, observationId: String): String =
-    if (source.schemaValue == "accessibility" && mode.isScopedMode()) {
-        scopedNodeTarget(observationId, nodeValue) ?: nodeValue
-    } else {
-        nodeValue
-    }
+private fun UiTargetEvidenceCandidate.modeTargetValue(mode: String, nodeValue: String, observationId: String): String = if (source.schemaValue == "accessibility" && mode.isScopedMode()) {
+    scopedNodeTarget(observationId, nodeValue) ?: nodeValue
+} else {
+    nodeValue
+}
 
 private fun UiTargetEvidenceCandidate.toResolverTargetRanks(
     observationId: String,

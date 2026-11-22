@@ -26,22 +26,25 @@ class ModelObservationReplannerScopedTargetAcceptanceTest : ObservationReplanner
         elements = arrayOf(
             accessibilityElement(tapNode, "搜索", "button", 10, 20, 110, 70, clickable = true),
             accessibilityElement(scrollNode, "列表", "list", 10, 100, 410, 800, scrollable = true),
-            accessibilityElement(dangerNode, "立即支付", "button", 10, 900, 410, 960, clickable = true),
-        ),
+            accessibilityElement(dangerNode, "立即支付", "button", 10, 900, 410, 960, clickable = true)
+        )
     )
 
     private fun plan(tool: String, target: String, vararg data: Pair<String, String>): Pair<AgentObservationReplan?, String?> {
         val runtime = RecordingModelActionRuntime(tool, mapOf("target" to target))
         val replanner = ModelObservationReplanner(
             actionPlanningRuntime = runtime,
-            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+            actionModelPathProvider = { "/tmp/action-model.litertlm" }
         )
         val previous = ToolRequest(id = "observe-1", toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
         val replan = replanner.planNext(
             AgentObservationReplanContext(
                 run = AgentRun(
-                    id = "run", input = "看当前屏幕继续操作", state = AgentRunState.Observing,
-                    createdAtMillis = 1L, updatedAtMillis = 1L,
+                    id = "run",
+                    input = "看当前屏幕继续操作",
+                    state = AgentRunState.Observing,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L
                 ),
                 previousRequest = previous,
                 observedResult = ToolResult(
@@ -51,11 +54,11 @@ class ModelObservationReplannerScopedTargetAcceptanceTest : ObservationReplanner
                     data = mapOf(
                         "toolName" to previous.toolName,
                         "privacy" to "LocalOnly",
-                        "requiresLocalModel" to true.toString(),
-                    ) + data,
+                        "requiresLocalModel" to true.toString()
+                    ) + data
                 ),
-                priorRequests = listOf(previous),
-            ),
+                priorRequests = listOf(previous)
+            )
         )
         return replan to replanner.lastDiagnosticSnapshot()?.reason
     }
@@ -63,9 +66,10 @@ class ModelObservationReplannerScopedTargetAcceptanceTest : ObservationReplanner
     @Test
     fun scopedTapOnLatestAfterObservationIsAcceptedAndKeepsScopedTarget() {
         val (replan, reason) = plan(
-            MobileActionFunctions.UI_TAP, "$afterId/$tapNode",
+            MobileActionFunctions.UI_TAP,
+            "$afterId/$tapNode",
             "beforeScreenObservationJson" to observation(beforeId),
-            "afterScreenObservationJson" to observation(afterId),
+            "afterScreenObservationJson" to observation(afterId)
         )
         assertNotNull(reason, replan)
         assertEquals("$afterId/$tapNode", replan?.request?.arguments?.get("target"))
@@ -87,7 +91,7 @@ class ModelObservationReplannerScopedTargetAcceptanceTest : ObservationReplanner
     fun beforeAndForeignSnapshotRefsAreRejected() {
         val data = arrayOf(
             "beforeScreenObservationJson" to observation(beforeId),
-            "afterScreenObservationJson" to observation(afterId),
+            "afterScreenObservationJson" to observation(afterId)
         )
         val before = plan(MobileActionFunctions.UI_TAP, "$beforeId/$tapNode", *data)
         assertNull(before.first)
@@ -128,23 +132,30 @@ class ModelObservationReplannerScopedTargetAcceptanceTest : ObservationReplanner
     fun correctivePromptShowsFullBareNodeIdNotTruncatedScopedRef() {
         val context = AgentObservationReplanContext(
             run = AgentRun(
-                id = "run", input = "看当前屏幕继续操作", state = AgentRunState.Observing,
-                createdAtMillis = 1L, updatedAtMillis = 1L,
+                id = "run",
+                input = "看当前屏幕继续操作",
+                state = AgentRunState.Observing,
+                createdAtMillis = 1L,
+                updatedAtMillis = 1L
             ),
             previousRequest = ToolRequest(id = "o", toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN),
             observedResult = ToolResult(
-                requestId = "o", status = ToolStatus.Succeeded, summary = "ok",
-                data = mapOf("privacy" to "LocalOnly", "afterScreenObservationJson" to observation(afterId)),
+                requestId = "o",
+                status = ToolStatus.Succeeded,
+                summary = "ok",
+                data = mapOf("privacy" to "LocalOnly", "afterScreenObservationJson" to observation(afterId))
             ),
-            priorRequests = emptyList(),
+            priorRequests = emptyList()
         )
         val prompt = context.correctiveObservationModelPrompt(
             ToolRegistry(),
             ActionDraft(
-                functionName = MobileActionFunctions.UI_TAP, title = "t", summary = "s",
-                parameters = mapOf("target" to "bad"),
+                functionName = MobileActionFunctions.UI_TAP,
+                title = "t",
+                summary = "s",
+                parameters = mapOf("target" to "bad")
             ),
-            "unsupported_observed_target",
+            "unsupported_observed_target"
         )
         val list = prompt.lines().single { it.startsWith("可用 target") }
         assertTrue(list, list.contains(tapNode))

@@ -15,19 +15,18 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
         requestId = "r1",
         status = ToolStatus.Succeeded,
         summary = "ok",
-        data = mapOf("privacy" to "LocalOnly") + data,
+        data = mapOf("privacy" to "LocalOnly") + data
     )
 
     private fun searchEntryObservation(id: String = obsId, nodeId: String = "n3_ab12cd") = screenObservationFixtureJson(
         observationId = id,
         elements = arrayOf(
             accessibilityElement(nodeId, "搜索", "button", 10, 20, 110, 70, clickable = true),
-            ocrElement("ocr:block:0", "继续", left = 10, top = 100, right = 110, bottom = 170),
-        ),
+            ocrElement("ocr:block:0", "继续", left = 10, top = 100, right = 110, bottom = 170)
+        )
     )
 
-    private fun shortlist(prompt: String): String =
-        Regex("""targetShortlist\([^)]*\)""").find(prompt)?.value.orEmpty()
+    private fun shortlist(prompt: String): String = Regex("""targetShortlist\([^)]*\)""").find(prompt)?.value.orEmpty()
 
     @Test
     fun observeEmitsScopedRefForAccessibilityNodeAndLeavesOcrBare() {
@@ -44,7 +43,7 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
     @Test
     fun afterObservationEmitsScopedRefUnderItsOwnObservationId() {
         val prompt = resultWith(
-            "afterScreenObservationJson" to searchEntryObservation(id = "screen_1700000000999_ffee0011", nodeId = "n7_9a8b7c"),
+            "afterScreenObservationJson" to searchEntryObservation(id = "screen_1700000000999_ffee0011", nodeId = "n7_9a8b7c")
         ).localObservationEvidencePrompt("tap")
         assertTrue(prompt, shortlist(prompt).contains("tap=screen_1700000000999_ffee0011/n7_9a8b7c"))
     }
@@ -55,8 +54,8 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
             observationId = obsId,
             elements = arrayOf(
                 accessibilityElement("n5_cafe01", "", "button", 10, 20, 210, 120, clickable = true),
-                ocrElement("ocr:block:0", "搜索", left = 20, top = 30, right = 200, bottom = 110),
-            ),
+                ocrElement("ocr:block:0", "搜索", left = 20, top = 30, right = 200, bottom = 110)
+            )
         )
         val prompt = resultWith("screenObservationJson" to json).localObservationEvidencePrompt("tap")
         assertTrue(prompt, prompt.contains("搜索{target=$obsId/n5_cafe01,modeTags=tap,source=accessibility+ocr"))
@@ -76,11 +75,11 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
     fun nonNodeShapedAccessibilityIdsAndOcrOnlyStayUnchanged() {
         val legacy = screenObservationFixtureJson(
             observationId = obsId,
-            elements = arrayOf(accessibilityElement("continue-button", "继续", "button", 10, 20, 110, 70, clickable = true)),
+            elements = arrayOf(accessibilityElement("continue-button", "继续", "button", 10, 20, 110, 70, clickable = true))
         )
         assertTrue(
             resultWith("screenObservationJson" to legacy).localObservationEvidencePrompt("tap")
-                .contains("targetShortlist(tap=continue-button)"),
+                .contains("targetShortlist(tap=continue-button)")
         )
         val ocrOnly = ocrOnlyObservationJson(obsId, listOf("继续"))
         val prompt = resultWith("screenObservationJson" to ocrOnly).localObservationEvidencePrompt("tap")
@@ -106,8 +105,8 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
             observationId = obsId,
             elements = arrayOf(
                 accessibilityElement("n1_aaaa01", "搜索", "button", 10, 900, 110, 960, clickable = true),
-                accessibilityElement("n2_bbbb02", "搜索", "input", 10, 20, 410, 80, clickable = true, editable = true),
-            ),
+                accessibilityElement("n2_bbbb02", "搜索", "input", 10, 20, 410, 80, clickable = true, editable = true)
+            )
         )
         val prompt = resultWith("screenObservationJson" to json).localObservationEvidencePrompt("搜索")
         val tap = shortlist(prompt).substringAfter("tap=").substringBefore(",").substringBefore(")")
@@ -136,12 +135,15 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
         val request = com.bytedance.zgx.solin.tool.ToolRequest(id = "o1", toolName = "observe_current_screen")
         return AgentObservationReplanContext(
             run = AgentRun(
-                id = "run", input = "在淘宝搜索牛奶", state = AgentRunState.Observing,
-                createdAtMillis = 1L, updatedAtMillis = 1L,
+                id = "run",
+                input = "在淘宝搜索牛奶",
+                state = AgentRunState.Observing,
+                createdAtMillis = 1L,
+                updatedAtMillis = 1L
             ),
             previousRequest = request,
             observedResult = resultWith(*data),
-            priorRequests = listOf(request),
+            priorRequests = listOf(request)
         )
     }
 
@@ -151,8 +153,8 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
             observationId = obsId,
             elements = arrayOf(
                 accessibilityElement("n2_bbbb02", "搜索", "input", 10, 20, 410, 80, clickable = true, editable = true),
-                accessibilityElement("n4_dddd04", "列表", "list", 10, 100, 410, 800, scrollable = true),
-            ),
+                accessibilityElement("n4_dddd04", "列表", "list", 10, 100, 410, 800, scrollable = true)
+            )
         )
         val list = shortlist(resultWith("screenObservationJson" to json).localObservationEvidencePrompt("搜索"))
         assertTrue(list, list.contains("type=n2_bbbb02"))
@@ -170,8 +172,8 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
             observationId = obsId,
             elements = arrayOf(
                 accessibilityElement("n5_cafe01", "", "input", 10, 20, 210, 120, clickable = true, editable = true),
-                ocrElement("ocr:block:0", "搜索", left = 20, top = 30, right = 200, bottom = 110),
-            ),
+                ocrElement("ocr:block:0", "搜索", left = 20, top = 30, right = 200, bottom = 110)
+            )
         )
         val list = shortlist(resultWith("screenObservationJson" to json).localObservationEvidencePrompt("搜索"))
         assertTrue(list, list.contains("type=n5_cafe01"))
@@ -202,7 +204,7 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
             accessibilityElement("n${i}_aa${i}bb${i}cc_3f9a1c7e", "条目$i", "button", 10, 20 + i * 60, 110, 70 + i * 60, clickable = true)
         } + listOf(
             accessibilityElement(tapId, "搜索", "button", 10, 900, 110, 960, clickable = true),
-            accessibilityElement(scrollId, "列表", "list", 10, 100, 410, 800, scrollable = true),
+            accessibilityElement(scrollId, "列表", "list", 10, 100, 410, 800, scrollable = true)
         )
         val json = screenObservationFixtureJson(snapshot, elements.toTypedArray())
         val ctx = contextFor("afterScreenObservationJson" to json)

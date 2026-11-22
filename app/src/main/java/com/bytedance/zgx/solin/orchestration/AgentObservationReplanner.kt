@@ -7,13 +7,13 @@ import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningResult
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.skill.VerifiedPhoneRoutes
 import com.bytedance.zgx.solin.tool.PhoneCompositeOperations
 import com.bytedance.zgx.solin.tool.ToolErrorCode
+import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
-import com.bytedance.zgx.solin.tool.ToolRegistry
-import com.bytedance.zgx.solin.skill.VerifiedPhoneRoutes
 import java.util.concurrent.atomic.AtomicReference
 
 // Replan budgets live in SolinConstants.AgentLoop so the worst-case cost of one run (tool steps x
@@ -39,6 +39,7 @@ private const val SEQUENTIAL_REPLAN_REQUEST_REASON = "Explicit sequential action
  */
 internal const val MODEL_OBSERVATION_REPLAN_REQUEST_REASON = "Observation model step planned."
 private const val MODEL_OBSERVATION_REPLAN_FALLBACK_REASON = "observation model replan"
+
 /** Fixed retention window for [ModelObservationReplanner]'s diagnostics ring buffer. */
 private const val MAX_RETAINED_DIAGNOSTICS = 32
 
@@ -54,7 +55,7 @@ internal val MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES = setOf(
     MobileActionFunctions.UI_LONG_PRESS,
     MobileActionFunctions.UI_PRESS_KEY,
     MobileActionFunctions.UI_WAIT,
-    MobileActionFunctions.UI_PRESS_BACK,
+    MobileActionFunctions.UI_PRESS_BACK
 )
 
 /** Registered local composite capabilities; prompt exposure additionally requires matching intent/evidence. */
@@ -75,16 +76,14 @@ private val FOREGROUND_GATED_UI_ACTION_TOOL_NAMES = setOf(
     MobileActionFunctions.UI_SET_WHEEL,
     MobileActionFunctions.UI_SWIPE,
     MobileActionFunctions.UI_LONG_PRESS,
-    MobileActionFunctions.UI_PRESS_KEY,
+    MobileActionFunctions.UI_PRESS_KEY
 )
 
-private fun String.isForegroundGatedUiAction(): Boolean =
-    this in FOREGROUND_GATED_UI_ACTION_TOOL_NAMES
+private fun String.isForegroundGatedUiAction(): Boolean = this in FOREGROUND_GATED_UI_ACTION_TOOL_NAMES
 
 /** The expected-foreground-package this request carries, using the same keys the executor reads. */
-private fun ToolRequest.inheritableExpectedForegroundPackage(): String? =
-    arguments["expectedPackageName"]?.trim()?.takeIf { it.isNotBlank() }
-        ?: arguments["targetPackageName"]?.trim()?.takeIf { it.isNotBlank() }
+private fun ToolRequest.inheritableExpectedForegroundPackage(): String? = arguments["expectedPackageName"]?.trim()?.takeIf { it.isNotBlank() }
+    ?: arguments["targetPackageName"]?.trim()?.takeIf { it.isNotBlank() }
 
 private val defaultSequentialToolRegistry = ToolRegistry()
 
@@ -138,7 +137,7 @@ data class AgentObservationReplanContext(
      * [LocalOnlyNotesObservationReplanner]s — every other replanner, including remote-vision, gets
      * this stripped via [scopedForReplanner]. Defaults empty (fail closed).
      */
-    val localOnlyScratchpadNotes: List<String> = emptyList(),
+    val localOnlyScratchpadNotes: List<String> = emptyList()
 )
 
 data class AgentObservationReplan(
@@ -146,7 +145,7 @@ data class AgentObservationReplan(
     val draft: ActionDraft,
     val plannedByModel: Boolean = false,
     val fallbackReason: String? = null,
-    val input: String? = null,
+    val input: String? = null
 ) {
     init {
         require(request.toolName == draft.functionName) {
@@ -166,7 +165,7 @@ object NoOpAgentObservationReplanner : AgentObservationReplanner {
  */
 class VerifiedPhoneRouteReplanner(
     private val delegate: AgentObservationReplanner,
-    private val routes: VerifiedPhoneRoutes = VerifiedPhoneRoutes(),
+    private val routes: VerifiedPhoneRoutes = VerifiedPhoneRoutes()
 ) : LocalOnlyNotesObservationReplanner {
     fun observe(run: AgentRun, request: ToolRequest, result: ToolResult) {
         routes.observe(run.id, run.sessionId, run.input, request, result)
@@ -189,9 +188,9 @@ class VerifiedPhoneRouteReplanner(
                         title = "复用已验证的搜索步骤",
                         summary = "逐步核对当前页面；执行前仍检查权限与危险控件",
                         parameters = request.arguments,
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     ),
-                    fallbackReason = "verified_local_search_route",
+                    fallbackReason = "verified_local_search_route"
                 )
             }
         }
@@ -200,19 +199,18 @@ class VerifiedPhoneRouteReplanner(
 }
 
 class CompositeAgentObservationReplanner(
-    vararg delegates: AgentObservationReplanner,
+    vararg delegates: AgentObservationReplanner
 ) : AgentObservationReplanner {
     private val delegates = delegates.toList()
 
-    override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? =
-        delegates.firstNotNullOfOrNull { delegate -> delegate.planNext(context.scopedForReplanner(delegate)) }
+    override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? = delegates.firstNotNullOfOrNull { delegate -> delegate.planNext(context.scopedForReplanner(delegate)) }
 }
 
 class ModelObservationReplanner(
     private val actionPlanningRuntime: ActionPlanningRuntime,
     private val actionModelPathProvider: () -> String? = { null },
     private val toolRegistry: ToolRegistry = ToolRegistry(),
-    maxModelReplans: Int = DEFAULT_MAX_MODEL_OBSERVATION_REPLANS,
+    maxModelReplans: Int = DEFAULT_MAX_MODEL_OBSERVATION_REPLANS
 ) : LocalOnlyNotesObservationReplanner {
     private val modelReplanLimit = maxModelReplans.coerceAtLeast(0)
     private val lastDiagnostic = AtomicReference<ModelObservationReplanDiagnostic?>(null)
@@ -234,8 +232,7 @@ class ModelObservationReplanner(
     fun lastDiagnosticSnapshot(): ModelObservationReplanDiagnostic? = lastDiagnostic.get()
 
     /** Oldest-first copy of the retained diagnostics (at most [MAX_RETAINED_DIAGNOSTICS]). */
-    fun diagnosticSnapshots(): List<ModelObservationReplanDiagnostic> =
-        synchronized(diagnosticsLock) { diagnostics.toList() }
+    fun diagnosticSnapshots(): List<ModelObservationReplanDiagnostic> = synchronized(diagnosticsLock) { diagnostics.toList() }
 
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? {
         if (!context.observedResult.isModelReplannableObservation()) {
@@ -276,7 +273,7 @@ class ModelObservationReplanner(
                 toolRegistry = toolRegistry,
                 rejectedDraft = rejectedDraft,
                 rejectionReason = reason,
-                parseCache = parseCache,
+                parseCache = parseCache
             )
             secondPromptIndex = CORRECTIVE_OBSERVATION_PROMPT_INDEX
         } else {
@@ -292,12 +289,12 @@ class ModelObservationReplanner(
         actionModelPath: String,
         prompt: String,
         promptIndex: Int,
-        parseCache: ObservationJsonParseCache,
+        parseCache: ObservationJsonParseCache
     ): ModelObservationReplanAttempt {
         val planningResult = actionPlanningRuntime.plan(
             input = prompt,
             actionModelPath = actionModelPath,
-            toolSpecs = context.observationReplanToolSpecs(toolRegistry),
+            toolSpecs = context.observationReplanToolSpecs(toolRegistry)
         )
         val acceptance = context.acceptModelObservationReplan(planningResult, parseCache)
         recordDiagnostic(
@@ -307,8 +304,8 @@ class ModelObservationReplanner(
                     "accepted"
                 } else {
                     acceptance.rejectionReason ?: "model_replan_not_accepted"
-                },
-            ),
+                }
+            )
         )
         return ModelObservationReplanAttempt(
             replan = acceptance.replan,
@@ -316,7 +313,7 @@ class ModelObservationReplanner(
                 planningResult.plan.kind == ActionPlanKind.Draft &&
                 planningResult.plan.draft != null,
             rejectedDraft = acceptance.rejectedDraft,
-            rejectionReason = acceptance.rejectionReason,
+            rejectionReason = acceptance.rejectionReason
         )
     }
 
@@ -334,18 +331,18 @@ class ModelObservationReplanner(
 
     private fun AgentObservationReplanContext.acceptModelObservationReplan(
         planningResult: ActionPlanningResult,
-        parseCache: ObservationJsonParseCache,
+        parseCache: ObservationJsonParseCache
     ): ModelObservationReplanAcceptance {
         if (!planningResult.usedModel) {
             return ModelObservationReplanAcceptance(
                 rejectionReason = planningResult.modelFailureReason
                     ?: planningResult.fallbackReason
-                    ?: "model_not_used",
+                    ?: "model_not_used"
             )
         }
         if (planningResult.plan.kind != ActionPlanKind.Draft) {
             return ModelObservationReplanAcceptance(
-                rejectionReason = "model_plan_${planningResult.plan.kind.name.lowercase()}",
+                rejectionReason = "model_plan_${planningResult.plan.kind.name.lowercase()}"
             )
         }
         val draft = planningResult.plan.draft
@@ -392,12 +389,12 @@ class ModelObservationReplanner(
                 request = ToolRequest(
                     toolName = draft.functionName,
                     arguments = replanArguments,
-                    reason = MODEL_OBSERVATION_REPLAN_REQUEST_REASON,
+                    reason = MODEL_OBSERVATION_REPLAN_REQUEST_REASON
                 ),
                 draft = draft,
                 plannedByModel = true,
-                fallbackReason = MODEL_OBSERVATION_REPLAN_FALLBACK_REASON,
-            ),
+                fallbackReason = MODEL_OBSERVATION_REPLAN_FALLBACK_REASON
+            )
         )
     }
 }
@@ -410,14 +407,13 @@ data class ModelObservationReplanDiagnostic(
     val modelAttempted: Boolean = false,
     val modelPlanKind: String? = null,
     val modelFailureReason: String? = null,
-    val modelOutputPreview: String? = null,
+    val modelOutputPreview: String? = null
 ) {
     companion object {
-        fun notAttempted(reason: String): ModelObservationReplanDiagnostic =
-            ModelObservationReplanDiagnostic(
-                attempted = false,
-                reason = reason,
-            )
+        fun notAttempted(reason: String): ModelObservationReplanDiagnostic = ModelObservationReplanDiagnostic(
+            attempted = false,
+            reason = reason
+        )
     }
 }
 
@@ -425,35 +421,34 @@ private data class ModelObservationReplanAcceptance(
     val replan: AgentObservationReplan? = null,
     val rejectionReason: String? = null,
     /** The normalized model draft a guard rejected, for the single corrective re-prompt. */
-    val rejectedDraft: ActionDraft? = null,
+    val rejectedDraft: ActionDraft? = null
 )
 
 private data class ModelObservationReplanAttempt(
     val replan: AgentObservationReplan? = null,
     val producedModelDraft: Boolean,
     val rejectedDraft: ActionDraft? = null,
-    val rejectionReason: String? = null,
+    val rejectionReason: String? = null
 )
 
 private fun ActionPlanningResult.toObservationReplanDiagnostic(
     promptIndex: Int,
-    reason: String,
-): ModelObservationReplanDiagnostic =
-    ModelObservationReplanDiagnostic(
-        attempted = true,
-        reason = reason,
-        promptIndex = promptIndex,
-        usedModel = usedModel,
-        modelAttempted = modelAttempted,
-        modelPlanKind = plan.kind.name,
-        modelFailureReason = modelFailureReason ?: fallbackReason,
-        modelOutputPreview = modelOutputPreview,
-    )
+    reason: String
+): ModelObservationReplanDiagnostic = ModelObservationReplanDiagnostic(
+    attempted = true,
+    reason = reason,
+    promptIndex = promptIndex,
+    usedModel = usedModel,
+    modelAttempted = modelAttempted,
+    modelPlanKind = plan.kind.name,
+    modelFailureReason = modelFailureReason ?: fallbackReason,
+    modelOutputPreview = modelOutputPreview
+)
 
 class SequentialActionObservationReplanner(
     private val actionPlanningRuntime: ActionPlanningRuntime,
     maxSequentialActions: Int = DEFAULT_MAX_SEQUENTIAL_ACTIONS,
-    private val toolRegistry: ToolRegistry = defaultSequentialToolRegistry,
+    private val toolRegistry: ToolRegistry = defaultSequentialToolRegistry
 ) : AgentObservationReplanner {
     private val sequentialActionLimit = maxSequentialActions.coerceAtLeast(1)
 
@@ -479,22 +474,19 @@ class SequentialActionObservationReplanner(
             request = ToolRequest(
                 toolName = draft.functionName,
                 arguments = draft.parameters,
-                reason = SEQUENTIAL_REPLAN_REQUEST_REASON,
+                reason = SEQUENTIAL_REPLAN_REQUEST_REASON
             ),
             draft = draft,
             plannedByModel = planningResult.usedModel,
             fallbackReason = planningResult.fallbackReason,
-            input = nextInput,
+            input = nextInput
         )
     }
-
 }
 
-internal fun ActionIntentConfidence.isActionableForAgentPlan(): Boolean =
-    this == ActionIntentConfidence.Medium || this == ActionIntentConfidence.High
+internal fun ActionIntentConfidence.isActionableForAgentPlan(): Boolean = this == ActionIntentConfidence.Medium || this == ActionIntentConfidence.High
 
-internal fun ActionIntentConfidence.isActionableForSequentialReplan(): Boolean =
-    this == ActionIntentConfidence.High
+internal fun ActionIntentConfidence.isActionableForSequentialReplan(): Boolean = this == ActionIntentConfidence.High
 
 /**
  * Number of prior requests in this run that were produced by an observation-driven model replan.
@@ -505,16 +497,14 @@ internal fun ActionIntentConfidence.isActionableForSequentialReplan(): Boolean =
  * key, so it is intentionally shared with [RemoteVisionObservationReplanner] (one budget for the whole
  * observe→act loop, regardless of which backend planned the step) and must not be reworded casually.
  */
-internal fun AgentObservationReplanContext.modelObservationReplanCount(): Int =
-    priorRequests.count { request -> request.reason == MODEL_OBSERVATION_REPLAN_REQUEST_REASON }
+internal fun AgentObservationReplanContext.modelObservationReplanCount(): Int = priorRequests.count { request -> request.reason == MODEL_OBSERVATION_REPLAN_REQUEST_REASON }
 
-internal fun ToolResult.isModelReplannableObservation(): Boolean =
-    when (status) {
-        ToolStatus.Succeeded -> true
-        ToolStatus.Failed -> isRecoverableLocalObservationFailure()
-        ToolStatus.Cancelled,
-        ToolStatus.Rejected -> false
-    }
+internal fun ToolResult.isModelReplannableObservation(): Boolean = when (status) {
+    ToolStatus.Succeeded -> true
+    ToolStatus.Failed -> isRecoverableLocalObservationFailure()
+    ToolStatus.Cancelled,
+    ToolStatus.Rejected -> false
+}
 
 private fun ToolResult.isRecoverableLocalObservationFailure(): Boolean {
     if (!retryable) return false
@@ -532,11 +522,9 @@ internal fun String.explicitSequentialActionTextAt(index: Int): String? {
     return explicitSequentialActionSegments().getOrNull(index)
 }
 
-internal fun String.requiresLocalModelBeforeSequentialTail(toolRegistry: ToolRegistry): Boolean =
-    toolRegistry.requiresSequentialLocalModelBeforeTail(this)
+internal fun String.requiresLocalModelBeforeSequentialTail(toolRegistry: ToolRegistry): Boolean = toolRegistry.requiresSequentialLocalModelBeforeTail(this)
 
-internal fun String.immediateSequentialActionText(): String? =
-    (explicitSequentialActionTextAt(0) ?: trimActionText()).takeIf { it.isNotBlank() }
+internal fun String.immediateSequentialActionText(): String? = (explicitSequentialActionTextAt(0) ?: trimActionText()).takeIf { it.isNotBlank() }
 
 private fun String.explicitSequentialActionSegments(): List<String> {
     val matches = sequenceConnector.findAll(this).toList()
@@ -558,5 +546,5 @@ private fun String.trimActionText(): String {
 }
 
 private val sequenceConnector = Regex(
-    pattern = """(?i)(?:\b(?:and\s+then|then)\b|然后|接着|随后|之后|再)""",
+    pattern = """(?i)(?:\b(?:and\s+then|then)\b|然后|接着|随后|之后|再)"""
 )

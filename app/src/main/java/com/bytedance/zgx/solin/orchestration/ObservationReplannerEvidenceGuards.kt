@@ -12,10 +12,10 @@ import com.bytedance.zgx.solin.device.hasOcrDangerousActionText
 import com.bytedance.zgx.solin.device.hasStrongDangerousActionText
 import com.bytedance.zgx.solin.device.normalizedLookupKey
 import com.bytedance.zgx.solin.tool.ToolCapability
-import com.bytedance.zgx.solin.tool.ToolResult
-import com.bytedance.zgx.solin.tool.ToolStatus
-import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.ToolResult
+import com.bytedance.zgx.solin.tool.ToolSpec
+import com.bytedance.zgx.solin.tool.ToolStatus
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,7 +35,7 @@ private val searchContextTextMarkers = listOf(
     "searchbox",
     "searchfield",
     "omnibox",
-    "keyword",
+    "keyword"
 )
 private val strongSearchContextTextMarkers = listOf(
     "搜索商品",
@@ -53,7 +53,7 @@ private val strongSearchContextTextMarkers = listOf(
     "searchbox",
     "searchfield",
     "omnibox",
-    "keyword",
+    "keyword"
 )
 private val standaloneSearchSubmitTextMarkers = listOf(
     "搜索",
@@ -64,7 +64,7 @@ private val standaloneSearchSubmitTextMarkers = listOf(
     "完成",
     "go",
     "enter",
-    "search",
+    "search"
 )
 
 internal fun ActionDraft.normalizedUiTargetDraft(): ActionDraft {
@@ -86,7 +86,7 @@ internal fun ActionDraft.normalizedUiTargetDraft(): ActionDraft {
  */
 internal fun ActionDraft.withResolvedScopedTarget(
     context: AgentObservationReplanContext,
-    parseCache: ObservationJsonParseCache,
+    parseCache: ObservationJsonParseCache
 ): ActionDraft {
     if (functionName != MobileActionFunctions.UI_TAP && functionName != MobileActionFunctions.UI_SCROLL) return this
     val ref = SnapshotRefs.parse(parameters["target"]) ?: return this
@@ -106,7 +106,7 @@ internal fun ActionDraft.withResolvedScopedTarget(
 
 internal fun ActionDraft.tapFirstForSearchTypingTarget(
     context: AgentObservationReplanContext,
-    parseCache: ObservationJsonParseCache,
+    parseCache: ObservationJsonParseCache
 ): ActionDraft {
     if (functionName != MobileActionFunctions.UI_TYPE_TEXT) return this
     val normalizedTarget = parameters["target"].normalizedLookupKey()
@@ -115,7 +115,7 @@ internal fun ActionDraft.tapFirstForSearchTypingTarget(
     if (context.observedResult.hasCurrentTargetEvidence(
             normalizedTarget,
             MobileActionFunctions.UI_TYPE_TEXT,
-            parseCache,
+            parseCache
         )
     ) {
         return this
@@ -127,17 +127,16 @@ internal fun ActionDraft.tapFirstForSearchTypingTarget(
         functionName = MobileActionFunctions.UI_TAP,
         title = "点击搜索入口",
         summary = "先点击搜索入口以打开输入框。",
-        parameters = tapParameters,
+        parameters = tapParameters
     )
 }
 
-internal fun ActionDraft.hasMissingRequiredUiTarget(): Boolean =
-    functionName == MobileActionFunctions.UI_TAP &&
-        parameters["target"].normalizedLookupKey().isBlank()
+internal fun ActionDraft.hasMissingRequiredUiTarget(): Boolean = functionName == MobileActionFunctions.UI_TAP &&
+    parameters["target"].normalizedLookupKey().isBlank()
 
 internal fun AgentObservationReplanContext.shouldRejectNonLocalObservationTool(
     draft: ActionDraft,
-    toolRegistry: ToolRegistry,
+    toolRegistry: ToolRegistry
 ): Boolean {
     if (!observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))) return false
     if (observationReplanToolSpecs(toolRegistry).none { it.name == draft.functionName }) return true
@@ -146,7 +145,7 @@ internal fun AgentObservationReplanContext.shouldRejectNonLocalObservationTool(
 
 internal fun AgentObservationReplanContext.shouldRejectUnsupportedSubmitSearch(
     draft: ActionDraft,
-    parseCache: ObservationJsonParseCache,
+    parseCache: ObservationJsonParseCache
 ): Boolean {
     if (draft.functionName != MobileActionFunctions.UI_SUBMIT_SEARCH) return false
     if (!observedResult.hasCurrentTargetEvidenceSource()) return false
@@ -155,7 +154,7 @@ internal fun AgentObservationReplanContext.shouldRejectUnsupportedSubmitSearch(
 
 internal fun AgentObservationReplanContext.shouldRejectUnsupportedTargetlessTyping(
     draft: ActionDraft,
-    parseCache: ObservationJsonParseCache,
+    parseCache: ObservationJsonParseCache
 ): Boolean {
     if (draft.functionName != MobileActionFunctions.UI_TYPE_TEXT) return false
     if (draft.parameters["target"].normalizedLookupKey().isNotBlank()) return false
@@ -165,7 +164,7 @@ internal fun AgentObservationReplanContext.shouldRejectUnsupportedTargetlessTypi
 
 internal fun AgentObservationReplanContext.shouldRejectUnsupportedObservedTarget(
     draft: ActionDraft,
-    parseCache: ObservationJsonParseCache,
+    parseCache: ObservationJsonParseCache
 ): Boolean {
     if (!draft.functionName.acceptsGuardedUiTarget()) return false
     if (!observedResult.hasCurrentTargetEvidenceSource()) return false
@@ -184,7 +183,7 @@ internal fun AgentObservationReplanContext.shouldRejectTextOnlyUiControl(draft: 
 
 internal fun AgentObservationReplanContext.shouldRejectDangerousObservationAction(
     draft: ActionDraft,
-    parseCache: ObservationJsonParseCache,
+    parseCache: ObservationJsonParseCache
 ): Boolean {
     if (!draft.functionName.isAutonomousUiControlAction()) return false
     // Scrolling never activates a control; typing only does when finding the field taps a named
@@ -204,47 +203,42 @@ internal fun AgentObservationReplanContext.shouldRejectDangerousObservationActio
     return observedResult.hasDangerousUiActionEvidence(parseCache)
 }
 
-private fun String.isAutonomousUiControlAction(): Boolean =
-    this == MobileActionFunctions.UI_TAP ||
-        this == MobileActionFunctions.UI_TYPE_TEXT ||
-        this == MobileActionFunctions.UI_SUBMIT_SEARCH ||
-        this == MobileActionFunctions.UI_SCROLL ||
-        this == MobileActionFunctions.UI_SWIPE ||
-        this == MobileActionFunctions.UI_LONG_PRESS ||
-        this == MobileActionFunctions.UI_PRESS_KEY
+private fun String.isAutonomousUiControlAction(): Boolean = this == MobileActionFunctions.UI_TAP ||
+    this == MobileActionFunctions.UI_TYPE_TEXT ||
+    this == MobileActionFunctions.UI_SUBMIT_SEARCH ||
+    this == MobileActionFunctions.UI_SCROLL ||
+    this == MobileActionFunctions.UI_SWIPE ||
+    this == MobileActionFunctions.UI_LONG_PRESS ||
+    this == MobileActionFunctions.UI_PRESS_KEY
 
-private fun ToolResult.hasDangerousUiActionEvidence(parseCache: ObservationJsonParseCache): Boolean =
-    data["screenObservationJson"].observationHasDangerousActionEvidence(parseCache) ||
-        data["afterScreenObservationJson"].observationHasDangerousActionEvidence(parseCache) ||
-        data["ocrBlocksJson"].ocrBlocksHaveDangerousActionEvidence(parseCache) ||
-        data["ocrText"].hasStrongDangerousActionText() ||
-        data["screenText"].hasStrongDangerousActionText()
+private fun ToolResult.hasDangerousUiActionEvidence(parseCache: ObservationJsonParseCache): Boolean = data["screenObservationJson"].observationHasDangerousActionEvidence(parseCache) ||
+    data["afterScreenObservationJson"].observationHasDangerousActionEvidence(parseCache) ||
+    data["ocrBlocksJson"].ocrBlocksHaveDangerousActionEvidence(parseCache) ||
+    data["ocrText"].hasStrongDangerousActionText() ||
+    data["screenText"].hasStrongDangerousActionText()
 
 private fun ToolResult.hasDangerousTargetEvidence(
     normalizedTarget: String,
     toolName: String,
-    parseCache: ObservationJsonParseCache,
-): Boolean =
-    data["screenObservationJson"].observationHasDangerousTargetEvidence(normalizedTarget, toolName, parseCache) ||
-        data["afterScreenObservationJson"]
-            .observationHasDangerousTargetEvidence(normalizedTarget, toolName, parseCache) ||
-        data["ocrBlocksJson"].ocrBlocksHaveDangerousTargetEvidence(normalizedTarget, parseCache)
+    parseCache: ObservationJsonParseCache
+): Boolean = data["screenObservationJson"].observationHasDangerousTargetEvidence(normalizedTarget, toolName, parseCache) ||
+    data["afterScreenObservationJson"]
+        .observationHasDangerousTargetEvidence(normalizedTarget, toolName, parseCache) ||
+    data["ocrBlocksJson"].ocrBlocksHaveDangerousTargetEvidence(normalizedTarget, parseCache)
 
-private fun String?.observationHasDangerousActionEvidence(parseCache: ObservationJsonParseCache): Boolean =
-    withObservationElements(parseCache) { elements ->
-        elements.jsonObjects().any { element -> element.isDangerousActionEvidence() }
-    }
+private fun String?.observationHasDangerousActionEvidence(parseCache: ObservationJsonParseCache): Boolean = withObservationElements(parseCache) { elements ->
+    elements.jsonObjects().any { element -> element.isDangerousActionEvidence() }
+}
 
 private fun String?.observationHasDangerousTargetEvidence(
     normalizedTarget: String,
     toolName: String,
-    parseCache: ObservationJsonParseCache,
-): Boolean =
-    withObservationElements(parseCache) { elements ->
-        elements.jsonObjects().any { element ->
-            element.isDangerousTargetEvidence(normalizedTarget, toolName)
-        }
+    parseCache: ObservationJsonParseCache
+): Boolean = withObservationElements(parseCache) { elements ->
+    elements.jsonObjects().any { element ->
+        element.isDangerousTargetEvidence(normalizedTarget, toolName)
     }
+}
 
 private fun JSONObject.isDangerousActionEvidence(): Boolean {
     val text = optString("text")
@@ -266,28 +260,26 @@ private fun JSONObject.isDangerousTargetEvidence(normalizedTarget: String, toolN
     }
 }
 
-private fun String?.ocrBlocksHaveDangerousActionEvidence(parseCache: ObservationJsonParseCache): Boolean =
-    withOcrBlocks(parseCache) { blocks ->
-        blocks.jsonObjects().any { block ->
-            block.optString("text").hasOcrDangerousActionText()
-        }
+private fun String?.ocrBlocksHaveDangerousActionEvidence(parseCache: ObservationJsonParseCache): Boolean = withOcrBlocks(parseCache) { blocks ->
+    blocks.jsonObjects().any { block ->
+        block.optString("text").hasOcrDangerousActionText()
     }
+}
 
 private fun String?.ocrBlocksHaveDangerousTargetEvidence(
     normalizedTarget: String,
-    parseCache: ObservationJsonParseCache,
-): Boolean =
-    withOcrBlocks(parseCache) { blocks ->
-        blocks.jsonObjects().any { block ->
-            val text = block.optString("text")
-            text.normalizedLookupKey() == normalizedTarget &&
-                text.hasOcrDangerousActionText()
-        }
+    parseCache: ObservationJsonParseCache
+): Boolean = withOcrBlocks(parseCache) { blocks ->
+    blocks.jsonObjects().any { block ->
+        val text = block.optString("text")
+        text.normalizedLookupKey() == normalizedTarget &&
+            text.hasOcrDangerousActionText()
     }
+}
 
 internal fun AgentObservationReplanContext.shouldRejectUnsupportedRepeatTarget(
     draft: ActionDraft,
-    parseCache: ObservationJsonParseCache,
+    parseCache: ObservationJsonParseCache
 ): Boolean {
     if (observedResult.status != ToolStatus.Failed) return false
     if (previousRequest.toolName != draft.functionName) return false
@@ -304,60 +296,52 @@ internal fun AgentObservationReplanContext.shouldRejectUnsupportedRepeatTarget(
     return !observedResult.hasEvidenceSupportingRepeatTarget(nextTarget, draft.functionName, parseCache)
 }
 
-private fun String.acceptsGuardedUiTarget(): Boolean =
-    this == MobileActionFunctions.UI_TAP ||
-        this == MobileActionFunctions.UI_TYPE_TEXT ||
-        this == MobileActionFunctions.UI_SCROLL
+private fun String.acceptsGuardedUiTarget(): Boolean = this == MobileActionFunctions.UI_TAP ||
+    this == MobileActionFunctions.UI_TYPE_TEXT ||
+    this == MobileActionFunctions.UI_SCROLL
 
-private fun ToolResult.hasCurrentTargetEvidenceSource(): Boolean =
-    data["screenObservationJson"]?.isNotBlank() == true ||
-        data["afterScreenObservationJson"]?.isNotBlank() == true ||
-        data["ocrBlocksJson"]?.isNotBlank() == true ||
-        data["screenObservationDiffSummary"]?.isNotBlank() == true
+private fun ToolResult.hasCurrentTargetEvidenceSource(): Boolean = data["screenObservationJson"]?.isNotBlank() == true ||
+    data["afterScreenObservationJson"]?.isNotBlank() == true ||
+    data["ocrBlocksJson"]?.isNotBlank() == true ||
+    data["screenObservationDiffSummary"]?.isNotBlank() == true
 
-private fun ToolResult.hasReadOnlyLocalScreenTextEvidence(): Boolean =
-    data["ocrText"]?.isNotBlank() == true ||
-        data["screenText"]?.isNotBlank() == true
+private fun ToolResult.hasReadOnlyLocalScreenTextEvidence(): Boolean = data["ocrText"]?.isNotBlank() == true ||
+    data["screenText"]?.isNotBlank() == true
 
 private fun ToolResult.hasCurrentTargetEvidence(
     normalizedTarget: String,
     toolName: String,
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    data["screenObservationJson"].observationHasTargetEvidence(normalizedTarget, toolName, parseCache) ||
-        data["afterScreenObservationJson"].observationHasTargetEvidence(normalizedTarget, toolName, parseCache) ||
-        executableStandaloneOcrBlocksJson().ocrBlocksHaveTargetEvidence(normalizedTarget, parseCache) ||
-        data["screenObservationDiffSummary"].diffSummaryHasTargetEvidence(normalizedTarget)
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = data["screenObservationJson"].observationHasTargetEvidence(normalizedTarget, toolName, parseCache) ||
+    data["afterScreenObservationJson"].observationHasTargetEvidence(normalizedTarget, toolName, parseCache) ||
+    executableStandaloneOcrBlocksJson().ocrBlocksHaveTargetEvidence(normalizedTarget, parseCache) ||
+    data["screenObservationDiffSummary"].diffSummaryHasTargetEvidence(normalizedTarget)
 
 private fun ToolResult.hasCurrentSearchTapTargetEvidence(
     normalizedTarget: String,
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    data["screenObservationJson"].observationHasSearchTapTargetEvidence(normalizedTarget, parseCache) ||
-        data["afterScreenObservationJson"].observationHasSearchTapTargetEvidence(normalizedTarget, parseCache)
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = data["screenObservationJson"].observationHasSearchTapTargetEvidence(normalizedTarget, parseCache) ||
+    data["afterScreenObservationJson"].observationHasSearchTapTargetEvidence(normalizedTarget, parseCache)
 
 private fun ToolResult.hasCurrentScrollableEvidence(
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    data["screenObservationJson"].observationHasScrollableEvidence(parseCache) ||
-        data["afterScreenObservationJson"].observationHasScrollableEvidence(parseCache) ||
-        data["screenObservationDiffSummary"].diffSummaryHasScrollableEvidence()
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = data["screenObservationJson"].observationHasScrollableEvidence(parseCache) ||
+    data["afterScreenObservationJson"].observationHasScrollableEvidence(parseCache) ||
+    data["screenObservationDiffSummary"].diffSummaryHasScrollableEvidence()
 
 private fun ToolResult.hasCurrentSearchSubmitEvidence(
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    data["screenObservationJson"].observationHasSearchSubmitEvidence(parseCache) ||
-        data["afterScreenObservationJson"].observationHasSearchSubmitEvidence(parseCache) ||
-        executableStandaloneOcrBlocksJson().ocrBlocksHaveSearchSubmitEvidence(parseCache) ||
-        data["screenObservationDiffSummary"].diffSummaryHasSearchSubmitEvidence()
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = data["screenObservationJson"].observationHasSearchSubmitEvidence(parseCache) ||
+    data["afterScreenObservationJson"].observationHasSearchSubmitEvidence(parseCache) ||
+    executableStandaloneOcrBlocksJson().ocrBlocksHaveSearchSubmitEvidence(parseCache) ||
+    data["screenObservationDiffSummary"].diffSummaryHasSearchSubmitEvidence()
 
 private fun ToolResult.hasCurrentTargetlessTypingEvidence(
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    data["screenObservationJson"].observationHasTargetlessTypingEvidence(parseCache) ||
-        data["afterScreenObservationJson"].observationHasTargetlessTypingEvidence(parseCache) ||
-        executableStandaloneOcrBlocksJson().ocrBlocksHaveTargetlessTypingEvidence(parseCache) ||
-        data["screenObservationDiffSummary"].diffSummaryHasTargetlessTypingEvidence()
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = data["screenObservationJson"].observationHasTargetlessTypingEvidence(parseCache) ||
+    data["afterScreenObservationJson"].observationHasTargetlessTypingEvidence(parseCache) ||
+    executableStandaloneOcrBlocksJson().ocrBlocksHaveTargetlessTypingEvidence(parseCache) ||
+    data["screenObservationDiffSummary"].diffSummaryHasTargetlessTypingEvidence()
 
 internal fun ToolResult.executableStandaloneOcrBlocksJson(): String? {
     val blocksJson = data["ocrBlocksJson"]?.takeIf { value -> value.isNotBlank() } ?: return null
@@ -370,19 +354,17 @@ internal fun ToolResult.executableStandaloneOcrBlocksJson(): String? {
 private fun ToolResult.hasEvidenceSupportingRepeatTarget(
     normalizedTarget: String,
     toolName: String,
-    parseCache: ObservationJsonParseCache? = null,
+    parseCache: ObservationJsonParseCache? = null
 ): Boolean {
     if (data["screenObservationDiffSummary"].hasPositiveScreenChangeSignal()) return true
     return hasCurrentTargetEvidence(normalizedTarget, toolName, parseCache)
 }
 
-internal fun ToolResult.hasLocalOnlyObservationEvidence(spec: ToolSpec?): Boolean =
-    PromptPrivacyPlanner.build(listOf(toPromptPrivacySegment(spec))).let { plan ->
-        plan.aggregatePrivacy == MessagePrivacy.LocalOnly || plan.requiresLocalModel
-    }
+internal fun ToolResult.hasLocalOnlyObservationEvidence(spec: ToolSpec?): Boolean = PromptPrivacyPlanner.build(listOf(toPromptPrivacySegment(spec))).let { plan ->
+    plan.aggregatePrivacy == MessagePrivacy.LocalOnly || plan.requiresLocalModel
+}
 
-private fun String?.hasPositiveScreenChangeSignal(): Boolean =
-    this?.contains(Regex("""\bchanged\s*=\s*true\b""", RegexOption.IGNORE_CASE)) == true
+private fun String?.hasPositiveScreenChangeSignal(): Boolean = this?.contains(Regex("""\bchanged\s*=\s*true\b""", RegexOption.IGNORE_CASE)) == true
 
 private fun String?.diffSummaryHasTargetEvidence(normalizedTarget: String): Boolean {
     if (normalizedTarget.isBlank()) return false
@@ -392,17 +374,14 @@ private fun String?.diffSummaryHasTargetEvidence(normalizedTarget: String): Bool
         .any { value -> value.normalizedLookupKey() == normalizedTarget }
 }
 
-private fun String?.diffSummaryHasScrollableEvidence(): Boolean =
-    this.diffSummaryValuesFor("addedActionable")
-        .any { value -> value.normalizedLookupKey().contains("scrollable") }
+private fun String?.diffSummaryHasScrollableEvidence(): Boolean = this.diffSummaryValuesFor("addedActionable")
+    .any { value -> value.normalizedLookupKey().contains("scrollable") }
 
-private fun String?.diffSummaryHasSearchSubmitEvidence(): Boolean =
-    this.diffSummaryValuesFor("addedText", "addedActionable")
-        .any { value -> value.hasStrongSearchContextText() }
+private fun String?.diffSummaryHasSearchSubmitEvidence(): Boolean = this.diffSummaryValuesFor("addedText", "addedActionable")
+    .any { value -> value.hasStrongSearchContextText() }
 
-private fun String?.diffSummaryHasTargetlessTypingEvidence(): Boolean =
-    this.diffSummaryValuesFor("addedText", "addedActionable")
-        .any { value -> value.hasStrongSearchContextText() }
+private fun String?.diffSummaryHasTargetlessTypingEvidence(): Boolean = this.diffSummaryValuesFor("addedText", "addedActionable")
+    .any { value -> value.hasStrongSearchContextText() }
 
 private fun String?.diffSummaryValuesFor(vararg keys: String): List<String> {
     val acceptedKeys = keys.toSet()
@@ -417,92 +396,83 @@ private fun String?.diffSummaryValuesFor(vararg keys: String): List<String> {
         }
 }
 
-private fun String.diffSummaryEvidenceLabels(): List<String> =
-    split("|")
-        .map { value -> value.trim() }
-        .filter { value -> value.isNotBlank() && value != "none" }
-        .flatMap { value ->
-            val labelWithoutMode = value.substringAfter(":", value).trim()
-            listOf(value, labelWithoutMode)
-        }
-        .distinct()
+private fun String.diffSummaryEvidenceLabels(): List<String> = split("|")
+    .map { value -> value.trim() }
+    .filter { value -> value.isNotBlank() && value != "none" }
+    .flatMap { value ->
+        val labelWithoutMode = value.substringAfter(":", value).trim()
+        listOf(value, labelWithoutMode)
+    }
+    .distinct()
 
 private fun String?.observationHasTargetEvidence(
     normalizedTarget: String,
     toolName: String,
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    withObservationElements(parseCache) { elements ->
-        elements.hasTargetEvidence(normalizedTarget, toolName)
-    }
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = withObservationElements(parseCache) { elements ->
+    elements.hasTargetEvidence(normalizedTarget, toolName)
+}
 
 private fun String?.observationHasSearchTapTargetEvidence(
     normalizedTarget: String,
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    withObservationElements(parseCache) { elements ->
-        elements.hasSearchTapTargetEvidence(normalizedTarget)
-    }
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = withObservationElements(parseCache) { elements ->
+    elements.hasSearchTapTargetEvidence(normalizedTarget)
+}
 
 private fun String?.observationHasScrollableEvidence(
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    withObservationElements(parseCache) { elements ->
-        elements.jsonObjects().any { element -> element.hasScrollableModeForPrompt() }
-    }
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = withObservationElements(parseCache) { elements ->
+    elements.jsonObjects().any { element -> element.hasScrollableModeForPrompt() }
+}
 
 private fun String?.observationHasSearchSubmitEvidence(
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    withObservationElements(parseCache) { elements ->
-        val ocrTexts = mutableListOf<String>()
-        val hasStructuredSearchSubmitEvidence = elements.jsonObjects().any { element ->
-            if (element.optString("source") == "ocr") {
-                ocrTexts += element.optString("text")
-                false
-            } else {
-                element.isSearchSubmitEvidence()
-            }
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = withObservationElements(parseCache) { elements ->
+    val ocrTexts = mutableListOf<String>()
+    val hasStructuredSearchSubmitEvidence = elements.jsonObjects().any { element ->
+        if (element.optString("source") == "ocr") {
+            ocrTexts += element.optString("text")
+            false
+        } else {
+            element.isSearchSubmitEvidence()
         }
-        hasStructuredSearchSubmitEvidence || ocrTexts.hasOcrSearchSubmitEvidence()
     }
+    hasStructuredSearchSubmitEvidence || ocrTexts.hasOcrSearchSubmitEvidence()
+}
 
 private fun String?.observationHasTargetlessTypingEvidence(
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    withObservationElements(parseCache) { elements ->
-        val ocrTexts = mutableListOf<String>()
-        val hasStructuredTypingEvidence = elements.jsonObjects().any { element ->
-            if (element.optString("source") == "ocr") {
-                ocrTexts += element.optString("text")
-                false
-            } else {
-                element.isSearchTypingEvidence()
-            }
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = withObservationElements(parseCache) { elements ->
+    val ocrTexts = mutableListOf<String>()
+    val hasStructuredTypingEvidence = elements.jsonObjects().any { element ->
+        if (element.optString("source") == "ocr") {
+            ocrTexts += element.optString("text")
+            false
+        } else {
+            element.isSearchTypingEvidence()
         }
-        hasStructuredTypingEvidence || ocrTexts.any { text -> text.hasStrongSearchContextText() }
     }
+    hasStructuredTypingEvidence || ocrTexts.any { text -> text.hasStrongSearchContextText() }
+}
 
 private fun String?.ocrBlocksHaveSearchSubmitEvidence(
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    withOcrBlocks(parseCache) { blocks ->
-        val texts = blocks.jsonObjects().map { block -> block.optString("text") }
-        texts.hasOcrSearchSubmitEvidence()
-    }
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = withOcrBlocks(parseCache) { blocks ->
+    val texts = blocks.jsonObjects().map { block -> block.optString("text") }
+    texts.hasOcrSearchSubmitEvidence()
+}
 
 private fun String?.ocrBlocksHaveTargetlessTypingEvidence(
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    withOcrBlocks(parseCache) { blocks ->
-        blocks.jsonObjects().any { block ->
-            block.optString("text").hasStrongSearchContextText()
-        }
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = withOcrBlocks(parseCache) { blocks ->
+    blocks.jsonObjects().any { block ->
+        block.optString("text").hasStrongSearchContextText()
     }
+}
 
-private fun List<String>.hasOcrSearchSubmitEvidence(): Boolean =
-    any { text -> text.hasStrongSearchContextText() } &&
-        any { text -> text.hasStandaloneSearchSubmitText() }
+private fun List<String>.hasOcrSearchSubmitEvidence(): Boolean = any { text -> text.hasStrongSearchContextText() } &&
+    any { text -> text.hasStandaloneSearchSubmitText() }
 
 private fun JSONArray.hasTargetEvidence(normalizedTarget: String, toolName: String): Boolean {
     val elements = jsonObjects()
@@ -532,12 +502,11 @@ private fun JSONObject.hasSearchContextText(ocrElements: List<JSONObject>): Bool
     }
 }
 
-private fun JSONObject.isTargetEvidenceMatch(normalizedTarget: String): Boolean =
-    optString("id").normalizedLookupKey() == normalizedTarget ||
-        (
-            optString("source") != "ocr" &&
-                optString("text").normalizedLookupKey() == normalizedTarget
-            )
+private fun JSONObject.isTargetEvidenceMatch(normalizedTarget: String): Boolean = optString("id").normalizedLookupKey() == normalizedTarget ||
+    (
+        optString("source") != "ocr" &&
+            optString("text").normalizedLookupKey() == normalizedTarget
+        )
 
 private fun JSONObject.isTargetIdEvidence(normalizedTarget: String, toolName: String? = null): Boolean {
     val source = optString("source")
@@ -548,11 +517,10 @@ private fun JSONObject.isTargetIdEvidence(normalizedTarget: String, toolName: St
 
 private fun JSONObject.isAccessibilityTextTargetEvidence(
     normalizedTarget: String,
-    toolName: String? = null,
-): Boolean =
-    optString("source") != "ocr" &&
-        optString("text").normalizedLookupKey() == normalizedTarget &&
-        (toolName?.let(::supportsToolTargetMode) ?: hasActionableModeForPrompt())
+    toolName: String? = null
+): Boolean = optString("source") != "ocr" &&
+    optString("text").normalizedLookupKey() == normalizedTarget &&
+    (toolName?.let(::supportsToolTargetMode) ?: hasActionableModeForPrompt())
 
 private fun JSONObject.supportsToolTargetMode(toolName: String): Boolean {
     val clickability = optJSONObject("clickability") ?: return false
@@ -608,15 +576,14 @@ private fun String?.hasStandaloneSearchSubmitText(): Boolean {
 
 private fun String?.ocrBlocksHaveTargetEvidence(
     normalizedTarget: String,
-    parseCache: ObservationJsonParseCache? = null,
-): Boolean =
-    withOcrBlocks(parseCache) { blocks ->
-        val evidences = blocks.indexedObjects().flatMap { (index, block) ->
-            block.toOcrTargetEvidencePrompts(index)
-        }
-        evidences.any { evidence -> evidence.id.normalizedLookupKey() == normalizedTarget } ||
-            evidences.count { evidence -> evidence.text.matchesOcrTargetText(normalizedTarget) } == 1
+    parseCache: ObservationJsonParseCache? = null
+): Boolean = withOcrBlocks(parseCache) { blocks ->
+    val evidences = blocks.indexedObjects().flatMap { (index, block) ->
+        block.toOcrTargetEvidencePrompts(index)
     }
+    evidences.any { evidence -> evidence.id.normalizedLookupKey() == normalizedTarget } ||
+        evidences.count { evidence -> evidence.text.matchesOcrTargetText(normalizedTarget) } == 1
+}
 
 private fun String.matchesOcrTargetText(normalizedTarget: String): Boolean {
     val normalizedText = normalizedLookupKey()
