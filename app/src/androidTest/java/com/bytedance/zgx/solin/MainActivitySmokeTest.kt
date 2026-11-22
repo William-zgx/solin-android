@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
@@ -159,10 +160,8 @@ class MainActivitySmokeTest {
         composeRule.openDrawerItem("top_privacy_button")
         composeRule.waitForTag("model_manager_sheet")
 
-        // The closed session drawer also composes a "隐私与权限" row; assert the sheet title only.
-        composeRule.onNode(
-            hasText("隐私与权限") and hasAnyAncestor(hasTestTag("model_manager_sheet"))
-        ).assertIsDisplayed()
+        // The privacy tab and sheet title share text; assert selection instead of a duplicate text node.
+        composeRule.onNodeWithTag("model_tab_privacy").assertIsSelected()
         composeRule.waitForText("为什么装它")
         composeRule.waitForText("本地可用")
         composeRule.waitForText("远程多模态可选")
@@ -190,10 +189,8 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("home_privacy_notice_button").performScrollTo().performClick()
         composeRule.waitForTag("model_manager_sheet")
 
-        // The closed session drawer also composes a "隐私与权限" row; assert the sheet title only.
-        composeRule.onNode(
-            hasText("隐私与权限") and hasAnyAncestor(hasTestTag("model_manager_sheet"))
-        ).assertIsDisplayed()
+        // The privacy tab and sheet title share text; assert selection instead of a duplicate text node.
+        composeRule.onNodeWithTag("model_tab_privacy").assertIsSelected()
         composeRule.waitForText("能力与信任中心")
         composeRule.waitForText("远程公开证据查询")
         composeRule.waitForText("敏感能力披露")

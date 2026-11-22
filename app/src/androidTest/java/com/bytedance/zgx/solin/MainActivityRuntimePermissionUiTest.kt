@@ -24,6 +24,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import com.bytedance.zgx.solin.data.RemoteModelRepository
+import com.bytedance.zgx.solin.data.SolinDatabase
 import java.util.regex.Pattern
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -261,12 +262,29 @@ class MainActivityRuntimePermissionUiTest {
                     Bundle().apply {
                         putString("SolinUiDump-$tag", dump)
                         putString("SolinRemoteState-$tag", remoteState)
+                        putString("SolinPlacementState-$tag", placementState())
                     }
                 )
             }
             throw error
         }
     }
+
+    private fun placementState(): String = runCatching {
+        val database = SolinDatabase.get(targetContext)
+        val runId = database.openHelper.writableDatabase
+            .query("SELECT id FROM agent_runs ORDER BY updatedAtMillis DESC LIMIT 1")
+            .use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        if (runId == null) {
+            "no runs"
+        } else {
+            val dao = database.runPlacementBindingDao()
+            val run = dao.run(runId)
+            val binding = dao.binding(runId)
+            val steps = dao.steps(runId).takeLast(8).joinToString(",") { it.type }
+            "runState=${run?.state} dispatch=${binding?.dispatchState} boot=${binding?.bootCount} steps=$steps"
+        }
+    }.getOrElse { "placement state failed: ${it.javaClass.simpleName}" }
 
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
