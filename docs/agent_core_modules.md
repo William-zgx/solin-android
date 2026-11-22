@@ -1350,7 +1350,10 @@ Current status:
   preparation belongs to `PreparedChatRunCoordinator`.
 - `ModelLoadController` owns download state, including explicit mobile-data resume
   when a download is paused for Wi-Fi. Completing a download must not clear an
-  unrelated run's busy state.
+  unrelated run's busy state. Startup legacy-model verification is a registered,
+  controller-owned job: `close()` cancels it, repeat startup replaces it, and cancellation
+  checkpoints prevent post-close repository state reads or UI updates. A fresh controller
+  retains startup behavior; JVM coverage does not establish device teardown timing.
 - `GenerationStreamReducer` is a pure-Kotlin reducer for typed
   started/delta/completed/failed/cancelled generation events.
 
@@ -1361,6 +1364,7 @@ Tests:
 - `ChatPlacementInputsTest`
 - `ToolExecutionControllerTest`
 - `GenerationStreamReducerTest`
+- `ModelLoadControllerTest`
 - `InteractionReadModelsTest`
 - `BackgroundRunRecoveryTest`
 

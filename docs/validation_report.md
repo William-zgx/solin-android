@@ -17985,3 +17985,21 @@ git diff --check
 - F2 `fb3ccab5` + `2530cc4a` 固定 `ubuntu-24.04`，在 udev 前显式 `modprobe kvm`，保留设备
   诊断和 `test -w /dev/kvm` 硬门禁；YAML/PART30 通过，Opus 5.5 focused review clean。
   后续 hosted run 仍需独立证明 KVM、启动、abilist、安装和 instrumentation，不在本条提前标记通过。
+- Hosted [#176](https://github.com/William-zgx/solin-android/actions/runs/44991421133)（`f0eb8dce`）：
+  Verify、AI behavior 和三份 artifacts 成功；KVM、AVD 启动、`abi=x86_64,arm64-v8a` 与 APK
+  安装均通过。104 个测试中 102 个执行、2 个因缺少已校验本地模型而跳过，但有 17 个显式
+  UI/远程/权限失败，最后 `MainActivitySmokeTest.backgroundTaskManagerShowsEmptyState`
+  发生 Room connection-pool-closed 进程崩溃，整体仍为 **failure**。这证明基础设施与 ARM
+  translation 可用，不证明 Android 回归通过，也不构成 arm64-native 或 release 证据。
+- F3 Room 修复 `f8f8edad`：`ModelLoadController` 在启动前注册 legacy verification job，
+  `close()` 同步取消，repeat 替换旧 job，并在 repository/state/UI 前检查取消。新增 5 项 JVM
+  测试在生产修改前 4 项失败、修改后 5/5 通过；Opus 5.5 clean。没有把 RuleChain 当成时序修复，
+  该无收益改动已撤回。
+- F3 UI/fixture `73be4fea`：三个 remote-card selector 改用真实 outer `home_choice_remote`，
+  大字体标题限定在 `model_manager_sheet`，单条记忆遗忘补走实际确认对话框。没有跳过测试、
+  放宽断言或增加超时。Runtime-permission 失败保留原异常并输出一次 bounded unmerged root，
+  logcat 上限改为 20000 行，供下一轮定位共享远程发送/确认失败。
+- 最终 `28abd201`：完整 JVM **3069 tests / 0 failures / 0 errors / 15 skipped**；
+  `compileDebugAndroidTestKotlin`、Spotless、YAML、PART30 和隐私扫描通过。Room/UI 两个包均经
+  独立 Opus 5.5 验收。下一轮 hosted run 仍需验证这些设备行为并给出远程路由根因；本条不提前
+  标记 emulator 或工作流通过。
