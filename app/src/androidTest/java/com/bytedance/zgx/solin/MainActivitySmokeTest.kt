@@ -276,7 +276,7 @@ class MainActivitySmokeTest {
 
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.scrollToModelManagerText(
         text: String,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) = onNode(hasText(text, substring = substring) and hasAnyAncestor(hasTestTag("model_manager_sheet"))).performScrollTo()
 
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.openDrawerItem(tag: String) {

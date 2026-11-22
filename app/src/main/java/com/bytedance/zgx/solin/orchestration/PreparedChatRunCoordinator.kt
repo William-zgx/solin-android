@@ -57,11 +57,10 @@ internal data class PrepareChatRunRequest(
     /** What the user typed, without assembled context; only ever given to the placement policy. */
     val routingText: String = "",
     val bootCount: Long,
-    val boundAtElapsedRealtimeMillis: Long,
+    val boundAtElapsedRealtimeMillis: Long
 ) {
-    override fun toString(): String =
-        "PrepareChatRunRequest(runId=$runId, preference=$preference, historyCount=${history.size}, " +
-            "imageCount=${imageAttachments.size}, localImageCount=${localImageAttachments.size})"
+    override fun toString(): String = "PrepareChatRunRequest(runId=$runId, preference=$preference, historyCount=${history.size}, " +
+        "imageCount=${imageAttachments.size}, localImageCount=${localImageAttachments.size})"
 }
 
 /**
@@ -77,7 +76,7 @@ internal class PreparedChatRun private constructor(
     val imageAttachments: List<ChatImageAttachment>,
     private val frozenLocalImageAttachments: List<LocalImageAttachment>,
     val binding: RunPlacementBinding,
-    val permit: ActiveRunPlacementPermit,
+    val permit: ActiveRunPlacementPermit
 ) {
     val placement: RunPlacement
         get() = binding.placement
@@ -85,15 +84,14 @@ internal class PreparedChatRun private constructor(
     val localImageAttachments: List<LocalImageAttachment>
         get() = frozenLocalImageAttachments.map { attachment -> attachment.frozenCopy() }
 
-    override fun toString(): String =
-        "PreparedChatRun(runId=$runId, placement=$placement, historyCount=${history.size}, " +
-            "imageCount=${imageAttachments.size}, localImageCount=${frozenLocalImageAttachments.size})"
+    override fun toString(): String = "PreparedChatRun(runId=$runId, placement=$placement, historyCount=${history.size}, " +
+        "imageCount=${imageAttachments.size}, localImageCount=${frozenLocalImageAttachments.size})"
 
     companion object {
         fun freeze(
             request: PrepareChatRunRequest,
             binding: RunPlacementBinding,
-            permit: ActiveRunPlacementPermit,
+            permit: ActiveRunPlacementPermit
         ): PreparedChatRun = PreparedChatRun(
             runId = request.runId,
             preference = request.preference,
@@ -101,7 +99,7 @@ internal class PreparedChatRun private constructor(
             imageAttachments = request.imageAttachments.toList(),
             frozenLocalImageAttachments = request.localImageAttachments.map { attachment -> attachment.frozenCopy() },
             binding = binding,
-            permit = permit,
+            permit = permit
         )
     }
 }
@@ -113,7 +111,7 @@ internal sealed interface PrepareChatRunResult {
     data class Ready(val prepared: PreparedChatRun) : PrepareChatRunResult
     data class AwaitingDisclosure(
         val runId: String,
-        val expectedConfigRevision: String,
+        val expectedConfigRevision: String
     ) : PrepareChatRunResult
 }
 
@@ -122,11 +120,11 @@ internal class PreparedChatRunCoordinator(
     private val bindingStore: PreparedChatBindingStore,
     private val dispatcher: PreparedChatDispatcher,
     private val revisionValidator: PreparedChatRevisionValidator,
-    private val dispatchReadiness: PreparedChatDispatchReadiness = PreparedChatDispatchReadiness {},
+    private val dispatchReadiness: PreparedChatDispatchReadiness = PreparedChatDispatchReadiness {}
 ) {
     private data class LifecycleToken(
         val runGeneration: Long,
-        val sessionGeneration: Long,
+        val sessionGeneration: Long
     )
 
     private enum class PreparedRunState {
@@ -134,7 +132,7 @@ internal class PreparedChatRunCoordinator(
         ReadyToDispatch,
         StartingDispatch,
         Running,
-        StopRequested,
+        StopRequested
     }
 
     private class RegisteredPreparedRun(
@@ -145,13 +143,13 @@ internal class PreparedChatRunCoordinator(
         var state: PreparedRunState,
         var runningCall: PreparedChatRunningCall? = null,
         var stopIssued: Boolean = false,
-        val stopFinished: CountDownLatch = CountDownLatch(1),
+        val stopFinished: CountDownLatch = CountDownLatch(1)
     )
 
     private enum class DispatchOutcome {
         Dispatched,
         Invalidated,
-        Failed,
+        Failed
     }
 
     private val lifecycleLock = Any()
@@ -171,7 +169,7 @@ internal class PreparedChatRunCoordinator(
                 decision = decision,
                 remoteProfileRevision = frozenRequest.remoteConfigRevision,
                 bootCount = frozenRequest.bootCount,
-                boundAtElapsedRealtimeMillis = frozenRequest.boundAtElapsedRealtimeMillis,
+                boundAtElapsedRealtimeMillis = frozenRequest.boundAtElapsedRealtimeMillis
             )
         }.onFailure {
             solinD(TAG_MODEL, "prepare fromDecision rejected exception=${it.javaClass.simpleName}")
@@ -186,7 +184,7 @@ internal class PreparedChatRunCoordinator(
                 frozenRequest.remoteConfigRevision,
                 prepared,
                 lifecycleToken,
-                PreparedRunState.AwaitingDisclosure,
+                PreparedRunState.AwaitingDisclosure
             )
             val published = register(registered)
             if (!published) {
@@ -195,7 +193,7 @@ internal class PreparedChatRunCoordinator(
             }
             return PrepareChatRunResult.AwaitingDisclosure(
                 frozenRequest.runId,
-                frozenRequest.remoteConfigRevision,
+                frozenRequest.remoteConfigRevision
             )
         }
         val registered = RegisteredPreparedRun(
@@ -203,7 +201,7 @@ internal class PreparedChatRunCoordinator(
             expectedConfigRevision = frozenRequest.remoteConfigRevision,
             prepared = prepared,
             lifecycleToken = lifecycleToken,
-            state = PreparedRunState.ReadyToDispatch,
+            state = PreparedRunState.ReadyToDispatch
         )
         if (!register(registered)) {
             abort(permit)
@@ -244,7 +242,7 @@ internal class PreparedChatRunCoordinator(
             preparedRuns[runId]?.let { registered ->
                 when (registered.state) {
                     PreparedRunState.AwaitingDisclosure,
-                    PreparedRunState.ReadyToDispatch,
+                    PreparedRunState.ReadyToDispatch
                     -> {
                         preparedRuns.remove(runId)
                         abort = registered
@@ -272,7 +270,7 @@ internal class PreparedChatRunCoordinator(
             preparedRuns.values.filter { registered -> registered.sessionId == sessionId }.forEach { registered ->
                 when (registered.state) {
                     PreparedRunState.AwaitingDisclosure,
-                    PreparedRunState.ReadyToDispatch,
+                    PreparedRunState.ReadyToDispatch
                     -> {
                         preparedRuns.remove(registered.prepared.runId)
                         aborts += registered
@@ -302,21 +300,19 @@ internal class PreparedChatRunCoordinator(
             preparedRuns.putIfAbsent(prepared.runId, registered) == null
     }
 
-    private fun captureLifecycleToken(runId: String, sessionId: String): LifecycleToken =
-        synchronized(lifecycleLock) {
-            LifecycleToken(
-                runGeneration = runGenerations.getOrDefault(runId, 0),
-                sessionGeneration = sessionGenerations.getOrDefault(sessionId, 0),
-            )
-        }
+    private fun captureLifecycleToken(runId: String, sessionId: String): LifecycleToken = synchronized(lifecycleLock) {
+        LifecycleToken(
+            runGeneration = runGenerations.getOrDefault(runId, 0),
+            sessionGeneration = sessionGenerations.getOrDefault(sessionId, 0)
+        )
+    }
 
     private fun isLifecycleCurrent(
         runId: String,
         sessionId: String,
-        token: LifecycleToken,
-    ): Boolean =
-        runGenerations.getOrDefault(runId, 0) == token.runGeneration &&
-            sessionGenerations.getOrDefault(sessionId, 0) == token.sessionGeneration
+        token: LifecycleToken
+    ): Boolean = runGenerations.getOrDefault(runId, 0) == token.runGeneration &&
+        sessionGenerations.getOrDefault(sessionId, 0) == token.sessionGeneration
 
     private suspend fun dispatchRegistered(registered: RegisteredPreparedRun): DispatchOutcome {
         try {
@@ -419,18 +415,18 @@ internal class PreparedChatRunCoordinator(
         local = localCandidate,
         remote = remoteCandidate,
         resources = resources,
-        complexity = complexity,
+        complexity = complexity
     )
 
     private fun PrepareChatRunRequest.frozenCopy(): PrepareChatRunRequest = copy(
         history = history.toList(),
         imageAttachments = imageAttachments.toList(),
-        localImageAttachments = localImageAttachments.map { attachment -> attachment.frozenCopy() },
+        localImageAttachments = localImageAttachments.map { attachment -> attachment.frozenCopy() }
     )
 }
 
 private fun LocalImageAttachment.frozenCopy(): LocalImageAttachment = LocalImageAttachment(
     mimeType = mimeType,
     bytes = bytes.copyOf(),
-    sizeBytes = sizeBytes,
+    sizeBytes = sizeBytes
 )
