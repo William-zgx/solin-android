@@ -4,20 +4,23 @@ import android.app.DownloadManager
 import android.content.Context
 import android.database.Cursor
 import android.view.KeyEvent
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assertIsOff
-import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -251,6 +254,8 @@ class MainActivityComprehensiveTest {
         composeRule.onNode(
             hasTestTagPrefix("session_row_") and hasText(previousSessionTitle)
         ).performClick()
+        // The restored reply can be above the current lazy-list viewport; compose it before asserting.
+        composeRule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("记忆回答"))
         composeRule.waitForText("记忆回答")
 
         composeRule.onNodeWithTag("top_session_button").performClick()
