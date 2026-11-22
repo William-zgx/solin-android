@@ -32,13 +32,14 @@ class DeviceLockGateTest {
         assertNull(DeviceLockState.Unlocked.screenTextRefusal())
         assertNull(DeviceLockState.Unlocked.screenshotRefusal())
         assertNull(DeviceLockState.Unlocked.uiActionRefusal())
-        assertEquals(UiActionFailureKind.PageChanged, DeviceLockState.Locked.screenStateRefusal()?.failureKind)
+        assertEquals(UiActionFailureKind.SnapshotUnknown, DeviceLockState.Locked.screenStateRefusal()?.failureKind)
         assertEquals(UiActionFailureKind.SnapshotUnknown, DeviceLockState.Unknown.screenStateRefusal()?.failureKind)
         assertTrue(DeviceLockState.Locked.screenTextRefusal() is CurrentScreenTextReadResult.Failed)
         assertTrue(DeviceLockState.Unknown.screenshotRefusal() is RawScreenshotReadResult.Failed)
         for (state in listOf(DeviceLockState.Locked, DeviceLockState.Unknown)) {
             val action = requireNotNull(state.uiActionRefusal())
             assertFalse(action.retryable)
+            assertEquals(UiActionFailureKind.SnapshotUnknown, action.failureKind)
         }
     }
 
@@ -116,6 +117,30 @@ class DeviceLockGateTest {
         refusalOf { task.submitUiSideEffect { } }
         assertFalse(task.hasSubmittedUiSideEffect())
         assertTrue(uiActionTimeoutResult(task).retryable)
+    }
+
+    @Test
+    fun cancellationDuringReadProbeNeverStartsTheRead() {
+        val inProbe = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val coordinator = DeviceControlTaskCoordinator {
+            inProbe.countDown()
+            release.await()
+            DeviceLockState.Unlocked
+        }
+        val owner = Any()
+        coordinator.connect(owner)
+        val task = requireNotNull(coordinator.startTask())
+        var reads = 0
+        var failure: Throwable? = null
+        val worker = Thread { failure = runCatching { task.submitUiRead { reads += 1 } }.exceptionOrNull() }
+        worker.start()
+        assertTrue(inProbe.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        coordinator.interrupt(owner)
+        release.countDown()
+        worker.join(5000)
+        assertTrue(failure is DeviceControlTaskCancelledException)
+        assertEquals(0, reads)
     }
 
     @Test

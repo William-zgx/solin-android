@@ -312,7 +312,7 @@ class SolinAccessibilityService : AccessibilityService() {
         deviceControlTasks.lockState().screenTextRefusal()?.let { return it }
         val root = activeWindowRoot()
             ?: return CurrentScreenTextReadResult.Failed("当前屏幕没有可访问文本根节点")
-        return runCatching {
+        val result = runCatching {
             CurrentScreenTextReadResult.Available(
                 root.toCurrentScreenTextSnapshot(
                     maxChars = maxChars,
@@ -322,6 +322,8 @@ class SolinAccessibilityService : AccessibilityService() {
         }.getOrElse {
             CurrentScreenTextReadResult.Failed("当前屏幕文本读取失败")
         }
+        // The walk can take seconds: discard text read across a lock transition.
+        return deviceControlTasks.lockState().screenTextRefusal() ?: result
     }
 
     private fun observeSnapshot(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
@@ -331,7 +333,7 @@ class SolinAccessibilityService : AccessibilityService() {
         // Same size the gestures are dispatched against, so a normalized point resolves to the
         // same pixel in the preflight hit test as in the real tap.
         val (widthPx, heightPx) = runCatching { gestureScreenSizePx() }.getOrNull() ?: (null to null)
-        return runCatching {
+        val result = runCatching {
             ScreenStateReadResult.Available(
                 root.toScreenStateSnapshot(
                     maxTextChars = maxTextChars,
@@ -344,6 +346,8 @@ class SolinAccessibilityService : AccessibilityService() {
         }.getOrElse {
             ScreenStateReadResult.Failed("当前屏幕状态读取失败")
         }
+        // The walk can take seconds: discard nodes read across a lock transition.
+        return deviceControlTasks.lockState().screenStateRefusal() ?: result
     }
 
     private fun tapTarget(
@@ -843,10 +847,11 @@ class SolinAccessibilityService : AccessibilityService() {
                 )
             }
             if (error is DeviceLockedException) {
+                val refusal = error.refusal()
                 return@getOrElse UiPrimitiveResult.failed(
-                    reason = requireNotNull(error.state.uiActionRefusal()).reason,
+                    reason = refusal.reason,
                     retryable = false,
-                    failureKind = requireNotNull(error.state.uiActionRefusal()).failureKind
+                    failureKind = refusal.failureKind
                 )
             }
             if (error is SnapshotRefException) {
@@ -1061,6 +1066,8 @@ class SolinAccessibilityService : AccessibilityService() {
                     }
                 )
             }
+        } catch (refused: DeviceLockedException) {
+            return requireNotNull(refused.state.screenshotRefusal())
         } catch (throwable: Throwable) {
             return RawScreenshotReadResult.Failed("当前屏幕截图调用失败(${throwable.javaClass.simpleName})")
         }
@@ -1068,7 +1075,8 @@ class SolinAccessibilityService : AccessibilityService() {
         lastScreenshotAtMillis = System.currentTimeMillis()
         throwIfInterrupted()
         if (!done) return RawScreenshotReadResult.Failed("当前屏幕截图超时")
-        return resultRef.get()
+        // Pixels captured across a lock transition are discarded, never returned.
+        return deviceControlTasks.lockState().screenshotRefusal() ?: resultRef.get()
     }
 
     /**
@@ -1915,7 +1923,7 @@ class SolinAccessibilityService : AccessibilityService() {
                 try {
                     operation()
                 } catch (refused: DeviceLockedException) {
-                    requireNotNull(refused.state.uiActionRefusal())
+                    refused.refusal()
                 }
             }
         )
@@ -1966,11 +1974,14 @@ private fun <T> submitUiRead(action: () -> T): T {
     return task.submitUiRead(action)
 }
 
-private val deviceControlTasks: DeviceControlTaskCoordinator = DeviceControlTaskCoordinator {
-    (deviceControlTasks.currentOwner() as? android.content.Context)
-        ?.getSystemService(android.app.KeyguardManager::class.java)
-        .deviceLockState()
-}
+private val deviceControlTasks: DeviceControlTaskCoordinator = DeviceControlTaskCoordinator(::currentOwnerLockState)
+
+/** Reads the connected service's KeyguardManager lazily; no owner means Unknown (fail closed). */
+private fun currentOwnerLockState(): DeviceLockState = (deviceControlTasks.currentOwner() as? android.content.Context)
+    ?.getSystemService(android.app.KeyguardManager::class.java)
+    .deviceLockState()
+
+private fun DeviceLockedException.refusal(): UiActionReadResult.Failed = requireNotNull(state.uiActionRefusal())
 
 private sealed class EditableFocusResult {
     data class Found(val node: AccessibilityNodeInfo) : EditableFocusResult()

@@ -50,13 +50,13 @@ private fun DeviceLockState.refusalReason(): String? = when (this) {
     DeviceLockState.Unknown -> UNKNOWN_LOCK_REASON
 }
 
-private fun DeviceLockState.refusalKind(): UiActionFailureKind = if (this == DeviceLockState.Locked) {
-    UiActionFailureKind.PageChanged
-} else {
-    UiActionFailureKind.SnapshotUnknown
-}
+/**
+ * One kind for Locked and Unknown: the release path maps it to the generic `unknown`, so a remote
+ * planner cannot learn that the device is specifically locked.
+ */
+private val LOCK_REFUSAL_KIND = UiActionFailureKind.SnapshotUnknown
 
-internal fun DeviceLockState.screenStateRefusal(): ScreenStateReadResult.Failed? = refusalReason()?.let { ScreenStateReadResult.Failed(it, refusalKind()) }
+internal fun DeviceLockState.screenStateRefusal(): ScreenStateReadResult.Failed? = refusalReason()?.let { ScreenStateReadResult.Failed(it, LOCK_REFUSAL_KIND) }
 
 internal fun DeviceLockState.screenTextRefusal(): CurrentScreenTextReadResult.Failed? = refusalReason()?.let { CurrentScreenTextReadResult.Failed(it) }
 
@@ -64,7 +64,7 @@ internal fun DeviceLockState.screenshotRefusal(): RawScreenshotReadResult.Failed
 
 /** Non-retryable: waiting on the user to unlock is not something the loop can fix by retrying. */
 internal fun DeviceLockState.uiActionRefusal(): UiActionReadResult.Failed? = refusalReason()?.let {
-    UiActionReadResult.Failed(reason = it, retryable = false, failureKind = refusalKind())
+    UiActionReadResult.Failed(reason = it, retryable = false, failureKind = LOCK_REFUSAL_KIND)
 }
 
 /**
@@ -180,6 +180,8 @@ internal class DeviceControlTaskCoordinator(
         internal fun <T> submitUiRead(action: () -> T): T {
             requireActive()
             requireUnlocked()
+            // A cancellation during the probe's binder call must not start the framework read.
+            requireActive()
             return action()
         }
 
