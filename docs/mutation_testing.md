@@ -45,8 +45,11 @@ paired device benchmarks, migration tests, privacy review or release approval.
 
 The focused run covers `PersistedEnumTest`, `StrictJsonScanTest` and
 `com.bytedance.zgx.solin.safety.EgressGateTest`. The campaign makes one focused launch per registered mutant plus the baseline. It remains opt-in and is not part of `verify_local.sh` or CI.
-No total for the expanded campaign is recorded here until it completes; reports stay under the ignored
-`build/verification/mutation` directory and are not committed.
+On 2026-11-22 the campaign at `ff3493ee590084fbbcbc2c7fa0945e1220989a41` (per-run target restoration)
+completed with **baseline passed, 12 killed and 0 survivors** (`SolinMutationReport/v2`, recorded at
+`2026-11-22T18:16:06+00:00`). An earlier 12/0 run at `b68db286` is invalid for EgressGate because a
+JSON mutant leaked into later runs. Reports stay under the ignored `build/verification/mutation`
+directory and are not committed.
 
 Historical pilot (JSON targets only, before the EgressGate mutants): the campaign proved the focused tests kill these mutants without deriving the JSON boundary
 fixture from the mutable production constant. On 2026-11-13 the hardened runner at
