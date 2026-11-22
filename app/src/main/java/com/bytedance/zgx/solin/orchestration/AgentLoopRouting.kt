@@ -30,6 +30,7 @@ fun AgentLoopResult.toAssistantRoute(): AssistantRoute {
             promptForModel = planned.promptForModel,
             memoryHits = planned.memoryHits,
             deviceContext = planned.deviceContext,
+            remotePromptForModel = planned.remotePromptForModel,
         )
 
         is AgentPlan.UseTool -> AssistantRoute.Action(

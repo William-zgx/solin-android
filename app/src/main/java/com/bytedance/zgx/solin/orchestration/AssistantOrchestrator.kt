@@ -28,7 +28,9 @@ sealed class AssistantRoute {
         val runId: String?,
         val promptForModel: String,
         val memoryHits: List<MemoryHit>,
-        val deviceContext: DeviceContextSnapshot? = null
+        val deviceContext: DeviceContextSnapshot? = null,
+        /** Privacy-safe remote prompt (see [ContextAssembler.remotePromptProjection]); null = none. */
+        val remotePromptForModel: String? = null
     ) : AssistantRoute()
 
     data class Action(

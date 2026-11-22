@@ -185,7 +185,7 @@ internal class PreparedChatExecution(
         get() = promptOverride ?: userPrompt
 
     val routeForDispatch: AssistantRoute.Chat
-        get() = promptOverride?.let { route.copy(promptForModel = it) } ?: route
+        get() = promptOverride?.let { route.copy(promptForModel = it, remotePromptForModel = null) } ?: route
 
     val stateBeforeDispatch: ChatUiState
         get() = stateBeforeSend.copy(messages = stateBeforeSend.messages + confirmedLocalMessages)
@@ -441,6 +441,10 @@ internal fun ChatUiState.clearedEvidence(): ChatUiState =
         activeMemoryEvidence = emptyList(),
         activePublicWebEvidence = emptyList(),
     )
+
+/** The route as a remote model may see it: the privacy-safe projection when one exists. */
+internal fun AssistantRoute.Chat.forRemoteSend(): AssistantRoute.Chat =
+    remotePromptForModel?.let { copy(promptForModel = it, remotePromptForModel = null) } ?: this
 
 internal fun remoteRouteBoundaryFailure(userInput: String, route: AssistantRoute.Chat): String? =
     when {

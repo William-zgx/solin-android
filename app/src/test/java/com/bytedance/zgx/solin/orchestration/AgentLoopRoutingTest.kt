@@ -190,4 +190,29 @@ class AgentLoopRoutingTest {
         data = data,
         overflowRefs = overflowRefs,
     )
+
+    @Test
+    fun answerPlanCarriesRemotePromptProjectionIntoChatRoute() {
+        val run = AgentRun(
+            id = "run-projection",
+            input = "q",
+            state = AgentRunState.GeneratingAnswer,
+            createdAtMillis = 0L,
+            updatedAtMillis = 0L,
+        )
+        val result = AgentLoopResult(
+            run = run,
+            plan = AgentPlan.Answer(
+                promptForModel = "wrapped q",
+                memoryHits = emptyList(),
+                remotePromptForModel = "q",
+            ),
+            steps = emptyList(),
+        )
+
+        val route = result.toAssistantRoute() as AssistantRoute.Chat
+
+        assertEquals("wrapped q", route.promptForModel)
+        assertEquals("q", route.remotePromptForModel)
+    }
 }

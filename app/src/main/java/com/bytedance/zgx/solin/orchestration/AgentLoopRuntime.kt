@@ -604,11 +604,7 @@ class AgentLoopRuntime(
                 )
             )
             runOptions.throwIfInitialRouteCancelled()
-            val answerPlan = AgentPlan.Answer(
-                promptForModel = resolvedContextAssembler.assembleAnswerPrompt(input, memoryHits, deviceContext, createdRun),
-                memoryHits = memoryHits,
-                deviceContext = deviceContext
-            )
+            val answerPlan = resolvedContextAssembler.answerPlan(input, memoryHits, deviceContext, createdRun)
             runOptions.throwIfInitialRouteCancelled()
             traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(answerPlan))
             runOptions.throwIfInitialRouteCancelled()

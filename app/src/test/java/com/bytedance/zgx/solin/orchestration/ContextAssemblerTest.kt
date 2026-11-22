@@ -1,7 +1,15 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.device.DeviceContextSnapshot
+import com.bytedance.zgx.solin.evidence.EvidenceCard
+import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.memory.MemoryHit
+import com.bytedance.zgx.solin.skill.SkillManifest
+import com.bytedance.zgx.solin.tool.RiskLevel
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -87,5 +95,79 @@ class ContextAssemblerTest {
         assertTrue("Expected prompt to include user input verbatim", out.contains(input))
         // The memory hit text should be carried as an evidence line.
         assertTrue("Expected memory evidence in prompt", out.contains("用户喜欢端侧离线聊天"))
+    }
+
+    private val skillManifest = SkillManifest(
+        id = "web_search",
+        version = 1,
+        title = "网页搜索",
+        description = "d",
+        triggerExamples = listOf("t"),
+        requiredTools = listOf("web_search"),
+        inputSchemaJson = "{}",
+        riskLevel = RiskLevel.LowReadOnly,
+        whenToUse = "查公开资料",
+    )
+
+    private fun catalogAssembler(vararg extra: SystemContextContributor) = ContextAssembler(
+        systemPromptBuilder = SystemPromptBuilder(
+            contributors = listOf(AvailableSkillsContributor({ listOf(skillManifest) })) + extra,
+            includeDeviceControlSurvivalRules = true,
+        ),
+    )
+
+    @Test
+    fun remoteProjectionIsRawInputWhileLocalPromptKeepsCatalog() {
+        val assembler = catalogAssembler()
+        val input = "用一句话介绍端侧 AI"
+        val local = assembler.assembleAnswerPrompt(input, emptyList(), null, fakeRun(input = input))
+        assertTrue(local, local.contains("available_skills"))
+        assertEquals(
+            input,
+            assembler.remotePromptProjection(input, emptyList(), null, fakeRun(input = input)),
+        )
+    }
+
+    @Test
+    fun remoteProjectionIsNullForMemoryDeviceTranslationAndUnlistedContributor() {
+        val input = "用一句话介绍端侧 AI"
+        val run = fakeRun(input = input)
+        val assembler = catalogAssembler()
+        assertNull(
+            assembler.remotePromptProjection(
+                input,
+                listOf(MemoryHit(id = "m", text = "x", score = 0.9f, finalScore = 0.9f)),
+                null,
+                run,
+            ),
+        )
+        assertNull(
+            assembler.remotePromptProjection(
+                input,
+                emptyList(),
+                DeviceContextSnapshot(
+                    isArm64Supported = true,
+                    inferenceMode = "Remote",
+                    installedCapabilities = emptySet(),
+                    memoryEnabled = false,
+                    availableStorageBytes = 1L,
+                    activeSessionId = "s",
+                    hasPendingConfirmation = false,
+                ),
+                run,
+            ),
+        )
+        assertNull(assembler.remotePromptProjection("把你好翻译成英文", emptyList(), null, run))
+        val other = object : SystemContextContributor {
+            override val sourceType = EvidenceSourceType.UserPrompt
+            override suspend fun contribute(userInput: String, run: AgentRun) = EvidenceCard(
+                id = "other-context",
+                sourceType = sourceType,
+                privacy = MessagePrivacy.RemoteEligible,
+                requiresLocalModel = false,
+                text = "other",
+            )
+        }
+        assertNull(catalogAssembler(other).remotePromptProjection(input, emptyList(), null, run))
     }
 }

@@ -742,7 +742,7 @@ class ChatController internal constructor(
                         if (useRemoteModel) {
                             val boundaryFailure = remoteRouteBoundaryFailure(
                                 userInput = trimmed,
-                                route = route
+                                route = route.forRemoteSend()
                             )
                             if (boundaryFailure != null) {
                                 activeModelRunId?.let { runId ->
@@ -751,7 +751,7 @@ class ChatController internal constructor(
                                 remoteSendSupport.recordRemoteSendAuditEvent(
                                     decision = RemoteSendDecision.Blocked,
                                     modelName = remoteConfig.normalized().modelName,
-                                    prompt = route.promptForModel,
+                                    prompt = route.forRemoteSend().promptForModel,
                                     imageCount = imageAttachments.size,
                                     remoteHistoryCount = remoteHistory.size
                                 )
@@ -795,7 +795,7 @@ class ChatController internal constructor(
                                     remoteSendSupport.recordRemoteSendAuditEvent(
                                         decision = RemoteSendDecision.Confirmed,
                                         modelName = remoteConfig.normalized().modelName,
-                                        prompt = route.promptForModel,
+                                        prompt = route.forRemoteSend().promptForModel,
                                         imageCount = imageAttachments.size,
                                         remoteHistoryCount = remoteHistory.size
                                     )
@@ -803,7 +803,7 @@ class ChatController internal constructor(
                                 remoteHistory = generationSupport.streamRemoteTurn(
                                     turn = turn,
                                     runId = route.runId,
-                                    prompt = route.promptForModel,
+                                    prompt = route.forRemoteSend().promptForModel,
                                     history = remoteHistory,
                                     parameters = stateBeforeSend.generationParameters,
                                     config = remoteConfig,
@@ -1026,12 +1026,12 @@ class ChatController internal constructor(
                 uiState.update { it.idleWithoutPlacement(PlacementReasonCode.PRIVACY_REQUIRES_LOCAL, "已保护本地内容") }
                 return
             }
-            remoteRouteBoundaryFailure(userInput = userPrompt, route = route)?.let { boundaryFailure ->
+            remoteRouteBoundaryFailure(userInput = userPrompt, route = route.forRemoteSend())?.let { boundaryFailure ->
                 assistantOrchestrator.failModelGeneration(runId, boundaryFailure)
                 remoteSendSupport.recordRemoteSendAuditEvent(
                     decision = RemoteSendDecision.Blocked,
                     modelName = remoteConfig.normalized().modelName,
-                    prompt = route.promptForModel,
+                    prompt = route.forRemoteSend().promptForModel,
                     imageCount = imageAttachments.size,
                     remoteHistoryCount = remoteHistory.size
                 )

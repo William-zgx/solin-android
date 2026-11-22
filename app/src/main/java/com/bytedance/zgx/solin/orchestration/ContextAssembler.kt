@@ -114,6 +114,43 @@ class ContextAssembler(
         """.trimIndent()
     }
 
+    /** Local answer prompt plus its privacy-safe remote projection, kept paired in one plan. */
+    fun answerPlan(
+        input: String,
+        memoryHits: List<MemoryHit>,
+        deviceContext: DeviceContextSnapshot?,
+        run: AgentRun,
+    ): AgentPlan.Answer = AgentPlan.Answer(
+        promptForModel = assembleAnswerPrompt(input, memoryHits, deviceContext, run),
+        memoryHits = memoryHits,
+        deviceContext = deviceContext,
+        remotePromptForModel = remotePromptProjection(input, memoryHits, deviceContext, run),
+    )
+
+    /**
+     * Prompt that may be sent to a remote model: the raw [input], or null when the local prompt
+     * carries anything beyond an explicitly allowlisted static card. No local memory, device
+     * context or translation turn, and every included contributor card id must be in
+     * [REMOTE_PROJECTION_ALLOWED_CARD_IDS]; RemoteEligible alone is never trusted.
+     */
+    fun remotePromptProjection(
+        input: String,
+        memoryHits: List<MemoryHit>,
+        deviceContext: DeviceContextSnapshot?,
+        run: AgentRun,
+    ): String? {
+        if (memoryHits.isNotEmpty() || deviceContext != null) return null
+        if (TranslationIntentParser.parse(input) != null) return null
+        val cards = runCatching {
+            systemPromptBuilder
+                ?.buildSystemPromptBlocking(input, run)
+                ?.evidenceCards
+                .orEmpty()
+                .filter { card -> !card.requiresLocalModel }
+        }.getOrNull() ?: return null
+        return input.takeIf { cards.all { card -> card.id in REMOTE_PROJECTION_ALLOWED_CARD_IDS } }
+    }
+
     private fun evidenceCardsForAnswerContext(
         memoryHits: List<MemoryHit>,
         deviceContext: DeviceContextSnapshot?,
@@ -187,6 +224,7 @@ class ContextAssembler(
     }
 
     private companion object {
+        val REMOTE_PROJECTION_ALLOWED_CARD_IDS: Set<String> = setOf("available-skills")
         val ANSWER_CONTEXT_TOKEN_BUDGET =
             LocalModelTokenLimits.MAX_INPUT_TOKENS -
                 LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -

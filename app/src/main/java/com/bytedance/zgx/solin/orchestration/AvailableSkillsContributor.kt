@@ -19,8 +19,9 @@ import com.bytedance.zgx.solin.skill.SkillManifest
  * - Only non-authorizing display fields are exposed: skill `id`, `title`, and `whenToUse`. Input
  *   schemas, required tools, risk levels, and skill instructions are deliberately withheld, so the
  *   catalog can never widen what a skill is authorized to do.
- * - The card is `LocalOnly` — the skill catalog describes on-device capabilities and is not remote
- *   evidence.
+ * - The card is `RemoteEligible` (`requiresLocalModel = false`): the catalog is static built-in
+ *   capability text with no user content. It is kept out of remote prompts anyway;
+ *   [ContextAssembler.remotePromptProjection] allowlists this card id and sends only raw input.
  */
 class AvailableSkillsContributor(
     private val manifestsProvider: () -> List<SkillManifest>,

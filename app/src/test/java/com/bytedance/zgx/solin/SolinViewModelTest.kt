@@ -5944,6 +5944,69 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun remoteModeSendsRawProjectionWithoutCatalogWhenLocalPromptIsWrapped() = runTest(dispatcher) {
+        val catalog = "<available_skills>\n- web_search: 网页搜索\n</available_skills>"
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-projection",
+                promptForModel = "$catalog\n\n用户问题：普通远程问题",
+                memoryHits = emptyList(),
+                remotePromptForModel = "普通远程问题"
+            )
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val auditStore = FakeRemoteSendAuditStore()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            remoteSendAuditStore = auditStore,
+            assistantRouter = assistantRouter,
+            chatPlacementRuntime = FakeChatPlacementRuntime()
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertEquals("普通远程问题", call.prompt)
+        assertFalse(call.prompt.contains("available_skills"))
+        assertEquals(0, assistantRouter.failModelGenerationCallCount)
+        assertTrue(auditStore.recentRemoteSends(10).none { it.toString().contains("available_skills") })
+    }
+
+    @Test
+    fun remoteModeStillRejectsMemoryRouteEvenWhenProjectionIsPresent() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-projection-memory",
+                promptForModel = "wrapped 普通远程问题",
+                memoryHits = listOf(MemoryHit(id = "pref", text = "secret local preference", score = 1f)),
+                remotePromptForModel = "普通远程问题"
+            )
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals("已阻止远程发送", viewModel.uiState.value.statusText)
+        assertTrue(sessionStore.messages.last().text.contains("本地记忆上下文"))
+    }
+
+    @Test
     fun remoteModeFailsClosedWhenRouteRewritesPrompt() = runTest(dispatcher) {
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(

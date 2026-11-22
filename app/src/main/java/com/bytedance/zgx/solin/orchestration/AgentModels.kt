@@ -104,6 +104,8 @@ sealed class AgentPlan {
         val promptForModel: String,
         val memoryHits: List<MemoryHit>,
         val deviceContext: DeviceContextSnapshot? = null,
+        /** Privacy-safe prompt for a remote model, or null when only the local prompt is allowed. */
+        val remotePromptForModel: String? = null,
     ) : AgentPlan()
 
     data class UseTool(
