@@ -151,10 +151,14 @@ class MainActivityComprehensiveTest {
         }
     }
 
+    // The endpoint this test persisted; sends wait for the view model to hold exactly this config.
+    private var activeRemoteBaseUrl: String = ""
+
     private fun launchComprehensiveActivity(
         inferenceMode: InferenceMode = InferenceMode.Local,
         remoteModelConfig: RemoteModelConfig = RemoteModelConfig()
     ): ActivityScenario<MainActivity> {
+        activeRemoteBaseUrl = remoteModelConfig.baseUrl
         resetMainActivityPersistentState(
             context = targetContext,
             inferenceMode = inferenceMode,
@@ -212,6 +216,7 @@ class MainActivityComprehensiveTest {
     }
 
     private fun sendPrompt(prompt: String, server: LocalOpenAiServer? = null) {
+        composeRule.waitForRemoteModelReady(activeRemoteBaseUrl)
         composeRule.onNodeWithTag("composer_input")
             .performTextClearance()
         composeRule.onNodeWithTag("composer_input").performTextInput(prompt)

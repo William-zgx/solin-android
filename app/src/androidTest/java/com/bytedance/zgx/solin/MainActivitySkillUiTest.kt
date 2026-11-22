@@ -24,6 +24,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
 
 class MainActivitySkillUiTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
@@ -36,8 +37,7 @@ class MainActivitySkillUiTest {
         )
     }
 
-    @get:Rule
-    val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
+    private val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeTestRule(
             ActivityScenarioRule(
                 mainActivitySkipStartupIntent(
@@ -46,6 +46,10 @@ class MainActivitySkillUiTest {
                 ),
             ),
         ) { rule -> activityFromScenarioRule(rule) }
+
+    // The probe endpoint must be up before the Activity (started by the inner rule) probes it.
+    @get:Rule
+    val ruleChain: RuleChain = RuleChain.outerRule(LocalModelProbeServerRule()).around(composeRule)
 
     @Test
     fun webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime() {
@@ -128,6 +132,7 @@ class MainActivitySkillUiTest {
     }
 
     private fun ComposeTestRule.sendPrompt(prompt: String) {
+        waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
         waitForReadyComposer()
         onNodeWithTag("composer_input").performTextClearance()
         onNodeWithTag("composer_input").performTextInput(prompt)

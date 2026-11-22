@@ -65,6 +65,10 @@ class MainActivityCompactResourceUiTest {
 }
 
 class MainActivityAdaptiveUiTest {
+    // The Activity is launched in the test body, so this endpoint is up before it starts.
+    @get:Rule
+    val probeServer = LocalModelProbeServerRule()
+
     @get:Rule
     val composeRule = createEmptyComposeRule()
 
@@ -179,6 +183,7 @@ class MainActivityAdaptiveUiTest {
         ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).use { scenario ->
             try {
                 composeRule.waitForTag("app_title")
+                composeRule.waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
                 composeRule.enableEveryMessageRemoteSendDisclosure()
 
                 scenario.onActivity { activity ->

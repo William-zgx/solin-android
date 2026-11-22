@@ -22,6 +22,10 @@ import org.junit.Test
 class MainActivitySpecialAccessUiTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
 
+    // The Activity is launched in the test body, so this endpoint is up before it starts.
+    @get:Rule
+    val probeServer = LocalModelProbeServerRule()
+
     @get:Rule
     val composeRule = createEmptyComposeRule()
 
@@ -135,6 +139,7 @@ class MainActivitySpecialAccessUiTest {
     }
 
     private fun ComposeTestRule.sendPrompt(prompt: String) {
+        waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
         waitForReadyComposer()
         onNodeWithTag("composer_input").performTextClearance()
         onNodeWithTag("composer_input").performTextInput(prompt)

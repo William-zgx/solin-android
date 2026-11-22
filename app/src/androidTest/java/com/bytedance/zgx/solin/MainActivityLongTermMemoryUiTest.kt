@@ -22,6 +22,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
 
 class MainActivityLongTermMemoryUiTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
@@ -34,11 +35,14 @@ class MainActivityLongTermMemoryUiTest {
         )
     }
 
-    @get:Rule
-    val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
+    private val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeTestRule(
             ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext, ReadyRemoteModelConfig))
         ) { rule -> activityFromScenarioRule(rule) }
+
+    // The probe endpoint must be up before the Activity (started by the inner rule) probes it.
+    @get:Rule
+    val ruleChain: RuleChain = RuleChain.outerRule(LocalModelProbeServerRule()).around(composeRule)
 
     @Test
     fun explicitPreferencesCanBeForgottenAndClearedFromLongTermMemoryPanel() {
@@ -89,6 +93,7 @@ class MainActivityLongTermMemoryUiTest {
     }
 
     private fun ComposeTestRule.sendPrompt(prompt: String) {
+        waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
         onNodeWithTag("composer_input").performTextClearance()
         onNodeWithTag("composer_input").performTextInput(prompt)
         onNodeWithTag("composer_send_button").performClick()

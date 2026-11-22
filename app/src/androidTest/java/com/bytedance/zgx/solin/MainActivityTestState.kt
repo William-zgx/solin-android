@@ -3,12 +3,25 @@ package com.bytedance.zgx.solin
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.bytedance.zgx.solin.data.FirstRunSetupRepository
 import com.bytedance.zgx.solin.data.PreferenceSettingsStore
 import com.bytedance.zgx.solin.data.RemoteModelRepository
 import com.bytedance.zgx.solin.data.SolinDatabase
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.nio.charset.StandardCharsets
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
+import org.junit.rules.ExternalResource
 
 internal val ReadyRemoteModelConfig = RemoteModelConfig(
     baseUrl = "http://127.0.0.1:16543/v1",
@@ -136,4 +149,110 @@ internal fun <A : Activity> activityFromScenarioRule(rule: ActivityScenarioRule<
     val activityRef = AtomicReference<A>()
     rule.scenario.onActivity { activity -> activityRef.set(activity) }
     return checkNotNull(activityRef.get()) { "ActivityScenarioRule did not provide an activity." }
+}
+
+/**
+ * Waits until the resumed [MainActivity]'s view model has committed the remote configuration:
+ * remote mode, the expected endpoint (so a stale persisted config cannot pass early) and `isReady`. MainActivity shows its content before the
+ * (debug-intent) remote config is applied on IO, and the composer placeholder alone does not prove
+ * it, so a send issued in that window reads an unconfigured `stateBeforeSend` and is blocked by
+ * placement before any dispatch. `updateRemoteReadiness` publishes `远程模型已就绪` from this same
+ * state update, but that status is not rendered once the home is ready and later runs overwrite it,
+ * so the underlying state is the observable proof.
+ */
+internal fun ComposeTestRule.waitForRemoteModelReady(expectedBaseUrl: String, timeoutMillis: Long = 10_000) {
+    waitUntil(timeoutMillis = timeoutMillis) { isRemoteModelReadyNow(expectedBaseUrl) }
+}
+
+private fun isRemoteModelReadyNow(expectedBaseUrl: String): Boolean {
+    val state = resumedMainActivityUiState() ?: return false
+    return state.isReady &&
+        state.inferenceMode == InferenceMode.Remote &&
+        state.remoteModelConfig.isConfigured &&
+        state.remoteModelConfig.baseUrl == expectedBaseUrl
+}
+
+/** The live view-model state of the resumed [MainActivity], or null when none is resumed. */
+internal fun resumedMainActivityUiState(): ChatUiState? {
+    var state: ChatUiState? = null
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        val activity = ActivityLifecycleMonitorRegistry.getInstance()
+            .getActivitiesInStage(Stage.RESUMED)
+            .filterIsInstance<MainActivity>()
+            .firstOrNull() ?: return@runOnMainSync
+        state = ViewModelProvider(activity)[SolinViewModel::class.java].uiState.value
+    }
+    return state
+}
+
+/**
+ * Connectivity-only endpoint for [ReadyRemoteModelConfig] (127.0.0.1:16543). Connectivity probing
+ * marks an unreachable remote endpoint Unreachable and placement then blocks remote sends, so tests
+ * that pre-configure that endpoint but run no chat mock need something real answering `/v1/models`.
+ * It deliberately cannot answer chat: any other request gets 404 and is recorded, and [after] fails
+ * the test if one arrived, so a test that must not make a remote chat request still cannot.
+ * Start it ahead of the Activity (outer rule / plain rule with an Activity launched in the body).
+ */
+class LocalModelProbeServerRule : ExternalResource() {
+    private var serverSocket: ServerSocket? = null
+    private var acceptThread: Thread? = null
+    private val unexpectedRequests = CopyOnWriteArrayList<String>()
+
+    override fun before() {
+        val socket = ServerSocket().apply {
+            reuseAddress = true
+            bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), PROBE_PORT), 8)
+        }
+        serverSocket = socket
+        acceptThread = thread(start = true, isDaemon = true, name = "solin-probe-server") {
+            while (!socket.isClosed) {
+                val client = runCatching { socket.accept() }.getOrNull() ?: break
+                thread(start = true, isDaemon = true, name = "solin-probe-connection") { serve(client) }
+            }
+        }
+    }
+
+    override fun after() {
+        serverSocket?.close()
+        acceptThread?.join(2_000)
+        serverSocket = null
+        acceptThread = null
+        check(unexpectedRequests.isEmpty()) {
+            "Connectivity probe server received non-probe requests: $unexpectedRequests"
+        }
+    }
+
+    private fun serve(client: Socket) {
+        try {
+            client.use { socket ->
+                socket.soTimeout = 5_000
+                val reader = socket.getInputStream().bufferedReader(StandardCharsets.ISO_8859_1)
+                val requestLine = reader.readLine() ?: return
+                while (reader.readLine()?.isNotEmpty() == true) Unit
+                val parts = requestLine.split(" ")
+                val isProbe = parts.getOrNull(0) == "GET" && parts.getOrNull(1)?.substringBefore('?') == "/v1/models"
+                val body = if (isProbe) PROBE_MODELS_BODY else "{}"
+                if (!isProbe) unexpectedRequests += "${parts.getOrNull(0)} ${parts.getOrNull(1)}"
+                val status = if (isProbe) "200 OK" else "404 Not Found"
+                val bytes = body.toByteArray(StandardCharsets.UTF_8)
+                socket.getOutputStream().apply {
+                    write(
+                        ("HTTP/1.1 $status\r\nContent-Type: application/json\r\n" +
+                            "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n")
+                            .toByteArray(StandardCharsets.ISO_8859_1),
+                    )
+                    write(bytes)
+                    flush()
+                }
+            }
+        } catch (_: java.io.IOException) {
+            // A client that disconnects or times out ends only this connection; it is not a server
+            // failure, and the owning test's assertions (and [after]) still decide pass or fail.
+        }
+    }
+
+    private companion object {
+        const val PROBE_PORT = 16543
+        const val PROBE_MODELS_BODY = "{\"object\":\"list\",\"data\":[{\"id\":\"android-test-model\",\"object\":\"model\"}]}"
+    }
 }

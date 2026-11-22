@@ -35,6 +35,10 @@ class MainActivityRuntimePermissionUiTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device: UiDevice = UiDevice.getInstance(instrumentation)
 
+    // The Activity is launched in the test body, so this endpoint is up before it starts.
+    @get:Rule
+    val probeServer = LocalModelProbeServerRule()
+
     @get:Rule
     val composeRule = createEmptyComposeRule()
 
@@ -207,6 +211,7 @@ class MainActivityRuntimePermissionUiTest {
     }
 
     private fun ComposeTestRule.sendPrompt(prompt: String) {
+        waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
         waitForReadyComposer()
         onNodeWithTag("composer_input").performTextClearance()
         onNodeWithTag("composer_input").performTextInput(prompt)
@@ -252,9 +257,15 @@ class MainActivityRuntimePermissionUiTest {
             val remoteState = runCatching {
                 val repository = RemoteModelRepository(targetContext)
                 val config = repository.loadConfig()
-                "mode=${repository.loadMode()} configured=${config.isConfigured} " +
+                val persisted = "mode=${repository.loadMode()} configured=${config.isConfigured} " +
                     "revisionPresent=${config.profileRevision.isNotBlank()} model=${config.modelName} " +
                     "base=${config.baseUrl}"
+                // Live state of the resumed activity: what placement actually saw.
+                val liveText = resumedMainActivityUiState()?.let {
+                    "liveConnectivity=${it.remoteModelConfig.connectivityStatus} " +
+                        "activeRunPlacementReason=${it.activeRunPlacementReason}"
+                } ?: "live state unavailable"
+                "$persisted $liveText"
             }.getOrElse { "remote state failed: ${it.javaClass.simpleName}" }
             runCatching {
                 instrumentation.sendStatus(
@@ -272,19 +283,59 @@ class MainActivityRuntimePermissionUiTest {
 
     private fun placementState(): String = runCatching {
         val database = SolinDatabase.get(targetContext)
-        val runId = database.openHelper.writableDatabase
-            .query("SELECT id FROM agent_runs ORDER BY updatedAtMillis DESC LIMIT 1")
-            .use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-        if (runId == null) {
+        val sqlite = database.openHelper.writableDatabase
+        val dao = database.runPlacementBindingDao()
+        // Recent runs with their binding (if any); run ids stay out of the output.
+        val recent = sqlite.query(
+            """
+            SELECT r.id, r.state, b.placement, b.dispatchState, b.attempt, b.bootCount
+            FROM agent_runs r
+            LEFT JOIN agent_run_placement_bindings b ON b.runId = r.id
+            ORDER BY r.updatedAtMillis DESC LIMIT 5
+            """.trimIndent(),
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        Triple(
+                            cursor.getString(0),
+                            "runState=${cursor.getString(1)} binding=${!cursor.isNull(2)} " +
+                                "placement=${cursor.getStringOrNull(2)} dispatch=${cursor.getStringOrNull(3)} " +
+                                "attempt=${if (cursor.isNull(4)) null else cursor.getInt(4)} " +
+                                "boot=${if (cursor.isNull(5)) null else cursor.getLong(5)}",
+                            Unit,
+                        ),
+                    )
+                }
+            }
+        }
+        val runs = if (recent.isEmpty()) {
             "no runs"
         } else {
-            val dao = database.runPlacementBindingDao()
-            val run = dao.run(runId)
-            val binding = dao.binding(runId)
-            val steps = dao.steps(runId).takeLast(8).joinToString(",") { it.type }
-            "runState=${run?.state} dispatch=${binding?.dispatchState} boot=${binding?.bootCount} steps=$steps"
+            recent.mapIndexed { index, (runId, row, _) ->
+                val steps = dao.steps(runId).takeLast(8).joinToString(",") { it.type }
+                "run$index[$row steps=$steps]"
+            }.joinToString(" ")
         }
+        val latestBinding = sqlite.query(
+            """
+            SELECT placement, dispatchState, attempt, bootCount
+            FROM agent_run_placement_bindings
+            ORDER BY boundAtElapsedRealtimeMillis DESC LIMIT 1
+            """.trimIndent(),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                "exists placement=${cursor.getString(0)} dispatch=${cursor.getString(1)} " +
+                    "attempt=${cursor.getInt(2)} boot=${cursor.getLong(3)}"
+            } else {
+                "none"
+            }
+        }
+        "$runs latestBinding=$latestBinding"
     }.getOrElse { "placement state failed: ${it.javaClass.simpleName}" }
+
+    private fun android.database.Cursor.getStringOrNull(index: Int): String? =
+        if (isNull(index)) null else getString(index)
 
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
