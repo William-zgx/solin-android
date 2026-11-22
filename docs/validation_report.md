@@ -18034,3 +18034,11 @@ git diff --check
   验证 drawer 关闭，并让 Release 等待稳定的“模型管理”入口，Opus 5.5 clean。最终 `b7cf4272`
   完整 JVM **3072 tests / 0 failures / 0 errors / 15 skipped**，androidTest 编译、Spotless、
   隐私扫描通过。下一次 hosted run 才决定是否真正全绿。
+- Hosted [#180](https://github.com/William-zgx/solin-android/actions/runs/45001222191)（`2b151002`）：
+  Verify 成功；后台任务、会话关闭、chat shell 和 Release smoke 已不再失败，Room 未崩溃。
+  远程组仍显示 placement 不可恢复；两个 privacy 测试因 privacy Tab 与 sheet 标题同名而仍有
+  重复节点，整体 **failure**。这证明 boot-count 修复仍需要下一层拒绝阶段证据，不能宣称远程通过。
+- F7 `e661db93`：privacy 改为 `model_tab_privacy.assertIsSelected()`，保留全部隐私内容断言。
+  诊断新增最近 run 的 state、binding dispatchState、bootCount 和末 8 个 step types，用现有 DAO
+  区分 parent/binding/claim/runtime，且不输出 runId、prompt、revision 或 key。Opus 5.5 clean，
+  androidTest 编译、Spotless、隐私扫描通过；实际拒绝阶段待下一次 hosted artifact。
