@@ -18093,3 +18093,7 @@ git diff --check
   全部通过，只剩综合测试在切回旧会话时未看到记忆回答。最终选择器 `e016a5b3` + `67251cc4`
   使用真实 `session_row_` 前缀与合并标题文本点击 drawer row，而非虚构 sheet tag 或底层聊天消息，
   Opus 5.5 clean，androidTest 编译、Spotless、隐私扫描通过；完整结果待下一次 run。
+- 综合测试的最终可见性修复 `8a46d37a` + `9a35ac7c`：在正确选择 session row 后，
+  对 LazyColumn 执行 `performScrollToNode(hasText("记忆回答"))`，先让中部回复进入组合，再保留原断言。
+  该动作针对恢复后自动滚到最新消息导致的视口外节点，不增加超时，Opus 5.5 clean，androidTest
+  编译、Spotless、隐私扫描通过；完整 workflow 结果待下一次 run。
