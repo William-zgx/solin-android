@@ -42,7 +42,9 @@ import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -82,6 +84,11 @@ internal class ModelLoadController(
     private var remoteConnectivityUiJob: Job? = null
     private var downloadMonitorJob: Job? = null
     private var downloadPreflightJob: Job? = null
+
+    /** Guards [legacyVerifyJob] and [closed] so [close] cannot miss a startup verification. */
+    private val legacyVerifyLock = Any()
+    private var legacyVerifyJob: Job? = null
+    private var closed = false
     private var activeDownloadId: Long? = null
     /** The running download's source; kept so the user can resume it over cellular data. */
     private var activeDownloadSource: ModelDownloadSource? = null
@@ -91,6 +98,11 @@ internal class ModelLoadController(
     private var setupDownloadInProgress = false
 
     fun close() {
+        synchronized(legacyVerifyLock) {
+            closed = true
+            legacyVerifyJob?.cancel()
+            legacyVerifyJob = null
+        }
         downloadMonitorJob?.cancel()
         downloadPreflightJob?.cancel()
         remoteConnectivityUiJob?.cancel()
@@ -1087,10 +1099,15 @@ internal class ModelLoadController(
     }
 
     fun verifyLegacyModelsOnStartup(skipModelRuntimeWork: Boolean) {
-        scope.launch(ioDispatcher) {
+        // Registered before it starts (LAZY) so close() cannot miss a body that begins on launch;
+        // the blocking repository call cannot be interrupted, so the body re-checks cancellation.
+        val job = scope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
+            ensureActive()
             val changed = modelRepository.verifyLegacyRecommendedModels()
+            ensureActive()
             if (!changed) return@launch
             val state = modelRepository.currentState()
+            ensureActive()
             updateModelState(state)
             val localMode = uiState.value.inferenceMode == InferenceMode.Local
             val hasFailedLegacy = state.installedModels.any {
@@ -1107,6 +1124,15 @@ internal class ModelLoadController(
                 }
             }
         }
+        synchronized(legacyVerifyLock) {
+            if (closed) {
+                job.cancel()
+                return
+            }
+            legacyVerifyJob?.cancel()
+            legacyVerifyJob = job
+        }
+        job.start()
     }
 
     /**
