@@ -27,7 +27,7 @@ class ModelRepositoryTest {
     @Test
     fun customDownloadSourceAcceptsHttpsPublicUrl() {
         val source = createCustomModelDownloadSource(
-            " https://models.example.com/releases/solin-chat.litertlm?token=abc ",
+            " https://models.example.com/releases/solin-chat.litertlm?token=abc "
         )
 
         assertNotNull(source)
@@ -42,7 +42,7 @@ class ModelRepositoryTest {
     @Test
     fun persistedPendingDownloadSourceStripsSensitiveQueryAndFragment() {
         val source = createCustomModelDownloadSource(
-            "https://models.example.com/releases/solin-chat.litertlm?token=abc&expires=123#signed",
+            "https://models.example.com/releases/solin-chat.litertlm?token=abc&expires=123#signed"
         )
         requireNotNull(source)
 
@@ -89,7 +89,7 @@ class ModelRepositoryTest {
             "http://localhost:8000/model.litertlm",
             "http://127.0.0.1:8000/model.litertlm",
             "http://[::1]:8000/model.litertlm",
-            "http://10.0.2.2:8000/model.litertlm",
+            "http://10.0.2.2:8000/model.litertlm"
         )
 
         localHosts.forEach { url ->
@@ -129,7 +129,7 @@ class ModelRepositoryTest {
                 downloadUrl = "https://models.example.com/model.litertlm",
                 expectedBytes = file.length() + 1L,
                 expectedSha256 = null,
-                modelId = null,
+                modelId = null
             )
 
             val result = source.verifiedSha256(file)
@@ -148,7 +148,7 @@ class ModelRepositoryTest {
                 downloadUrl = "https://models.example.com/model.litertlm",
                 expectedBytes = file.length(),
                 expectedSha256 = "0".repeat(64),
-                modelId = null,
+                modelId = null
             )
 
             val result = source.verifiedSha256(file)
@@ -167,7 +167,7 @@ class ModelRepositoryTest {
                 downloadUrl = "https://models.example.com/model.litertlm",
                 expectedBytes = file.length(),
                 expectedSha256 = null,
-                modelId = null,
+                modelId = null
             )
 
             val result = source.verifiedSha256(file)
@@ -192,7 +192,7 @@ class ModelRepositoryTest {
     @Test
     fun customModelUsesEightGibAbsoluteTransferLimit() {
         val source = createCustomModelDownloadSource(
-            "https://models.example.com/releases/custom.litertlm",
+            "https://models.example.com/releases/custom.litertlm"
         )
         requireNotNull(source)
 
@@ -210,7 +210,7 @@ class ModelRepositoryTest {
                 input = ChunkedByteInputStream(ByteArray(6), chunkBytes = 2),
                 output = output,
                 maximumBytes = 5L,
-                onBytesCopied = copiedProgress::add,
+                onBytesCopied = copiedProgress::add
             )
         }
 
@@ -230,7 +230,7 @@ class ModelRepositoryTest {
             val model = testRecommendedModel(
                 fileName = primary.name,
                 byteSize = primary.length(),
-                sha256Hex = ModelCatalog.sha256Hex(primary),
+                sha256Hex = ModelCatalog.sha256Hex(primary)
             )
 
             assertTrue(currentFileMatchesRecommendedModel(primary, model))
@@ -263,9 +263,9 @@ class ModelRepositoryTest {
                         fileName = companion.name,
                         byteSize = companion.length(),
                         sha256Hex = ModelCatalog.sha256Hex(companion),
-                        downloadUrl = "https://models.example.com/${companion.name}",
-                    ),
-                ),
+                        downloadUrl = "https://models.example.com/${companion.name}"
+                    )
+                )
             )
 
             assertTrue(currentFileMatchesRecommendedModel(primary, model))
@@ -295,9 +295,9 @@ class ModelRepositoryTest {
                         fileName = companion.name,
                         byteSize = companion.length(),
                         sha256Hex = "f".repeat(64),
-                        downloadUrl = "https://models.example.com/${companion.name}",
-                    ),
-                ),
+                        downloadUrl = "https://models.example.com/${companion.name}"
+                    )
+                )
             )
 
             assertTrue(hasCompleteRecommendedBundleShape(primary, model))
@@ -318,7 +318,7 @@ class ModelRepositoryTest {
             val model = testRecommendedModel(
                 fileName = downloaded.name,
                 byteSize = downloaded.length(),
-                sha256Hex = ModelCatalog.sha256Hex(downloaded),
+                sha256Hex = ModelCatalog.sha256Hex(downloaded)
             )
             val stale = InstalledModelEntity(
                 id = model.id,
@@ -328,7 +328,7 @@ class ModelRepositoryTest {
                 recommendedModelId = model.id,
                 sourceRevision = "old-revision",
                 verifiedSha256 = "0".repeat(64),
-                verificationStatus = ModelVerificationStatus.FailedVerification.name,
+                verificationStatus = ModelVerificationStatus.FailedVerification.name
             )
 
             val reconciled = reconcileDownloadedRecommendedModel(stale, downloaded, model)
@@ -354,7 +354,7 @@ class ModelRepositoryTest {
             val model = testRecommendedModel(
                 fileName = downloaded.name,
                 byteSize = downloaded.length(),
-                sha256Hex = ModelCatalog.sha256Hex(downloaded),
+                sha256Hex = ModelCatalog.sha256Hex(downloaded)
             )
             val completeExisting = InstalledModelEntity(
                 id = model.id,
@@ -364,7 +364,7 @@ class ModelRepositoryTest {
                 recommendedModelId = model.id,
                 sourceRevision = model.sourceRevision,
                 verifiedSha256 = model.sha256Hex,
-                verificationStatus = ModelVerificationStatus.VerifiedRecommended.name,
+                verificationStatus = ModelVerificationStatus.VerifiedRecommended.name
             )
 
             assertNull(reconcileDownloadedRecommendedModel(completeExisting, downloaded, model))
@@ -391,9 +391,9 @@ class ModelRepositoryTest {
                         fileName = missingCompanion.name,
                         byteSize = 9L,
                         sha256Hex = "0".repeat(64),
-                        downloadUrl = "https://models.example.com/${missingCompanion.name}",
-                    ),
-                ),
+                        downloadUrl = "https://models.example.com/${missingCompanion.name}"
+                    )
+                )
             )
 
             assertEquals(
@@ -402,8 +402,8 @@ class ModelRepositoryTest {
                     file = primary,
                     model = model,
                     verifiedSha256 = model.sha256Hex,
-                    requestedStatus = ModelVerificationStatus.VerifiedRecommended,
-                ),
+                    requestedStatus = ModelVerificationStatus.VerifiedRecommended
+                )
             )
 
             missingCompanion.writeText("tokenizer", Charsets.UTF_8)
@@ -411,9 +411,9 @@ class ModelRepositoryTest {
                 companionFiles = listOf(
                     model.companionFiles.single().copy(
                         byteSize = missingCompanion.length(),
-                        sha256Hex = ModelCatalog.sha256Hex(missingCompanion),
-                    ),
-                ),
+                        sha256Hex = ModelCatalog.sha256Hex(missingCompanion)
+                    )
+                )
             )
 
             assertEquals(
@@ -422,8 +422,8 @@ class ModelRepositoryTest {
                     file = primary,
                     model = completeModel,
                     verifiedSha256 = completeModel.sha256Hex,
-                    requestedStatus = ModelVerificationStatus.VerifiedRecommended,
-                ),
+                    requestedStatus = ModelVerificationStatus.VerifiedRecommended
+                )
             )
         }
     }
@@ -437,7 +437,7 @@ class ModelRepositoryTest {
                 downloadUrl = "https://models.example.com/${file.name}",
                 expectedBytes = file.length(),
                 expectedSha256 = null,
-                modelId = "unknown-model-id",
+                modelId = "unknown-model-id"
             )
 
             assertEquals(file.nameWithoutExtension, source.installedDisplayName(file))
@@ -499,7 +499,7 @@ class ModelRepositoryTest {
                     usableSpaceBytes = 10L,
                     copyToTemp = {
                         copyCalled = true
-                    },
+                    }
                 )
             }
 
@@ -524,7 +524,7 @@ class ModelRepositoryTest {
                     usableSpaceBytes = 10L,
                     copyToTemp = {
                         copyCalled = true
-                    },
+                    }
                 )
             }
 
@@ -550,7 +550,7 @@ class ModelRepositoryTest {
                     maximumBytes = 5L,
                     copyToTemp = {
                         copyCalled = true
-                    },
+                    }
                 )
             }
 
@@ -577,7 +577,7 @@ class ModelRepositoryTest {
                                 copyStreamWithByteLimit(input, output, maximumBytes = 5L)
                             }
                         }
-                    },
+                    }
                 )
             }
 
@@ -598,7 +598,7 @@ class ModelRepositoryTest {
                     usableSpaceBytes = 10L,
                     copyToTemp = {
                         // Leave the temp file empty to simulate a zero-byte picker result.
-                    },
+                    }
                 )
             }
 
@@ -621,7 +621,7 @@ class ModelRepositoryTest {
                     copyToTemp = { tempTarget ->
                         tempTarget.writeText("partial", Charsets.UTF_8)
                         throw IOException("copy failed")
-                    },
+                    }
                 )
             }
 
@@ -642,7 +642,7 @@ class ModelRepositoryTest {
                 usableSpaceBytes = 10L,
                 copyToTemp = { tempTarget ->
                     tempTarget.writeText("model", Charsets.UTF_8)
-                },
+                }
             )
 
             val target = File(imported.path)
@@ -665,7 +665,7 @@ class ModelRepositoryTest {
                 input = ChunkedByteInputStream(ByteArray(6), chunkBytes = 2),
                 output = output,
                 maximumBytes = 10L,
-                ensureActive = { if (++checks == 3) throw CancellationException("cancelled") },
+                ensureActive = { if (++checks == 3) throw CancellationException("cancelled") }
             )
         }
 
@@ -690,7 +690,7 @@ class ModelRepositoryTest {
                             worker.cancel()
                             ensureActive()
                         },
-                        register = { registrations++ },
+                        register = { registrations++ }
                     )
                 }
                 worker.join()
@@ -719,7 +719,7 @@ class ModelRepositoryTest {
                             tempTarget.writeText("model", Charsets.UTF_8)
                             worker.cancel()
                         },
-                        register = { registrations++ },
+                        register = { registrations++ }
                     )
                 }
                 worker.join()
@@ -750,7 +750,7 @@ class ModelRepositoryTest {
                             worker.cancel()
                             registered += imported.path
                             imported.path
-                        },
+                        }
                     )
                 }
                 worker.join()
@@ -781,7 +781,7 @@ class ModelRepositoryTest {
                         assertEquals(null, imported.recommendedModelId)
                         assertEquals(ModelVerificationStatus.UnverifiedCustom, imported.verificationStatus)
                         imported.path
-                    },
+                    }
                 )
             }
 
@@ -806,7 +806,7 @@ class ModelRepositoryTest {
                             tempTarget.writeText("partial", Charsets.UTF_8)
                             throw IOException("copy failed")
                         },
-                        register = { registrations++ },
+                        register = { registrations++ }
                     )
                 }
             }
@@ -825,7 +825,7 @@ class ModelRepositoryTest {
         sourceSizeBytes: Long,
         usableSpaceBytes: Long,
         maximumBytes: Long = CUSTOM_MODEL_MAX_BYTES,
-        copyToTemp: (File) -> Unit,
+        copyToTemp: (File) -> Unit
     ): ImportedModelFile = runBlocking {
         importModelFileAndCommit(
             modelDir = modelDir,
@@ -834,7 +834,7 @@ class ModelRepositoryTest {
             usableSpaceBytes = usableSpaceBytes,
             maximumBytes = maximumBytes,
             copyToTemp = { tempTarget, _ -> copyToTemp(tempTarget) },
-            register = { it },
+            register = { it }
         )
     }
 
@@ -850,16 +850,15 @@ class ModelRepositoryTest {
 
     private class ChunkedByteInputStream(
         private val bytes: ByteArray,
-        private val chunkBytes: Int,
+        private val chunkBytes: Int
     ) : InputStream() {
         private var position = 0
 
-        override fun read(): Int =
-            if (position >= bytes.size) {
-                -1
-            } else {
-                bytes[position++].toInt() and 0xff
-            }
+        override fun read(): Int = if (position >= bytes.size) {
+            -1
+        } else {
+            bytes[position++].toInt() and 0xff
+        }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
             if (position >= bytes.size) return -1
@@ -882,21 +881,20 @@ class ModelRepositoryTest {
         byteSize: Long,
         sha256Hex: String,
         capability: ModelCapability = ModelCapability.Chat,
-        companionFiles: List<RecommendedModelCompanionFile> = emptyList(),
-    ): RecommendedModel =
-        RecommendedModel(
-            id = "test-${fileName.hashCode()}",
-            displayName = "测试模型",
-            shortName = "测试模型",
-            fileName = fileName,
-            byteSize = byteSize,
-            sourceRevision = "test-revision",
-            sha256Hex = sha256Hex,
-            repositoryUrl = "https://models.example.com/repo",
-            downloadUrl = "https://models.example.com/$fileName",
-            deviceHint = "test",
-            capability = capability,
-            setupTier = SetupTier.BasicRecommended,
-            companionFiles = companionFiles,
-        )
+        companionFiles: List<RecommendedModelCompanionFile> = emptyList()
+    ): RecommendedModel = RecommendedModel(
+        id = "test-${fileName.hashCode()}",
+        displayName = "测试模型",
+        shortName = "测试模型",
+        fileName = fileName,
+        byteSize = byteSize,
+        sourceRevision = "test-revision",
+        sha256Hex = sha256Hex,
+        repositoryUrl = "https://models.example.com/repo",
+        downloadUrl = "https://models.example.com/$fileName",
+        deviceHint = "test",
+        capability = capability,
+        setupTier = SetupTier.BasicRecommended,
+        companionFiles = companionFiles
+    )
 }

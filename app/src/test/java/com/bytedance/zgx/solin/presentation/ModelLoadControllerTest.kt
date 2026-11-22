@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.presentation
 import com.bytedance.zgx.solin.AdaptiveInferenceRollout
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
+import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.data.BundledModelInstaller
 import com.bytedance.zgx.solin.data.FirstRunSetupStore
 import com.bytedance.zgx.solin.data.GenerationParametersStore
@@ -12,7 +13,6 @@ import com.bytedance.zgx.solin.data.ModelSelectionState
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import com.bytedance.zgx.solin.data.SessionStore
 import com.bytedance.zgx.solin.download.ModelDownloadClient
-import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.runtime.DisabledLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
 import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
@@ -21,15 +21,14 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +37,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
