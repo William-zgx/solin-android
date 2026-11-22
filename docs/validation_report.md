@@ -18172,3 +18172,8 @@ git diff --check
   `viewModelScope` Job，scenario close 后有界 join，再允许下一类 reset；10 秒超时明确失败，
   不新增生产 API。Opus 5.5 ACCEPT、简化 CLEAN，androidTest 编译、Spotless、隐私扫描通过；
   完整 JVM task 为 **UP-TO-DATE / SUCCESS**（只改 androidTest），实际设备结果待下一次 run。
+- Hosted [#195](https://github.com/William-zgx/solin-android/actions/runs/45048494625)（`874b7588`）：
+  **Verify 7m51s success，emulator-regression 11m4s success**，Room 收尾崩溃消失。原始日志
+  `OK (104 tests)`，脚本汇总 **104 discovered / 91 executed / 13 skipped / 0 failed**。
+  至此 MediaProjection lock truth、voice watchdog 与 LongTermMemory teardown 均取得 hosted 证据；
+  assumption skip、真实锁屏、投影、麦克风/OEM 和 arm64 matrix 仍不因此转为通过。
