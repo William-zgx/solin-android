@@ -5,6 +5,8 @@ import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.LocalImageAttachment
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
+import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.resource.StableResourceState
 import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.CancellationException
@@ -171,6 +173,8 @@ internal class PreparedChatRunCoordinator(
                 bootCount = frozenRequest.bootCount,
                 boundAtElapsedRealtimeMillis = frozenRequest.boundAtElapsedRealtimeMillis,
             )
+        }.onFailure {
+            solinD(TAG_MODEL, "prepare fromDecision rejected exception=${it.javaClass.simpleName}")
         }.getOrNull() ?: return PrepareChatRunResult.BindingRejected
         val permit = runCatching { bindingStore.bindAndReserve(binding) }.getOrNull()
             ?: return PrepareChatRunResult.BindingRejected

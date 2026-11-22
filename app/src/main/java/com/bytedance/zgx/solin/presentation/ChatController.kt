@@ -931,6 +931,8 @@ class ChatController internal constructor(
                 bootCount = bootCountProvider(),
                 boundAtElapsedRealtimeMillis = elapsedRealtimeMillis()
             )
+        }.onFailure {
+            solinD(TAG_MODEL, "continuation fromDecision rejected exception=${it.javaClass.simpleName}")
         }.getOrNull() ?: return null
         return bindAndShowPlacement(binding)
     }

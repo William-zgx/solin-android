@@ -27,6 +27,7 @@ VERIFICATION_REPORT_FILE="${VERIFICATION_REPORT_FILE:-${ARTIFACT_DIR}/device-ver
 INSTRUMENTATION_OUTPUT_FILE="${INSTRUMENTATION_OUTPUT_FILE:-${ARTIFACT_DIR}/instrumentation.txt}"
 LOGCAT_FILE="${LOGCAT_FILE:-${ARTIFACT_DIR}/logcat.txt}"
 LOGCAT_TAIL_LINES="${LOGCAT_TAIL_LINES:-500}"
+SOLIN_LOGCAT_FILE="${SOLIN_LOGCAT_FILE:-${ARTIFACT_DIR}/solin-logcat.txt}"
 INSTRUMENTATION_CLASS="${INSTRUMENTATION_CLASS:-}"
 INSTRUMENTATION_TIMEOUT_SECONDS="${INSTRUMENTATION_TIMEOUT_SECONDS:-900}"
 RELEASE_MAIN_SHELL_TIMEOUT_SECONDS="${RELEASE_MAIN_SHELL_TIMEOUT_SECONDS:-45}"
@@ -287,6 +288,7 @@ write_verification_report() {
     echo "logcat_sha256=$logcat_sha256"
     echo "logcat_captured=$LOGCAT_CAPTURED"
     echo "logcat_tail_lines=$LOGCAT_TAIL_LINES"
+    echo "solin_logcat_file=$SOLIN_LOGCAT_FILE"
     echo "debug_apk=$DEBUG_APK"
   } > "$VERIFICATION_REPORT_FILE"
   REPORT_WRITTEN=1
@@ -320,6 +322,9 @@ capture_logcat_artifact() {
   else
     LOGCAT_CAPTURED=0
   fi
+  # App-tag-only view of the same bounded log window, so Solin lines are easier to inspect.
+  mkdir -p "$(dirname "$SOLIN_LOGCAT_FILE")"
+  "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t "$LOGCAT_TAIL_LINES" -s Solin/Model Solin/Lifecycle > "$SOLIN_LOGCAT_FILE" 2>/dev/null || true
 }
 
 capture_release_main_shell_artifacts() {

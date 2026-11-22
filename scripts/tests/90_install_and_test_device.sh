@@ -172,8 +172,13 @@ grep -q -- "-s emulator-5554 shell getprop ro.product.cpu.abilist64" "$FAKE_ADB_
   fail "Expected adb device commands to target the only authorized device"
 grep -q -- "-s emulator-5554 logcat -c" "$FAKE_ADB_LOG" ||
   fail "Expected install helper to clear the logcat window before validation"
-grep -q -- "-s emulator-5554 logcat -d -t 500" "$FAKE_ADB_LOG" ||
+grep -q -- "-s emulator-5554 logcat -d -t 500$" "$FAKE_ADB_LOG" ||
   fail "Expected install helper to capture logcat after validation"
+grep -q -- "-s emulator-5554 logcat -d -t 500 -s Solin/Model Solin/Lifecycle" "$FAKE_ADB_LOG" ||
+  fail "Expected install helper to capture a bounded Solin-tag logcat"
+[[ -f "$ARTIFACT_DIR/solin-logcat.txt" ]] ||
+  fail "Expected install helper to create the Solin-tag logcat artifact"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "solin_logcat_file=$ARTIFACT_DIR/solin-logcat.txt"
 if grep -q -- "-s emulator-5554 shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG"; then
   fail "Default install helper must preserve target app data"
 fi

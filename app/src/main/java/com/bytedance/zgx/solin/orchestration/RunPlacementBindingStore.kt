@@ -5,6 +5,8 @@ import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.RunPlacementBindingDao
 import com.bytedance.zgx.solin.data.RunPlacementRecoverySnapshotEntity
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
+import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
@@ -143,9 +145,9 @@ class RoomRunPlacementBindingStore(
     }
 
     override fun bindAndReserve(binding: RunPlacementBinding): BindAndReserveResult {
-        if (!binding.isInitialCanonicalBinding()) return BindAndReserveResult.Rejected()
-        if (activeBindings.containsKey(binding.runId)) return BindAndReserveResult.Rejected()
-        val persisted = runCatching {
+        if (!binding.isInitialCanonicalBinding()) return rejectedReserve("initial_not_canonical")
+        if (activeBindings.containsKey(binding.runId)) return rejectedReserve("initial_already_active")
+        val transaction = runCatching {
             dao.bindAndReserveTransaction(
                 binding = binding.toEntity(),
                 placementStep = AgentStep.PlacementSelected(binding).toTraceEntity(
@@ -154,20 +156,36 @@ class RoomRunPlacementBindingStore(
                     createdAtMillis = traceClockMillis()
                 )
             )
-        }.getOrNull()?.toDomainOrNull() ?: return BindAndReserveResult.Rejected()
-        if (persisted != binding) return BindAndReserveResult.Rejected()
+        }
+        val persisted = transaction.getOrNull()?.toDomainOrNull()
+            ?: return rejectedReserve(
+                if (transaction.isFailure) "transaction_threw" else "transaction_unreadable",
+                transaction.exceptionOrNull()
+            )
+        if (persisted != binding) return rejectedReserve("persisted_mismatch")
 
         return synchronized(lifecycleLock(binding.runId)) {
-            if (activeBindings.containsKey(binding.runId) || !isDurablyPublishable(binding)) {
-                return@synchronized BindAndReserveResult.Rejected()
+            if (activeBindings.containsKey(binding.runId)) {
+                return@synchronized rejectedReserve("publish_already_active")
             }
+            if (!isDurablyPublishable(binding)) return@synchronized rejectedReserve("publish_not_durable")
             val permit = ActiveRunPlacementPermit(ActiveRunPlacementEntry(binding), storeToken)
             if (activeBindings.putIfAbsent(binding.runId, permit) != null) {
-                BindAndReserveResult.Rejected()
+                rejectedReserve("publish_race_lost")
             } else {
                 BindAndReserveResult.Bound(permit)
             }
         }
+    }
+
+    /** Diagnostic only: stable stage and exception class name, never ids, prompts or SQL text. */
+    private fun rejectedReserve(stage: String, failure: Throwable? = null): BindAndReserveResult {
+        solinD(
+            TAG_MODEL,
+            "bindAndReserve rejected stage=$stage" +
+                (failure?.let { " exception=${it.javaClass.simpleName}" } ?: "")
+        )
+        return BindAndReserveResult.Rejected()
     }
 
     override fun activeBinding(runId: String): ActiveRunPlacementPermit? = activeBindings[runId]
