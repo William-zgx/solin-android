@@ -48,25 +48,26 @@ class BackgroundPhoneSession private constructor(
     private val expiresAtMs: Long,
 ) : AutoCloseable {
     @Volatile private var closed = false
+    @Volatile private var runStartNanos: Long = System.nanoTime()
     private lateinit var channel: BackgroundPhoneProtocol.Channel
 
     /** Bound to an explicit caller scope, then propagated to the service worker. Never a global mode. */
     class Binding internal constructor(private val session: BackgroundPhoneSession, val initial: BackgroundPhoneState) {
         private var expectedPackage: String? = initial.foregroundPackage
+        init { requireOwnFocus(initial) }
         fun launch(packageName: String): BackgroundPhoneState {
             requireActive()
-            return session.launch(packageName).also {
-                check(it.displayId == initial.displayId) { "Background display changed" }
-                expectedPackage = it.foregroundPackage
-            }
+            val launched = session.launch(packageName)
+            check(launched.displayId == initial.displayId) { "Background display changed" }
+            // Bind the requested package, never whatever the launch call happened to report. If it
+            // never becomes topmost (chooser, other app) requireActive keeps failing closed.
+            expectedPackage = packageName
+            return awaitTopmost(packageName, launched) { session.status() }
         }
         fun requireActive(): BackgroundPhoneState {
             check(!session.closed && System.currentTimeMillis() < session.expiresAtMs) { "Background session expired" }
             check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { "Background IPC must not block the UI thread" }
-            return session.status().also {
-                check(it.displayId == initial.displayId && it.width == initial.width && it.height == initial.height) { "Background display changed" }
-                check(it.foregroundPackage == expectedPackage) { "Background app changed during the operation" }
-            }
+            return session.status().also { verifyBound(it, initial, expectedPackage) }
         }
         fun requireLocallyActive() {
             check(!session.closed && System.currentTimeMillis() < session.expiresAtMs) { "Background session expired" }
@@ -83,6 +84,7 @@ class BackgroundPhoneSession private constructor(
     @Synchronized
     fun create(width: Int, height: Int, densityDpi: Int): BackgroundPhoneState {
         BackgroundPhoneProtocol.requireGeometry(width, height, densityDpi)
+        runStartNanos = System.nanoTime()
         return state(call(JSONObject().put("method", "create").put("width", width)
             .put("height", height).put("densityDpi", densityDpi)))
     }
@@ -99,7 +101,18 @@ class BackgroundPhoneSession private constructor(
 
     /** App-private in-memory PNG; never persists, logs, uploads or relaxes FLAG_SECURE. */
     @Synchronized
-    fun capture(): ByteArray = Base64.decode(call(JSONObject().put("method", "capture")).getString("png"), Base64.NO_WRAP)
+    fun capture(): ByteArray {
+        val response = call(JSONObject().put("method", "capture"))
+        // Reject frames the producer did not render during this run (T3: stale/replayed content).
+        val timestamp = requireFreshFrame(response.optLong("timestampNanos", 0L), runStartNanos)
+        val png = Base64.decode(response.getString("png"), Base64.NO_WRAP)
+        lastCaptureTimestampNanos = timestamp
+        return png
+    }
+
+    /** Producer Image.timestamp of the last accepted capture; 0 before any. Read-only evidence. */
+    @Volatile var lastCaptureTimestampNanos: Long = 0L
+        private set
 
     private fun call(request: JSONObject): JSONObject {
         return try {
@@ -228,6 +241,46 @@ class BackgroundPhoneSession private constructor(
             }
         }
 
+        private const val TOPMOST_WAIT_NANOS = 5_000_000_000L
+        private const val TOPMOST_POLL_MS = 200L
+
+        /** Unknown or false own-focus means no isolated input/capture: fail closed, no main fallback. */
+        internal fun requireOwnFocus(state: BackgroundPhoneState) {
+            if (!state.isolatedFocus) throw BackgroundPhoneFailure("independent_focus_unavailable")
+        }
+
+        internal fun verifyBound(state: BackgroundPhoneState, initial: BackgroundPhoneState, expectedPackage: String?) {
+            check(state.displayId == initial.displayId && state.width == initial.width && state.height == initial.height) { "Background display changed" }
+            requireOwnFocus(state)
+            check(state.foregroundPackage == expectedPackage) { "Background app changed during the operation" }
+        }
+
+        /** Bounded wait for exactly [target]; never selects a chooser or another package. */
+        internal fun awaitTopmost(
+            target: String,
+            first: BackgroundPhoneState,
+            nowNanos: () -> Long = System::nanoTime,
+            sleep: (Long) -> Unit = Thread::sleep,
+            poll: () -> BackgroundPhoneState,
+        ): BackgroundPhoneState {
+            val deadline = nowNanos() + TOPMOST_WAIT_NANOS
+            var current = first
+            while (true) {
+                requireOwnFocus(current)
+                if (current.foregroundPackage == target) return current
+                if (nowNanos() >= deadline) throw BackgroundPhoneFailure("target_not_foreground")
+                sleep(TOPMOST_POLL_MS)
+                current = poll()
+                check(current.displayId == first.displayId) { "Background display changed" }
+            }
+        }
+
+        /** Missing (0), non-positive or pre-run timestamps are stale or unprovable. */
+        internal fun requireFreshFrame(timestampNanos: Long, runStartNanos: Long): Long {
+            if (timestampNanos <= 0L || timestampNanos < runStartNanos) throw BackgroundPhoneFailure("stale_frame")
+            return timestampNanos
+        }
+
         private fun state(value: JSONObject): BackgroundPhoneState {
             val id = value.getInt("displayId")
             check(id > 0) { "Background display is unavailable" }
@@ -243,7 +296,7 @@ internal object BackgroundPhoneProtocol {
     const val MAX_MESSAGE_BYTES = 8 * 1024 * 1024
     private val failureCodes = setOf("session_unavailable", "already_created", "display_unavailable",
         "main_display_forbidden", "not_created", "display_geometry_changed", "app_in_use", "independent_focus_unavailable",
-        "launcher_unavailable", "launch_api_unavailable", "launch_rejected", "frame_unavailable", "blank_frame", "unsupported_operation")
+        "launcher_unavailable", "target_not_foreground", "stale_frame", "launch_api_unavailable", "launch_rejected", "frame_unavailable", "blank_frame", "unsupported_operation")
     fun safeFailure(value: String?): String = value?.takeIf { it in failureCodes } ?: "background_operation_refused"
     private fun nonce(): String = ByteArray(32).also(SecureRandom()::nextBytes).joinToString("") { "%02x".format(it) }
     private fun mac(token: String, vararg fields: String): String {

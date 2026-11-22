@@ -82,6 +82,7 @@ object BackgroundPhoneHelper {
         private var launchedPackage: String? = null
         private val framesLock = Any()
         private var latestFrame: Bitmap? = null
+        private var latestTimestampNanos = 0L
         private val frameThread = HandlerThread("SolinBackgroundFrames").apply { start() }
         private val frameHandler = Handler(frameThread.looper)
         private val taskManager = Class.forName("android.app.ActivityTaskManager").getMethod("getService").invoke(null)
@@ -189,13 +190,12 @@ object BackgroundPhoneHelper {
             return JSONObject().put("ok", true).put("displayId", current.display.displayId)
                 .put("foregroundPackage", top?.topActivity?.packageName.orEmpty())
                 .put("width", width).put("height", height).put("densityDpi", dpi)
-                .put("isolatedFocus", Build.VERSION.SDK_INT >= 34)
+                .put("isolatedFocus", BackgroundDisplayPolicy.hasOwnFocus(current.display.flags))
         }
 
         private fun launch(packageName: String): JSONObject {
-            check(Build.VERSION.SDK_INT >= 34) { "independent_focus_unavailable" }
             require(BackgroundPhoneProtocol.validPackage(packageName))
-            state()
+            check(state().getBoolean("isolatedFocus")) { "independent_focus_unavailable" }
             val id = checkNotNull(display).display.displayId
             val currentTasks = tasks()
             // Do not steal any existing task from another display, even a task behind the foreground.
@@ -221,6 +221,7 @@ object BackgroundPhoneHelper {
             val image = runCatching { source.acquireLatestImage() }.getOrNull() ?: return
             image.use {
                 if (closed) return
+                val timestamp = image.timestamp
                 val plane = image.planes.single()
                 if (plane.pixelStride != 4 || image.height != height || image.width != width) return
                 val strideWidth = plane.rowStride / plane.pixelStride
@@ -231,13 +232,16 @@ object BackgroundPhoneHelper {
                             latestFrame?.recycle(); latestFrame = it
                         }
                     buffer.copyPixelsFromBuffer(plane.buffer.rewind())
+                    latestTimestampNanos = timestamp
                 }
             }
         }
 
         private fun capture(): JSONObject {
             state()
+            var frameTimestamp = 0L
             val cropped = synchronized(framesLock) {
+                frameTimestamp = latestTimestampNanos
                 val frame = checkNotNull(latestFrame) { "frame_unavailable" }
                 Bitmap.createBitmap(frame, 0, 0, width, height).let {
                     if (it === frame) checkNotNull(frame.copy(Bitmap.Config.ARGB_8888, false)) else it
@@ -259,6 +263,7 @@ object BackgroundPhoneHelper {
             state()
             check(!locked() && !closed)
             return JSONObject().put("ok", true).put("png", Base64.encodeToString(png, Base64.NO_WRAP))
+                .put("timestampNanos", frameTimestamp)
         }
 
         @Suppress("UNCHECKED_CAST")
@@ -288,7 +293,7 @@ object BackgroundPhoneHelper {
                 runCatching { display?.release() }; display = null
                 runCatching { reader?.setOnImageAvailableListener(null, null) }
                 runCatching { reader?.close() }; reader = null
-                synchronized(framesLock) { latestFrame?.recycle(); latestFrame = null }
+                synchronized(framesLock) { latestFrame?.recycle(); latestFrame = null; latestTimestampNanos = 0L }
                 frameThread.quitSafely()
             }
             timer.cancel()
@@ -312,6 +317,12 @@ object BackgroundPhoneHelper {
 }
 
 internal object BackgroundDisplayPolicy {
+    /** Actual display capability, not an SDK guess. Unknown flags are false. */
+    fun hasOwnFocus(displayFlags: Int): Boolean = displayFlags and DISPLAY_FLAG_OWN_FOCUS != 0
+
+    /** android.view.Display.FLAG_OWN_FOCUS is @hide in the public SDK; value is 1 shl 11. */
+    const val DISPLAY_FLAG_OWN_FOCUS = 1 shl 11
+
     /** Mika display flag definitions; deliberately excludes secure content and unlocked displays. */
     fun flags(sdk: Int): Int {
         require(sdk >= 31)
