@@ -530,8 +530,10 @@ final_release_gate_block = job_block("final-release-gate")
 if "workflow_dispatch" not in verify_block:
     fail("verify job must run on workflow_dispatch before release artifacts are archived")
 for required in (
-    "runs-on: ubuntu-latest",
+    "runs-on: ubuntu-24.04",
     "Enable KVM hardware acceleration",
+    "sudo modprobe kvm",
+    "ls -l /dev/kvm",
     "test -w /dev/kvm",
     "system-images;android-36;google_apis;x86_64",
     "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",

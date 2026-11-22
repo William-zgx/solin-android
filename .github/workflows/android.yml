@@ -177,7 +177,7 @@ jobs:
 
   emulator-regression:
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 75
 
     steps:
@@ -194,9 +194,11 @@ jobs:
 
       - name: Enable KVM hardware acceleration
         run: |
+          sudo modprobe kvm
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
           test -w /dev/kvm
 
       - name: Set up Android SDK
