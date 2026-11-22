@@ -18003,3 +18003,13 @@ git diff --check
   `compileDebugAndroidTestKotlin`、Spotless、YAML、PART30 和隐私扫描通过。Room/UI 两个包均经
   独立 Opus 5.5 验收。下一轮 hosted run 仍需验证这些设备行为并给出远程路由根因；本条不提前
   标记 emulator 或工作流通过。
+- Hosted [#177](https://github.com/William-zgx/solin-android/actions/runs/44993564962)（`6173914f`）：
+  Verify 成功；P1 selector/记忆/大字体失败已消失，但远程发送/确认组仍全部失败，Room 崩溃复现，
+  整体 **failure**。路由分析确认测试 fixture 直接 prefs 写入空 `profileRevision`，不满足 Remote
+  placement canonical-UUID 门禁；进一步复核发现仅补 UUID 还会缺少 SecretStore integrity hash。
+  这是测试配置问题，未放宽 production placement。
+- F4 `867a8160` + `bc2d839a`：configured fixture 改用 `RemoteModelRepository.saveConfig(...)`
+  并 `.getOrThrow()`，同步生成 revision/hash；失败 dump 以 `id/boundsInRoot/config` 放入
+  suppressed instrumentation error，保留原异常与 24000 字上限。after-scenario idle/reset 仅作为
+  实验，不宣称已解决 IO 中的 DB 调用。Opus 5.5 对两个初审阻断的修复 clean；
+  `compileDebugAndroidTestKotlin`、Spotless、隐私扫描通过。实际结果待下一次 hosted run。
