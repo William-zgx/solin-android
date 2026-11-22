@@ -2,7 +2,7 @@
   "version": 1,
   "policy": "Public release builds require VERIFY_PRIVACY_REVIEW=1 and approved release/security/legal records for the current privacy notice and Capability Matrix SHA values.",
   "noticePath": "docs/privacy_notice.md",
-  "noticeSha256": "43fd79d81ab387071eb3d87fee3e4c9f0cf3ff1182bf3b9f6999b321e82e6dd1",
+  "noticeSha256": "5271c8d20b7f5966f94e46a4baedb6f507c7c7bf9cb922debc6c43dd554a5cbc",
   "capabilityMatrixPath": "docs/capability_matrix.json",
   "capabilityMatrixSha256": "9b2829ec985be46a45985eccab7d6503ce851f7e09fd6b8438c20c8e6aea4ac3",
   "status": "pending_manual_review",
@@ -13,7 +13,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/release-pending.properties",
-      "evidenceSha256": "82654b35396cd997b026364ccf3fde8951e1c422d6858696a7b28e5c7c2107d0"
+      "evidenceSha256": "7c0a4b3b913240aeecb06215605b9e7668e52955e81d14956d5050e7b9c5163b"
     },
     {
       "role": "security",
@@ -21,7 +21,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/security-pending.properties",
-      "evidenceSha256": "fb98d36376a4279b8cd49db48c42c3b756bfc082644e08b44bf0a657da332b58"
+      "evidenceSha256": "33d437b86a20978f9c0bd6f3bfc071496cbd29e558d278da7e53f772cb2297c8"
     },
     {
       "role": "legal",
@@ -29,7 +29,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/legal-pending.properties",
-      "evidenceSha256": "5096be1dfdca8de57926ab7db34cf2d7af70100e8e27f0b2a22fa0b6701f8161"
+      "evidenceSha256": "b7bbb7b77431d1c55439f0672da90b87d7c309e37f0aa22d7eae3a8305f14eed"
     }
   ]
 }

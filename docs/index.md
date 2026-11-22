@@ -27,8 +27,10 @@ at `aa8b6ef0`: Verify and emulator-regression both passed, with 91 emulator test
 13 assumption-skipped. The earlier local evidence at `2922ea3e` and the
 [snapshot-ref/background](validation_report.md#2026-11-22--snapshot-scoped-refs-and-background-evidence)
 and [deterministic boundary](validation_report.md#2026-11-21--deterministic-boundaries-and-input-lifecycle)
-entries retain their original evidence scope. The arm64 API-matrix runner and physical-device
-acceptance remain separate pending resources.
+entries retain their original evidence scope. The later
+[lock-screen and empty-origin safety batch](validation_report.md#2026-11-22--lock-screen-truth-and-empty-origin-egress)
+passed 3092 JVM tests locally; its MediaProjection and physical-device limits remain explicit.
+The arm64 API-matrix runner and physical-device acceptance remain separate pending resources.
 
 Keep **implementation**, **validation**, and **release approval** distinct.
 A green CI job does not turn a skipped device check into a pass, validate every

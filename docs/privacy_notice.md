@@ -206,6 +206,14 @@ self-stops after 45 seconds otherwise). The service captures nothing itself
 and transmits nothing. If the service cannot start, the OCR tool reports a
 distinct failure instead of capturing or asking again.
 
+Accessibility text/snapshot observation, input actions and
+`AccessibilityService.takeScreenshot` additionally require a fresh lock-state
+probe: both Android Keyguard lock signals must read false. Locked or unreadable
+state fails closed without a fallback action. Text, nodes and pixels are checked
+again after tree walking or capture and discarded if the device locked or the
+state became unreadable. The separate MediaProjection OCR path does not use this
+Accessibility lock-state gate; its lock-screen hardening remains a separate item.
+
 For screen understanding specifically, screen pixels, OCR excerpts,
 Accessibility text, Accessibility snapshot nodes/bounds metadata, and
 post-action structured observations and verification summaries stay

@@ -18116,3 +18116,24 @@ git diff --check
   原始 instrumentation 日志为 `OK (104 tests)`，脚本进一步汇总 **discovered=104 / executed=91 /
   skipped=13 / failures=0**；13 项 assumption skip 不算实际设备通过。设备 smoke 使用 API 36
   x86_64（可含 ARM translation），不填 arm64 release API matrix 或物理真机证据槽。
+
+## 2026-11-22 — Lock-screen truth and empty-origin egress
+
+- 锁屏门禁 `95d717b1` + `1ddb9269`，格式 `2daa5d41`：前台 Accessibility 观察、动作、
+  截图与最终提交要求两个 Keyguard 信号均成功读为 false；Locked/Unknown 封闭失败，无 lease
+  不再回退原始 action，树遍历/截图后再次探测并丢弃跨锁屏结果。后台 helper 复用同一分类，
+  独立焦点/帧检查不变，两种状态对远程规划均只显示 `unknown`。Test-first RED 为 18 tests /
+  5 behavior failures，最终 device/合同套件 **321 tests / 0 failures**；独立 Opus 5.5 对初始
+  与返修均 ACCEPT，简化复核 CLEAN。MediaProjection OCR 不在本切片，物理锁屏/OEM 仍待用户验收。
+- 空来源证据 `8da3f44e` + `5720fca1`，格式 `e1d2b087`：私密读取后，空 token 集合不再
+  证明文本来自用户；非空 symbol-only 文本必须出现在规范化 run input，否则沿用既有
+  TextHandedToExternalApp / TypedTextNotFromUser 确认。字母/数字 token 规则不变，未引入全量
+  provenance 字段或 router/runtime 改造。未改生产时的 RED 为 36 tests / 4 failures，其中一个
+  新断言误用非 egress `subject`，随后以真实 `title` 修正；最终同套件 **36 tests / 0 failures**。
+  独立 Opus 5.5 ACCEPT，简化复核 CLEAN；更广 router/chat/provenance 合并仍是独立后续工作。
+- 最终 integrated 命令 `:app:testDebugUnitTest spotlessCheck` **SUCCESS**：XML 汇总
+  **3092 tests / 0 failures / 0 errors / 15 skipped**。`scripts/privacy_scan.sh` 通过。
+  `scripts/verify_privacy_review.sh --report …` 仍按预期返回 incomplete，reason 只有既有
+  status/reviewer/date/approved-evidence 待审批项，**无 SHA mismatch**；notice candidate SHA 为
+  `5271c8d20b7f5966f94e46a4baedb6f507c7c7bf9cb922debc6c43dd554a5cbc`，release/security/legal
+  均保持 pending，哈希刷新不是人工批准。Hosted CI 与物理设备结果另行记录，不由本地门禁推断。

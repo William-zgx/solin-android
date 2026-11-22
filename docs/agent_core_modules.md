@@ -152,6 +152,13 @@ Current status:
   `ui_set_wheel` orchestration through `TimeoutToolExecutionBoundary`
   (`tool/ToolExecutionBoundary.kt`); and
   `skill/VerifiedPhoneRoutes.kt` owns session-memory route evidence.
+- Accessibility and experimental-background lock truth fails closed (T11): a fresh probe must read
+  both `KeyguardManager.isKeyguardLocked` and `isDeviceLocked` as false before observation, action,
+  screenshot or terminal submission. Locked or unknown state refuses without a fallback write; reads
+  re-probe after tree walks/capture and discard cross-lock text, nodes or pixels. Both cases surface
+  as `SnapshotUnknown`, so remote planning receives only `unknown`. The background helper reuses the
+  same classifier without replacing its focus/frame checks. This covers Accessibility/background,
+  not the separate MediaProjection OCR path; JVM contracts do not establish physical lock behavior.
 - `SolinAccessibilityService.onUnbind` invalidates the active device-control owner/lease before
   clipboard restoration. Safe typing additionally requires visible-to-user, non-empty bounds,
   current focus and the original node identity at pre-write and read-back checks. New JVM/source
@@ -179,6 +186,7 @@ Tests:
 - `ObservationReplannerScopedTargetShortlistTest`
 - `ModelObservationReplannerScopedTargetAcceptanceTest`
 - `BackgroundPhoneEvidenceTest`
+- `DeviceLockGateTest`
 - `ActionExecutorTest`
 
 ## Agent Loop

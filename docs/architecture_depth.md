@@ -79,6 +79,7 @@ messages sent in the user's name.
 | T8 | Secrets leak | API key in Git or logs | Encrypted secret store, privacy scan, no keys in code |
 | T9 | Model mis-flags or mis-routes | Router sends personal text to the cloud | Router only sees text that passed the sensitivity check and only chooses between already-legal placements |
 | T10 | On-device planning model acts without the user | Small model calls `open_app_by_name` for 别启动微信, or writes a `web_search` query; 34 of 51 no-tool requests in the desktop lab | Negated requests never reach the model; every accepted initial `LocalModelFirst` proposal asks (`CriticalApprovalReason.LocalModelProposedStep`) in either confirmation mode; observation replans use the ordinary critical-reason policy; provenance comes from the run trace |
+| T11 | Lock-screen content is read or injected while the user is away | A stale unlocked window supplies credentials, or a gesture lands after the phone locks | Fresh two-signal lock probe at Accessibility observation/action and terminal submission; post-walk/capture refusals discard content; no-lease execution fails closed |
 
 Out of scope: a compromised OS, root, or a malicious accessibility service.
 
@@ -177,6 +178,16 @@ overlay dismiss (which taps through a guarded candidate). The test also refuses
 to run green if it no longer recognizes the known input functions, so a rename
 cannot make it vacuous.
 
+**Lock-screen truth (T11).** `DeviceControlTaskCoordinator` requires a fresh
+`Unlocked` result from both Keyguard lock signals at every terminal read/write;
+there is no cached approval or no-lease raw-action fallback. Accessibility text,
+node and screenshot reads also probe on entry and after the walk/capture, so a
+cross-lock result is discarded rather than returned or published. Locked and
+unknown both map to `SnapshotUnknown`, preventing a distinct lock-state bit from
+reaching a remote planner. The background helper reuses this classifier while
+keeping its independent display, focus and frame-freshness checks. This slice
+does not cover MediaProjection OCR or prove OEM/physical lock transitions.
+
 **Tool layer.** `skill/SkillRunExecutor.kt` used to call `toolExecutor.execute`
 directly, skipping the execution boundary's authorizer. It had no production
 caller; deleted 2026-11-01 along with its types and tests. Every tool call now
@@ -216,6 +227,9 @@ private read in the same run, is not the user's own wording
 (`CriticalApprovalReason.TextHandedToExternalApp`). A draft built only from the
 user's words can be auto-approved only when non-sensitive and free of other
 critical reasons; the user's wording does not bypass sensitive-content checks.
+Empty normalized token sets are not positive user-origin evidence (T4/T5):
+nonblank symbol-only text must occur verbatim in the normalized run input, or
+the existing external-draft/typed-text reason requires confirmation.
 
 **Remote-vision screenshot egress (gap 1, closed 2026-10-31).** A screenshot
 leaves only after a `UserConfirmed` step exists in the run, in both
