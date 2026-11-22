@@ -32,6 +32,8 @@ entries retain their original evidence scope. The
 passed 3092 JVM tests locally and hosted run #193. The subsequent
 [MediaProjection and voice batch](validation_report.md#2026-11-22--mediaprojection-lock-truth-and-voice-watchdog)
 passed 3112 JVM tests locally and hosted run #195; physical lock-screen, microphone and OEM limits remain explicit.
+The [mutation-isolation and model-import batch](validation_report.md#2026-11-22--egress-mutation-isolation-and-suspend-model-import)
+passed 3125 JVM tests locally, with a real 12/0 campaign after fixing cross-file contamination.
 The arm64 API-matrix runner and physical-device acceptance remain separate pending resources.
 
 Keep **implementation**, **validation**, and **release approval** distinct.

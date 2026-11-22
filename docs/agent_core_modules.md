@@ -1600,13 +1600,19 @@ Boundaries:
   callers with DataStore. `RemoteSendPendingStore.consumePendingRemoteSend` is the first
   suspend vertical slice: one atomic edit captures and removes the marker, startup recovery
   remains fail-closed across cancellation, and each startup attempt settles its own deferred
-  before a later retry installs another. Remaining migration is tracked in
-  `docs/plans/data-layer-suspend-migration.md`.
+  before a later retry installs another. `ModelRepositoryFacade.importModel` is a second bounded
+  slice with cancellable staging and a non-cancellable final move/registration commit. Remaining
+  migration is tracked in `docs/plans/data-layer-suspend-migration.md`.
 
 Current status:
 
 - `ModelRepository` manages installed `.litertlm` / `.tflite` model files,
-  custom model imports, and bundled model installation.
+  custom model imports, and bundled model installation. Import staging checks
+  cancellation per buffer; pre-commit cancellation deletes the temporary file,
+  while final move plus registration commits without suspension. The controller's
+  completion and failure/UI projection run on I/O, and post-commit cancellation
+  suppresses setup dismissal, state refresh and model loading without rollback.
+  This does not claim crash atomicity across file, Room and DataStore writes.
 - `SessionRepository` persists chat sessions and messages via Room
   (`SolinDatabase`) and tracks the active session.
 - `PreferenceSettingsStore` wraps Jetpack DataStore for user preferences.

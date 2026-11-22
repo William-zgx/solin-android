@@ -18177,3 +18177,24 @@ git diff --check
   `OK (104 tests)`，脚本汇总 **104 discovered / 91 executed / 13 skipped / 0 failed**。
   至此 MediaProjection lock truth、voice watchdog 与 LongTermMemory teardown 均取得 hosted 证据；
   assumption skip、真实锁屏、投影、麦克风/OEM 和 arm64 matrix 仍不因此转为通过。
+
+## 2026-11-22 — Egress mutation isolation and suspend model import
+
+- Mutation 扩展集成 `48d24139` + `965d08bf` + `837ea226`。初始 `b68db286` 的 12/0
+  因 runner 未在不同文件 mutant 后恢复 target，**六个 egress kill 无效**；`ff3493ee`
+  在每次 run 后以 `finally` 恢复源文件，并以 copied-tree 自检要求 baseline=0、每个 mutant
+  恰好 1 个文件不同。移除恢复时，自检以 `[1×6, 2×6]` 捕获旧污染。修复后实际报告
+  `2026-11-22T18:16:06Z`、gitHead `ff3493ee`、schema v2：**baseline passed / 12 killed /
+  0 survived**。独立 Opus 5.5 ACCEPT、简化 CLEAN；旧 JSON-only 6/0 仅保留历史。
+- 模型导入 `6dd462c4` + `d031fa14`，格式 `8c3c9010`：仅 `importModel` 改 suspend，
+  controller 完成链转到 I/O；逐 buffer/复制后取消清理 temp，最终 move+register 无当前挂起点，
+  NonCancellable 仅防未来挂起点拆分提交。取消在 durable commit 后不再 dismiss/refresh/success/load，
+  active-job CancellationException 走既有失败清理。首轮 RED 44 tests / 4 failures，恢复后
+  ModelLoadController 8、ModelRepository 36、ViewModel import 1 通过；返修新增 active-cancellation
+  RED 9 tests / 1 failure，恢复后 9 / 36 / 1 通过。Opus 5.5 ACCEPT、简化 CLEAN。
+  不声称 NonCancellable 本身有可观察单测差异、跨存储 crash atomicity 或物理响应性。
+- 最终 integrated `:app:testDebugUnitTest spotlessCheck` **SUCCESS**：XML 汇总
+  **3125 tests / 0 failures / 0 errors / 15 skipped**；privacy scan 与 integrated mutation
+  self-test（6 tests）通过，harness + `80_mutation_test.sh` 同样 6 tests OK。完整
+  `test_validation_scripts.sh` 未记为通过：默认 JDK 11 不满足要求，JDK 21 下仍因宿主缺少
+  `zip` 停在 `72_android_artifact_scan.sh`，与 mutation 行为无关。Hosted CI 另行记录。

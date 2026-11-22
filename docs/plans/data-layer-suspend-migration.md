@@ -1,10 +1,12 @@
 # Data Layer Suspend Migration — Incremental Plan
 
-**Status:** the first vertical slice is implemented at `b435164f` (2026-11-13).
-`RemoteSendPendingStore.consumePendingRemoteSend` is now suspend and atomic; its
-startup callers propagate suspension and retry safely. The interface-wide migration
-has not been implemented: other stores and `PreferenceSettingsStore` methods still
-use synchronous contracts and DataStore `runBlocking` bridges.
+**Status:** two bounded vertical slices are implemented. The first landed at
+`b435164f` (2026-11-13); model import followed on 2026-11-22.
+`RemoteSendPendingStore.consumePendingRemoteSend` is suspend and atomic, and
+`ModelRepositoryFacade.importModel` is suspend with an I/O-dispatched controller
+completion. The interface-wide migration has not been implemented: other stores
+and `PreferenceSettingsStore` methods still use synchronous contracts and
+DataStore `runBlocking` bridges.
 
 Current ownership lives in [Data layer](../agent_core_modules.md#data-layer),
 [Memory controller](../agent_core_modules.md#memory-controller) and
@@ -52,6 +54,27 @@ The original inventory is available in
 
 This is not evidence of interface-wide migration, main-thread responsiveness on a
 phone, or process-death recovery on a device.
+
+## Implemented model-import slice
+
+- Only `ModelRepositoryFacade.importModel` and its production caller changed;
+  the public fire-and-forget `ModelLoadController.importModel(Uri)` shape and
+  other store APIs remain synchronous. The import operation and its completion
+  continuation run on `ioDispatcher`, including setup dismissal, state refresh,
+  success/failure projection and the model-load prelude.
+- Temporary-file copying checks cancellation per buffer and after copying. Any
+  pre-commit cancellation removes the temporary file and performs no final move,
+  registration or activation. Final move plus registration has no current
+  suspension point; `NonCancellable` deliberately prevents a future suspension
+  from splitting that commit. A post-commit cancellation leaves the durable model
+  but suppresses setup dismissal, read-model refresh, success UI and loading.
+- A `CancellationException` thrown while the coroutine itself remains active is
+  an ordinary import failure with busy-state cleanup; genuine scope cancellation
+  still rethrows. Cancellation currently comes only from scope teardown, and a
+  blocking content-provider read is noticed only between buffers.
+- This is coroutine cancellation protection, not crash atomicity across file,
+  Room and DataStore writes, and not physical responsiveness evidence. Startup
+  connectivity configuration and other synchronous stores remain separate slices.
 
 ## Remaining migration order
 
