@@ -17897,3 +17897,47 @@ git diff --check
   `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
 - 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
   不清除已下载/已加载模型。
+
+## 2026-11-22 Snapshot Scoped Refs And Background Evidence
+
+本轮覆盖项：
+
+- `<snapshot-id>/<node-id>` 只绑定模型实际收到的观察。普通 observe 和动作结果中的 after
+  observation 使用同一发布合同；内部 preflight/OCR 校验读取不替换它，服务销毁/解绑清空注册表。
+- scoped ref 对未知快照、过期引用、节点不在快照、切包和 live bounds 位移分别返回封闭失败。
+  scoped tap/scroll 要求节点自身 clickable/scrollable，不走 OCR relocation 或 swipe fallback；
+  scoped typing 明确拒绝。新增行为回归真实执行 `DeviceControlToolExecutor`，覆盖
+  observe → tap → after observation → 下一个 scoped ref，不再误报 `ref_retired`。
+- 后台会话保存请求目标包并有界等待到顶；绑定、状态和截图使用真实 `FLAG_OWN_FOCUS`。
+  capture 在读取/复制像素前再次拒绝独立焦点缺失，截图携带 producer `Image.timestamp`，
+  每次控制运行重新设置新鲜度下限，零值/旧帧以 `stale_frame` 拒绝。
+- LocalOnly、确认策略、critical-control 停止、远程视觉禁用和私有输出 key 均未放宽。
+  五个新 failure kind 只是封闭 schema 的 additive 值。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.tool.BuiltInToolSpecSnapshotTest \
+  --tests com.bytedance.zgx.solin.device.SnapshotScopedRefTest \
+  --tests com.bytedance.zgx.solin.device.background.BackgroundPhoneEvidenceTest \
+  --tests com.bytedance.zgx.solin.orchestration.collab.RunProgressGateTest
+./gradlew :app:testDebugUnitTest
+./gradlew spotlessCheck
+scripts/privacy_scan.sh
+git diff --check
+```
+
+结果：
+
+- 聚焦 schema/snapshot/background/progress-gate 测试通过。
+- 首次集成全量为 3043 tests / 1 failure / 15 skipped：五个新 failure kind 改变九个 UI
+  output-schema `contentHash`，稳定性快照尚未更新。逐行比较确认 capability、risk、confirmation、
+  continuation、tags、private keys、permissions、egress 等均不变后，只更新九个预期 hash。
+- 最终 `7d820e22` 全量：**3043 tests / 0 failures / 0 errors / 15 skipped**。
+  Spotless 初始格式违规已单独整理为 style commit，最终 `spotlessCheck` 通过。
+- 独立 Claude Opus 5.5 对 after-publication 修复无阻断项；对九个 hash 的后续复核同样 clean，
+  确认仅为 additive closed-failure schema 变化。并行 simplify 未发现需要继续修改的问题。
+- 真机/模拟器验收仍为 **pending**：真实 Accessibility 动作后的 scoped ref、live bounds、
+  直接 tap/scroll、请求包到顶/chooser、实际 display 独立焦点、producer 帧时间戳及复用 session
+  均不能由 JVM 测试推断通过。本条目不记录 hosted CI 或设备通过，也不构成发布批准。

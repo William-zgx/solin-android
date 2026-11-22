@@ -20,13 +20,13 @@ for the coding-agent protocol.
 
 ## Current baseline
 
-Implementation and repository links were refreshed on 2026-11-15. The
-[current boundary verification](validation_report.md#2026-11-21--deterministic-boundaries-and-input-lifecycle)
-at `4bb9461f` passed on the integrated tree. The dated
-[main CI convergence](validation_report.md#2026-11-04--main-ci-convergence) entry for `cb7e4918`
-retains the successful workflow and hosted emulator infrastructure skip as historical evidence;
-it is not device evidence for the current tree. The earlier Mika entry retains the APK hashes
-actually tested before commit.
+Implementation and repository links were refreshed on 2026-11-22. The
+[current snapshot-ref and background-evidence verification](validation_report.md#2026-11-22--snapshot-scoped-refs-and-background-evidence)
+at `7d820e22` passed locally on the integrated tree. The earlier
+[deterministic boundary verification](validation_report.md#2026-11-21--deterministic-boundaries-and-input-lifecycle)
+and [main CI convergence](validation_report.md#2026-11-04--main-ci-convergence) entries retain their
+original dates and evidence scope. Hosted CI must be checked on the pushed commit; device acceptance
+remains separate and pending for the new snapshot/background behavior.
 
 Keep **implementation**, **validation**, and **release approval** distinct.
 A green CI job does not turn a skipped device check into a pass, validate every

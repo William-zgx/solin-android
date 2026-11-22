@@ -123,6 +123,14 @@ Current status:
   evidence line gives up room, every `targetShortlist(...)` is kept, and the
   prompt does not grow. Notes never feed scoring or safety decisions. App
   UI notes informed by Mika's knowledge files (Apache-2.0), rewritten.
+- A device target in the form `<snapshot-id>/<node-id>` is confined to the observation the model
+  actually received. `SnapshotRefRegistry` publishes model-facing current and after-action
+  observations; internal preflight and OCR-validation reads do not replace them, and service
+  teardown clears the registry. `SnapshotRefs` fails closed as `snapshot_unknown`, `ref_retired`,
+  `ref_not_in_snapshot`, `package_changed`, or `element_moved`. Scoped taps and scrolls require
+  matching live bounds and direct clickability/scrollability; they never relocate through OCR or
+  swipe fallback, and scoped typing is refused. JVM tests cover validation and the executor
+  handoff, not physical Accessibility behavior.
 - Phone control also covers Accessibility gestures — swipe (normalized 0-1000
   coordinates), long-press, and an allowlisted system-key set
   (home/recents/enter/delete, never an arbitrary keycode) — all
@@ -160,6 +168,8 @@ Tests:
 - `RoutingAndValidatingToolExecutorTest`
 - `ExecutorBoundingTest`
 - `WebSearchProviderTest`
+- `SnapshotScopedRefTest`
+- `BackgroundPhoneEvidenceTest`
 - `ActionExecutorTest`
 
 ## Agent Loop
