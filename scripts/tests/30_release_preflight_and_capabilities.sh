@@ -533,7 +533,6 @@ for required in (
     "runs-on: ubuntu-24.04",
     "Enable KVM hardware acceleration",
     "sudo modprobe kvm",
-    "ls -l /dev/kvm",
     "test -w /dev/kvm",
     "system-images;android-36;google_apis;x86_64",
     "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
