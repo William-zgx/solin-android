@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.device
 
+import com.bytedance.zgx.solin.tool.CurrentScreenOcrGroundingCache
+import com.bytedance.zgx.solin.tool.OcrGroundingCurrentScreenControlProvider
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -124,9 +126,11 @@ class SnapshotScopedRefTest {
         assertTrue(service.contains("error is SnapshotRefException"))
         assertTrue(service.contains("failureKind = error.failureKind"))
         // The published observation, not the fresh evidence `before`, is what scoped refs validate against.
-        assertTrue(service.contains("runCatching { operation(lastPublishedSnapshot) }"))
-        assertTrue(service.contains("service.lastPublishedSnapshot = result.snapshot"))
-        assertEquals(2, Regex("lastPublishedSnapshot = null").findAll(service).count())
+        assertTrue(service.contains("runCatching { operation(SnapshotRefRegistry.publishedSnapshot) }"))
+        assertTrue(!service.contains("SnapshotRefRegistry.publish("))
+        assertEquals(2, Regex("SnapshotRefRegistry.clear\\(\\)").findAll(service).count())
+        val ocr = File("src/main/java/com/bytedance/zgx/solin/tool/OcrGroundingCurrentScreenControlProvider.kt").readText()
+        assertEquals(1, Regex("SnapshotRefRegistry.publish\\(").findAll(ocr).count())
         assertTrue(service.contains("findTargetCandidate(target, snapshot = published)"))
         assertEquals(2, Regex("if \\(scopedRef\\) null else tapOcrGroundingHint").findAll(service).count())
         assertTrue(service.contains("!scopedRef || candidate.node.isClickable"))
@@ -164,5 +168,34 @@ class SnapshotScopedRefTest {
         // A fresh evidence snapshot has a new id; validating against it is what used to retire every ref.
         val fresh = published.copy(id = "screen_1701_deadbeef")
         assertEquals(UiActionFailureKind.RefRetired, failure { SnapshotRefs.validate(SnapshotRefs.parse(ref)!!, fresh, "com.example.app") })
+    }
+
+    private class FakeProvider(var next: ScreenStateSnapshot) : CurrentScreenControlProvider {
+        override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int) = ScreenStateReadResult.Available(next)
+        override fun tap(target: String, timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
+        override fun typeText(text: String, target: String?, timeoutMillis: Long, allowClipboardPasteFallback: Boolean): UiActionReadResult = UiActionReadResult.Failed("fake")
+        override fun submitSearch(timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
+        override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
+        override fun pressBack(timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
+        override fun waitForScreen(timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
+        override fun tapByNormalizedCoords(normalizedX: Int, normalizedY: Int, timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
+    }
+
+    @Test
+    fun wrappedTapValidationReadDoesNotReplacePublishedObservation() {
+        SnapshotRefRegistry.clear()
+        val delegate = FakeProvider(snapshot)
+        val provider = OcrGroundingCurrentScreenControlProvider(delegate, CurrentScreenOcrGroundingCache { 0L })
+        provider.observeCurrentScreen()
+        assertEquals(snapshot.id, SnapshotRefRegistry.publishedSnapshot?.id)
+        // The tap path's internal validation read sees a fresh, differently-salted snapshot.
+        delegate.next = snapshot.copy(id = "screen_1701_deadbeef")
+        provider.tap("搜索")
+        assertEquals(snapshot.id, SnapshotRefRegistry.publishedSnapshot?.id)
+        // A later model observation does publish the new one.
+        provider.observeCurrentScreen()
+        assertEquals("screen_1701_deadbeef", SnapshotRefRegistry.publishedSnapshot?.id)
+        SnapshotRefRegistry.clear()
+        assertNull(SnapshotRefRegistry.publishedSnapshot)
     }
 }

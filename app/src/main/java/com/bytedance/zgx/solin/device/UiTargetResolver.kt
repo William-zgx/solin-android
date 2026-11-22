@@ -42,6 +42,24 @@ data class UiTargetExplanationContract(
 /** A closed snapshot-ref failure; [executeUiAction][SolinAccessibilityService] maps it to [failureKind]. */
 internal class SnapshotRefException(val failureKind: UiActionFailureKind) : RuntimeException(failureKind.schemaValue)
 
+/**
+ * Holds the one snapshot the model was shown. Only the model-facing observe path publishes; internal
+ * reads (OCR validation, action evidence) never do, or they would retire the model's ids.
+ */
+internal object SnapshotRefRegistry {
+    @Volatile
+    var publishedSnapshot: ScreenStateSnapshot? = null
+        private set
+
+    fun publish(snapshot: ScreenStateSnapshot) {
+        publishedSnapshot = snapshot
+    }
+
+    fun clear() {
+        publishedSnapshot = null
+    }
+}
+
 /** `<ScreenStateSnapshot.id>/<ScreenNode.id>`; see [SnapshotRefs]. */
 internal data class SnapshotScopedRef(val snapshotId: String, val nodeId: String)
 

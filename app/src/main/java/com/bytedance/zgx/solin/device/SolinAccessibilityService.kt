@@ -233,15 +233,8 @@ class SolinAccessibilityService : AccessibilityService() {
         )
     }
 
-    /**
-     * The last snapshot published to the model by `observeCurrentScreen`; the only snapshot a scoped ref
-     * may name. Evidence snapshots taken around an action carry fresh salts and are never published.
-     */
-    @Volatile
-    private var lastPublishedSnapshot: ScreenStateSnapshot? = null
-
     override fun onUnbind(intent: Intent?): Boolean {
-        lastPublishedSnapshot = null
+        SnapshotRefRegistry.clear()
         // Unbind can happen without onDestroy (user toggles the service off, system rebinds later), and
         // it is the last point where we still have a live context to hand the clipboard back.
         // Invalidate first so old leases cannot read or write; reconnect creates fresh ownership.
@@ -251,7 +244,7 @@ class SolinAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        lastPublishedSnapshot = null
+        SnapshotRefRegistry.clear()
         deviceControlTasks.invalidate(this)
         drainPendingClipboardOnTeardown()
         hideControlProgressOverlay()
@@ -834,7 +827,7 @@ class SolinAccessibilityService : AccessibilityService() {
             maxNodes = DEFAULT_DEVICE_CONTROL_MAX_NODES
         ).snapshotOrNull()
         throwIfInterrupted()
-        val primitive = runCatching { operation(lastPublishedSnapshot) }.getOrElse { error ->
+        val primitive = runCatching { operation(SnapshotRefRegistry.publishedSnapshot) }.getOrElse { error ->
             if (error is CriticalControlTapRefused) {
                 return@getOrElse UiPrimitiveResult.failed(
                     reason = CRITICAL_CONTROL_TAP_REFUSED_MESSAGE,
@@ -1639,9 +1632,7 @@ class SolinAccessibilityService : AccessibilityService() {
                     )
                 }
             ) {
-                service.observeSnapshot(maxTextChars, maxNodes).also { result ->
-                    if (result is ScreenStateReadResult.Available) service.lastPublishedSnapshot = result.snapshot
-                }
+                service.observeSnapshot(maxTextChars, maxNodes)
             }
         }
 

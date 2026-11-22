@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.device.ScreenBounds
 import com.bytedance.zgx.solin.device.ScreenNode
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
+import com.bytedance.zgx.solin.device.SnapshotRefRegistry
 import com.bytedance.zgx.solin.device.UiActionExecutionResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.UiActionReadResult
@@ -32,7 +33,11 @@ internal class OcrGroundingCurrentScreenControlProvider(
 ) : CurrentScreenControlProvider {
     override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
         cache.clear()
-        return delegate.observeCurrentScreen(maxTextChars = maxTextChars, maxNodes = maxNodes)
+        // The model-facing observation: the only place scoped-ref snapshots are published. Internal reads
+        // (ocrGroundingValidationSnapshot) call the delegate directly and never publish.
+        return delegate.observeCurrentScreen(maxTextChars = maxTextChars, maxNodes = maxNodes).also { result ->
+            if (result is ScreenStateReadResult.Available) SnapshotRefRegistry.publish(result.snapshot)
+        }
     }
 
     override fun tap(target: String, timeoutMillis: Long): UiActionReadResult =
