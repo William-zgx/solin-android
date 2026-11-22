@@ -3,17 +3,17 @@ package com.bytedance.zgx.solin
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.bytedance.zgx.solin.data.FirstRunSetupRepository
+import com.bytedance.zgx.solin.data.PreferenceSettingsStore
 import com.bytedance.zgx.solin.data.RemoteModelRepository
 import com.bytedance.zgx.solin.data.SolinDatabase
-import com.bytedance.zgx.solin.data.PreferenceSettingsStore
 import java.util.concurrent.atomic.AtomicReference
-import androidx.test.ext.junit.rules.ActivityScenarioRule
 
 internal val ReadyRemoteModelConfig = RemoteModelConfig(
     baseUrl = "http://127.0.0.1:16543/v1",
     modelName = "android-test-model",
-    supportsVisionInput = true,
+    supportsVisionInput = true
 )
 
 /**
@@ -25,7 +25,7 @@ internal val ReadyRemoteModelConfig = RemoteModelConfig(
  */
 internal class MainActivityRemoteConfigBackup private constructor(
     private val inferenceMode: InferenceMode,
-    private val remoteConfig: RemoteModelConfig,
+    private val remoteConfig: RemoteModelConfig
 ) {
     fun restore(context: Context) {
         val repository = RemoteModelRepository(context.applicationContext)
@@ -47,7 +47,7 @@ internal class MainActivityRemoteConfigBackup private constructor(
 internal fun resetMainActivityPersistentState(
     context: Context,
     inferenceMode: InferenceMode,
-    remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
+    remoteModelConfig: RemoteModelConfig = RemoteModelConfig()
 ) {
     (context.applicationContext as? SolinApplication)?.clearContainersForInstrumentation()
     val settingsStore = PreferenceSettingsStore(context)
@@ -113,26 +113,24 @@ private val transientStateTables = listOf(
     // Model registry rows must not leak across instrumentation cases: a leftover
     // active model path with skip-startup makes empty-state/banner copy switch to
     // the "loading local model" branch and breaks smoke/first-run assertions.
-    "installed_models",
+    "installed_models"
 )
 
-internal fun mainActivitySkipStartupIntent(context: Context): Intent =
-    Intent(context, MainActivity::class.java).apply {
-        putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
-    }
+internal fun mainActivitySkipStartupIntent(context: Context): Intent = Intent(context, MainActivity::class.java).apply {
+    putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
+}
 
 internal fun mainActivitySkipStartupIntent(
     context: Context,
-    debugRemoteModelConfig: RemoteModelConfig,
-): Intent =
-    mainActivitySkipStartupIntent(context).apply {
-        putExtra(MainActivity.EXTRA_DEBUG_SCREENSHOT_REMOTE_BASE_URL, debugRemoteModelConfig.baseUrl)
-        putExtra(MainActivity.EXTRA_DEBUG_SCREENSHOT_REMOTE_MODEL_NAME, debugRemoteModelConfig.modelName)
-        putExtra(
-            MainActivity.EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT,
-            debugRemoteModelConfig.supportsVisionInput,
-        )
-    }
+    debugRemoteModelConfig: RemoteModelConfig
+): Intent = mainActivitySkipStartupIntent(context).apply {
+    putExtra(MainActivity.EXTRA_DEBUG_SCREENSHOT_REMOTE_BASE_URL, debugRemoteModelConfig.baseUrl)
+    putExtra(MainActivity.EXTRA_DEBUG_SCREENSHOT_REMOTE_MODEL_NAME, debugRemoteModelConfig.modelName)
+    putExtra(
+        MainActivity.EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT,
+        debugRemoteModelConfig.supportsVisionInput
+    )
+}
 
 internal fun <A : Activity> activityFromScenarioRule(rule: ActivityScenarioRule<A>): A {
     val activityRef = AtomicReference<A>()
