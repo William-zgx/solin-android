@@ -10,7 +10,7 @@ internal class DeviceControlTaskCancelledException : IllegalStateException()
 internal enum class DeviceControlTaskCancellationReason {
     Lifecycle,
     Timeout,
-    Failure,
+    Failure
 }
 
 /**
@@ -77,7 +77,7 @@ internal fun DeviceLockState.uiActionRefusal(): UiActionReadResult.Failed? = ref
  * → mark → unlock → act.
  */
 internal class DeviceControlTaskCoordinator(
-    private val lockProbe: () -> DeviceLockState,
+    private val lockProbe: () -> DeviceLockState
 ) {
     private val lock = Any()
     private var generation = 0L
@@ -117,24 +117,21 @@ internal class DeviceControlTaskCoordinator(
     /** Fresh probe; a throwing probe is [DeviceLockState.Unknown]. */
     fun lockState(): DeviceLockState = runCatching(lockProbe).getOrDefault(DeviceLockState.Unknown)
 
-    fun startTask(): Lease? =
-        synchronized(lock) {
-            val owner = activeOwner?.get() ?: return null
-            Lease(owner = owner, generation = generation).also(tasks::add)
-        }
+    fun startTask(): Lease? = synchronized(lock) {
+        val owner = activeOwner?.get() ?: return null
+        Lease(owner = owner, generation = generation).also(tasks::add)
+    }
 
-    fun currentOwner(): Any? =
-        synchronized(lock) {
-            activeOwner?.get()
-        }
+    fun currentOwner(): Any? = synchronized(lock) {
+        activeOwner?.get()
+    }
 
-    fun isCurrentOwner(owner: Any): Boolean =
-        synchronized(lock) {
-            activeOwner?.get() === owner
-        }
+    fun isCurrentOwner(owner: Any): Boolean = synchronized(lock) {
+        activeOwner?.get() === owner
+    }
 
     private fun cancelTasksLocked(
-        reason: DeviceControlTaskCancellationReason,
+        reason: DeviceControlTaskCancellationReason
     ): List<Future<*>> {
         val futures = tasks.mapNotNull { task -> task.cancelLocked(reason) }
         tasks.clear()
@@ -144,7 +141,7 @@ internal class DeviceControlTaskCoordinator(
     /** One device-control task. Every method takes the coordinator lock only for bookkeeping. */
     internal inner class Lease internal constructor(
         internal val owner: Any,
-        private val generation: Long,
+        private val generation: Long
     ) {
         private var cancellationReason: DeviceControlTaskCancellationReason? = null
         private var submittedUiSideEffect = false
@@ -218,17 +215,14 @@ internal class DeviceControlTaskCoordinator(
             synchronized(lock) { tasks.remove(this) }
         }
 
-        internal fun hasSubmittedUiSideEffect(): Boolean =
-            synchronized(lock) { submittedUiSideEffect }
+        internal fun hasSubmittedUiSideEffect(): Boolean = synchronized(lock) { submittedUiSideEffect }
 
-        internal fun wasCancelledByLifecycle(): Boolean =
-            synchronized(lock) { cancellationReason == DeviceControlTaskCancellationReason.Lifecycle }
+        internal fun wasCancelledByLifecycle(): Boolean = synchronized(lock) { cancellationReason == DeviceControlTaskCancellationReason.Lifecycle }
 
-        private fun isActiveLocked(): Boolean =
-            cancellationReason == null &&
-                tasks.contains(this) &&
-                activeOwner?.get() === owner &&
-                generation == this@DeviceControlTaskCoordinator.generation
+        private fun isActiveLocked(): Boolean = cancellationReason == null &&
+            tasks.contains(this) &&
+            activeOwner?.get() === owner &&
+            generation == this@DeviceControlTaskCoordinator.generation
 
         private fun requireActiveLocked() {
             if (!isActiveLocked()) throw DeviceControlTaskCancelledException()
@@ -246,7 +240,7 @@ internal fun uiActionTimeoutResult(task: DeviceControlTaskCoordinator.Lease): Ui
         return UiActionReadResult.Failed(
             reason = "UI 动作因无障碍服务生命周期变化而取消",
             retryable = false,
-            failureKind = UiActionFailureKind.Timeout,
+            failureKind = UiActionFailureKind.Timeout
         )
     }
     val submitted = task.hasSubmittedUiSideEffect()
@@ -257,6 +251,6 @@ internal fun uiActionTimeoutResult(task: DeviceControlTaskCoordinator.Lease): Ui
             "UI 动作执行超时"
         },
         retryable = !submitted,
-        failureKind = UiActionFailureKind.Timeout,
+        failureKind = UiActionFailureKind.Timeout
     )
 }

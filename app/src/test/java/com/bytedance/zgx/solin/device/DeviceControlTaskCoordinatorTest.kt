@@ -46,7 +46,7 @@ class DeviceControlTaskCoordinatorTest {
         assertEquals(1, sideEffectCount)
         assertTrue(coordinator.isCurrentOwner(owner))
         assertTrue(
-            requireNotNull(coordinator.startTask()).runIfActive {},
+            requireNotNull(coordinator.startTask()).runIfActive {}
         )
     }
 
@@ -86,7 +86,7 @@ class DeviceControlTaskCoordinatorTest {
         assertFalse(
             oldTask.runIfActive {
                 progressPublished = true
-            },
+            }
         )
         assertFalse(progressPublished)
     }
