@@ -218,6 +218,10 @@ class MainActivityComprehensiveTest {
             timeoutMillis = 5_000
         )
         if (!needsConfirmation) return
+        confirmRemoteModeDisclosure()
+    }
+
+    private fun confirmRemoteModeDisclosure() {
         composeRule.onNodeWithTag("remote_mode_confirm_button").performClick()
         composeRule.waitForTagGone("remote_mode_disclosure_sheet", timeoutMillis = 5_000)
     }
@@ -283,6 +287,11 @@ class MainActivityComprehensiveTest {
         composeRule.onNodeWithTag("inference_local_chip").performScrollTo().performClick()
         composeRule.onNodeWithTag("backend_cpu_chip").performScrollTo().performClick()
         composeRule.onNodeWithTag("inference_remote_chip").performScrollTo().performClick()
+        // Switching back to Remote requires a fresh disclosure and closes the model manager.
+        composeRule.waitForTag("remote_mode_disclosure_sheet")
+        confirmRemoteModeDisclosure()
+        composeRule.onNodeWithTag("top_model_button").performClick()
+        composeRule.waitForTag("model_manager_sheet")
         composeRule.onNodeWithTag("model_tab_advanced").performClick()
         composeRule.waitForText("Temperature · 创造性")
         composeRule.waitForAnyText(
