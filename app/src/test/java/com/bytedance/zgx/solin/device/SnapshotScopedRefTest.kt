@@ -1,8 +1,8 @@
 package com.bytedance.zgx.solin.device
 
+import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.CurrentScreenOcrGroundingCache
 import com.bytedance.zgx.solin.tool.DeviceControlToolExecutor
-import com.bytedance.zgx.solin.tool.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.OcrGroundingCurrentScreenControlProvider
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolStatus
