@@ -28,8 +28,6 @@ class VoiceRecognitionCoordinatorTest {
             sink = object : VoiceCaptureSink {
                 override fun captureStarted() { events += "started" }
                 override fun captureFinished() { events += "finished" }
-                override fun level(rmsDb: Float) { events += "level" }
-                override fun partial(transcript: String) { events += "partial" }
                 override fun transcript(transcript: String) { events += "transcript" }
                 override fun unavailable(message: String) { events += "unavailable:$message" }
             },
@@ -71,12 +69,10 @@ class VoiceRecognitionCoordinatorTest {
     }
 
     @Test
-    fun finishAndSignalsDoNotExtendTheAbsoluteDeadline() = runTest {
+    fun finishDoesNotExtendTheAbsoluteDeadline() = runTest {
         val h = Harness(this)
         h.begin()
         advanceTimeBy(DEADLINE - 10_000)
-        h.session.onLevel(h.generation, 3f)
-        h.session.onPartial(h.generation, "x")
         h.session.finish { h.stopCalls++ }
         assertEquals(1, h.stopCalls)
         assertTrue(h.session.isActive)
@@ -109,7 +105,6 @@ class VoiceRecognitionCoordinatorTest {
         advanceTimeBy(DEADLINE)
         runCurrent()
         h.session.onResults(h.generation, "secret words")
-        h.session.onPartial(h.generation, "secret")
         h.session.onError(h.generation, "late")
         assertEquals(listOf("started", "unavailable:语音输入超时"), h.events)
     }

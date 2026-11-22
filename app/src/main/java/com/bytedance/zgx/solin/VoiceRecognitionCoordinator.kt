@@ -11,14 +11,13 @@ import android.speech.SpeechRecognizer
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_BODY
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -44,14 +43,11 @@ internal class VoiceRecognitionCoordinator(
 ) : DefaultLifecycleObserver {
     private var speechRecognizer: SpeechRecognizer? = null
     private var speechRecognizerRoute: VoiceRecognizerRoute? = null
-    private val watchdogScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val session = VoiceRecognitionSession(
-        scope = watchdogScope,
+        scope = activity.lifecycleScope,
         sink = object : VoiceCaptureSink {
             override fun captureStarted() = viewModel().startVoiceInputCapture()
             override fun captureFinished() = viewModel().finishVoiceInputCapture()
-            override fun level(rmsDb: Float) = viewModel().updateVoiceInputLevel(rmsDb = rmsDb)
-            override fun partial(transcript: String) = viewModel().updateVoiceInputPartialTranscript(transcript)
             override fun transcript(transcript: String) = viewModel().acceptVoiceTranscript(transcript)
             override fun unavailable(message: String) = viewModel().reportVoiceInputUnavailable(message)
         },
@@ -72,8 +68,10 @@ internal class VoiceRecognitionCoordinator(
     }
 
     fun start() {
-        // A new generation needs a terminal state plus another explicit user start.
-        if (session.isActive) return
+        // Early UI guard: a queued click after destroy or during an active generation must not
+        // reach the permission prompt or recognizer. A new generation needs a terminal state plus
+        // another explicit user start.
+        if (activity.lifecycle.currentState == Lifecycle.State.DESTROYED || session.isActive) return
         if (!activity.hasRuntimePermission(Manifest.permission.RECORD_AUDIO)) {
             viewModel().reportVoiceInputUnavailable("需要授权麦克风权限")
             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -104,10 +102,12 @@ internal class VoiceRecognitionCoordinator(
                 is String -> intent.putExtra(key, value)
             }
         }
-        session.start(
+        // Second boundary: permission/consent callbacks may re-enter after another start won.
+        if (!session.start(
             installListener = { generation -> recognizer.setRecognitionListener(recognitionListener(generation)) },
             startListening = { recognizer.startListening(intent) },
         )
+        ) return
     }
 
     fun finish() {
@@ -175,27 +175,33 @@ internal class VoiceRecognitionCoordinator(
             },
             canReport = isViewModelReady,
         )
-        watchdogScope.cancel()
     }
 
     private fun recognitionListener(generation: Long): RecognitionListener =
         object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) = session.onReady(generation)
+            override fun onReadyForSpeech(params: Bundle?) {
+                if (session.isActive(generation)) viewModel().startVoiceInputCapture()
+            }
 
             override fun onBeginningOfSpeech() = Unit
 
-            override fun onRmsChanged(rmsdB: Float) = session.onLevel(generation, rmsdB)
+            override fun onRmsChanged(rmsdB: Float) {
+                if (session.isActive(generation)) viewModel().updateVoiceInputLevel(rmsDb = rmsdB)
+            }
 
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-            override fun onEndOfSpeech() = session.onEndOfSpeech(generation)
+            override fun onEndOfSpeech() {
+                if (session.isActive(generation)) viewModel().finishVoiceInputCapture()
+            }
 
             override fun onError(error: Int) = session.onError(generation, error.voiceInputErrorMessage())
 
             override fun onResults(results: Bundle?) = session.onResults(generation, results?.recognizedSpeechText())
 
             override fun onPartialResults(partialResults: Bundle?) {
-                partialResults?.recognizedSpeechText()?.let { session.onPartial(generation, it) }
+                if (!session.isActive(generation)) return
+                partialResults?.recognizedSpeechText()?.let(viewModel()::updateVoiceInputPartialTranscript)
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -207,10 +213,6 @@ internal interface VoiceCaptureSink {
     fun captureStarted()
 
     fun captureFinished()
-
-    fun level(rmsDb: Float)
-
-    fun partial(transcript: String)
 
     fun transcript(transcript: String)
 
@@ -287,21 +289,8 @@ internal class VoiceRecognitionSession(
         if (hadActive && canReport()) sink.unavailable("语音输入已因界面重建或关闭而停止")
     }
 
-    fun onReady(generation: Long) {
-        if (gate.isActive(generation)) sink.captureStarted()
-    }
-
-    fun onLevel(generation: Long, rmsDb: Float) {
-        if (gate.isActive(generation)) sink.level(rmsDb)
-    }
-
-    fun onEndOfSpeech(generation: Long) {
-        if (gate.isActive(generation)) sink.captureFinished()
-    }
-
-    fun onPartial(generation: Long, transcript: String) {
-        if (gate.isActive(generation)) sink.partial(transcript)
-    }
+    /** Whether [generation] is still the live one; stale listener callbacks are dropped. */
+    fun isActive(generation: Long): Boolean = gate.isActive(generation)
 
     fun onError(generation: Long, message: String) {
         if (claim(generation)) sink.unavailable(message)
