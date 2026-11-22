@@ -10966,7 +10966,7 @@ class SolinViewModelTest {
 
         override fun verifyLegacyRecommendedModels(): Boolean = false
 
-        override fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String = "/tmp/imported.litertlm"
+        override suspend fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String = "/tmp/imported.litertlm"
 
         override fun pendingDownloadId(): Long = pendingDownloadId
 

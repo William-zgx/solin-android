@@ -24,6 +24,7 @@ import com.bytedance.zgx.solin.data.ModelSelectionState
 import com.bytedance.zgx.solin.data.ModelVerificationStatus
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import com.bytedance.zgx.solin.data.SessionStore
+import com.bytedance.zgx.solin.data.TransferProgress
 import com.bytedance.zgx.solin.destinationHostLabel
 import com.bytedance.zgx.solin.download.ModelDownloadClient
 import com.bytedance.zgx.solin.label
@@ -51,7 +52,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 /**
  * Owns local/remote model selection, download/import, HF auth, the first-run setup download
@@ -685,49 +685,61 @@ internal class ModelLoadController(
             )
         }
 
-        scope.launch {
-            val result = runCatching {
-                withContext(ioDispatcher) {
-                    runtimeLock.withLock {
-                        runtime.close()
-                        modelRepository.importModel(uri) { progress ->
-                            uiState.update {
-                                it.copy(
-                                    downloadProgressPercent = progress.percent,
-                                    downloadedBytes = progress.transferredBytes,
-                                    totalBytes = progress.totalBytes,
-                                    statusText = "正在导入模型"
-                                )
-                            }
+        launchImport { onProgress -> modelRepository.importModel(uri, onProgress) }
+    }
+
+    /**
+     * Runs the import and its whole continuation on [ioDispatcher]: the follow-up setup, Room and settings writes
+     * are blocking I/O. A cancelled import never dismisses setup, refreshes read models, reports success or loads.
+     */
+    internal fun launchImport(importOperation: suspend (onProgress: (TransferProgress) -> Unit) -> String): Job = scope.launch(ioDispatcher) {
+        val result = try {
+            Result.success(
+                runtimeLock.withLock {
+                    runtime.close()
+                    importOperation { progress ->
+                        uiState.update {
+                            it.copy(
+                                downloadProgressPercent = progress.percent,
+                                downloadedBytes = progress.transferredBytes,
+                                totalBytes = progress.totalBytes,
+                                statusText = "正在导入模型"
+                            )
                         }
                     }
                 }
-            }
-
-            result.fold(
-                onSuccess = { path ->
-                    firstRunSetupRepository.markSetupDismissed()
-                    updateModelState(modelRepository.currentState())
-                    uiState.update {
-                        it.copy(
-                            modelPath = path,
-                            isBusy = false,
-                            isDownloading = false,
-                            downloadProgressPercent = null,
-                            downloadedBytes = 0L,
-                            totalBytes = 0L,
-                            statusText = "模型已导入",
-                            showFirstRunSetup = false
-                        )
-                    }
-                    loadModel()
-                },
-                onFailure = { throwable ->
-                    // Import owns isBusy (it closed the runtime), so its failure ends it explicitly.
-                    uiState.update { it.downloadFinished("导入失败：${throwable.cleanMessage()}").copy(isBusy = false) }
-                }
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (throwable: Throwable) {
+            Result.failure(throwable)
         }
+        // A commit that finished while cancellation arrived may stay on disk; its success is not reported.
+        ensureActive()
+
+        result.fold(
+            onSuccess = { path ->
+                firstRunSetupRepository.markSetupDismissed()
+                updateModelState(modelRepository.currentState())
+                uiState.update {
+                    it.copy(
+                        modelPath = path,
+                        isBusy = false,
+                        isDownloading = false,
+                        downloadProgressPercent = null,
+                        downloadedBytes = 0L,
+                        totalBytes = 0L,
+                        statusText = "模型已导入",
+                        showFirstRunSetup = false
+                    )
+                }
+                loadModel()
+            },
+            onFailure = { throwable ->
+                // Import owns isBusy (it closed the runtime), so its failure ends it explicitly.
+                uiState.update { it.downloadFinished("导入失败：${throwable.cleanMessage()}").copy(isBusy = false) }
+            }
+        )
     }
 
     fun selectBackend(choice: BackendChoice) {

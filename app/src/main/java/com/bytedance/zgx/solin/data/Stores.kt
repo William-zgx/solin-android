@@ -55,7 +55,7 @@ interface ModelRepositoryFacade {
     fun verifiedObservationActionModelPath(): String?
     fun verifiedMemoryEmbeddingModelPath(): String?
     fun verifyLegacyRecommendedModels(): Boolean
-    fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String
+    suspend fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String
 
     /** Who proposes a local run's first tool; always [LocalPlanningStrategy.RuleFirst] outside debug builds. */
     fun localPlanningStrategy(): LocalPlanningStrategy = LocalPlanningStrategy.RuleFirst

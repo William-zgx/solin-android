@@ -12,6 +12,10 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.RandomAccessFile
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -648,6 +652,169 @@ class ModelRepositoryTest {
             assertEquals(null, imported.recommendedModelId)
             assertEquals(ModelVerificationStatus.UnverifiedCustom, imported.verificationStatus)
             assertNoTemporaryModels(modelDir)
+        }
+    }
+
+    @Test
+    fun boundedStreamCopyStopsWhenCancellationCheckThrows() {
+        val output = ByteArrayOutputStream()
+        var checks = 0
+
+        val failure = runCatching {
+            copyStreamWithByteLimit(
+                input = ChunkedByteInputStream(ByteArray(6), chunkBytes = 2),
+                output = output,
+                maximumBytes = 10L,
+                ensureActive = { if (++checks == 3) throw CancellationException("cancelled") },
+            )
+        }
+
+        assertTrue(failure.exceptionOrNull() is CancellationException)
+        assertEquals(4, output.size())
+    }
+
+    @Test
+    fun cancelledImportDuringCopyLeavesNoTempFinalOrRegistration() {
+        withTempModelDir { modelDir ->
+            var registrations = 0
+            runBlocking {
+                lateinit var worker: Job
+                worker = launch {
+                    importModelFileAndCommit(
+                        modelDir = modelDir,
+                        displayName = "custom-model.litertlm",
+                        sourceSizeBytes = 5L,
+                        usableSpaceBytes = 10L,
+                        copyToTemp = { tempTarget, ensureActive ->
+                            tempTarget.writeText("partial", Charsets.UTF_8)
+                            worker.cancel()
+                            ensureActive()
+                        },
+                        register = { registrations++ },
+                    )
+                }
+                worker.join()
+                assertTrue(worker.isCancelled)
+            }
+
+            assertEquals(0, registrations)
+            assertNoTemporaryModels(modelDir)
+            assertFalse(File(modelDir, "custom-model.litertlm").exists())
+        }
+    }
+
+    @Test
+    fun cancelledImportAfterCopyBeforeCommitDiscardsTempAndSkipsRegistration() {
+        withTempModelDir { modelDir ->
+            var registrations = 0
+            runBlocking {
+                lateinit var worker: Job
+                worker = launch {
+                    importModelFileAndCommit(
+                        modelDir = modelDir,
+                        displayName = "custom-model.litertlm",
+                        sourceSizeBytes = 5L,
+                        usableSpaceBytes = 10L,
+                        copyToTemp = { tempTarget, _ ->
+                            tempTarget.writeText("model", Charsets.UTF_8)
+                            worker.cancel()
+                        },
+                        register = { registrations++ },
+                    )
+                }
+                worker.join()
+                assertTrue(worker.isCancelled)
+            }
+
+            assertEquals(0, registrations)
+            assertNoTemporaryModels(modelDir)
+            assertFalse(File(modelDir, "custom-model.litertlm").exists())
+        }
+    }
+
+    @Test
+    fun cancellationAfterCommitEntryStillRegistersExactlyOnce() {
+        withTempModelDir { modelDir ->
+            val registered = mutableListOf<String>()
+            var returned: String? = null
+            runBlocking {
+                lateinit var worker: Job
+                worker = launch {
+                    returned = importModelFileAndCommit(
+                        modelDir = modelDir,
+                        displayName = "custom-model.litertlm",
+                        sourceSizeBytes = 5L,
+                        usableSpaceBytes = 10L,
+                        copyToTemp = { tempTarget, _ -> tempTarget.writeText("model", Charsets.UTF_8) },
+                        register = { imported ->
+                            worker.cancel()
+                            registered += imported.path
+                            imported.path
+                        },
+                    )
+                }
+                worker.join()
+                assertTrue(worker.isCancelled)
+            }
+
+            val target = File(modelDir, "custom-model.litertlm")
+            assertEquals(listOf(target.absolutePath), registered)
+            assertEquals(target.absolutePath, returned)
+            assertEquals("model", target.readText(Charsets.UTF_8))
+            assertNoTemporaryModels(modelDir)
+        }
+    }
+
+    @Test
+    fun importCommitReportsSuccessOnlyAfterFileIsPlacedAndRegistered() {
+        withTempModelDir { modelDir ->
+            val seenAtRegistration = mutableListOf<Boolean>()
+            val path = runBlocking {
+                importModelFileAndCommit(
+                    modelDir = modelDir,
+                    displayName = "custom-model.litertlm",
+                    sourceSizeBytes = 5L,
+                    usableSpaceBytes = 10L,
+                    copyToTemp = { tempTarget, _ -> tempTarget.writeText("model", Charsets.UTF_8) },
+                    register = { imported ->
+                        seenAtRegistration += File(imported.path).isFile
+                        assertEquals(null, imported.recommendedModelId)
+                        assertEquals(ModelVerificationStatus.UnverifiedCustom, imported.verificationStatus)
+                        imported.path
+                    },
+                )
+            }
+
+            assertEquals(listOf(true), seenAtRegistration)
+            assertEquals(File(modelDir, "custom-model.litertlm").absolutePath, path)
+            assertNoTemporaryModels(modelDir)
+        }
+    }
+
+    @Test
+    fun importCommitCopyFailureKeepsErrorAndSkipsRegistration() {
+        withTempModelDir { modelDir ->
+            var registrations = 0
+            val failure = runCatching {
+                runBlocking {
+                    importModelFileAndCommit(
+                        modelDir = modelDir,
+                        displayName = "custom-model.litertlm",
+                        sourceSizeBytes = 5L,
+                        usableSpaceBytes = 10L,
+                        copyToTemp = { tempTarget, _ ->
+                            tempTarget.writeText("partial", Charsets.UTF_8)
+                            throw IOException("copy failed")
+                        },
+                        register = { registrations++ },
+                    )
+                }
+            }
+
+            assertEquals("copy failed", failure.exceptionOrNull()?.message)
+            assertEquals(0, registrations)
+            assertNoTemporaryModels(modelDir)
+            assertFalse(File(modelDir, "custom-model.litertlm").exists())
         }
     }
 

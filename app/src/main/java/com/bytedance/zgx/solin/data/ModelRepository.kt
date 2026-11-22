@@ -24,6 +24,11 @@ import java.io.OutputStream
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 internal const val CUSTOM_MODEL_MAX_BYTES = 8L * 1024L * 1024L * 1024L
@@ -132,12 +137,14 @@ internal fun copyStreamWithByteLimit(
     input: InputStream,
     output: OutputStream,
     maximumBytes: Long,
+    ensureActive: () -> Unit = {},
     onBytesCopied: (Long) -> Unit = {}
 ): Long {
     require(maximumBytes > 0L) { "模型文件上限必须大于 0" }
     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
     var copiedBytes = 0L
     while (true) {
+        ensureActive()
         val read = input.read(buffer)
         if (read < 0) break
         if (read == 0) continue
@@ -151,14 +158,51 @@ internal fun copyStreamWithByteLimit(
     return copiedBytes
 }
 
-internal fun importModelFileToModelDir(
+/** A fully copied and size-checked temp file whose [commit] is the only step left before the model is visible. */
+internal class StagedModelImport(
+    private val tempTarget: File,
+    private val target: File
+) {
+    fun discard() {
+        tempTarget.delete()
+    }
+
+    fun commit(): ImportedModelFile {
+        try {
+            val moved = runCatching {
+                Files.move(
+                    tempTarget.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+            }.recoverCatching {
+                Files.move(
+                    tempTarget.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+            if (moved.isFailure) error("无法保存模型文件")
+        } catch (throwable: Throwable) {
+            tempTarget.delete()
+            throw throwable
+        }
+        return ImportedModelFile(
+            path = target.absolutePath,
+            displayName = target.nameWithoutExtension
+        )
+    }
+}
+
+internal fun stageModelFileInModelDir(
     modelDir: File,
     displayName: String,
     sourceSizeBytes: Long,
     usableSpaceBytes: Long = modelDir.usableSpace,
     maximumBytes: Long = CUSTOM_MODEL_MAX_BYTES,
     copyToTemp: (File) -> Unit
-): ImportedModelFile {
+): StagedModelImport {
     require(ModelCatalog.isAcceptedModelName(displayName)) {
         "请选择 $MODEL_FILE_EXTENSION 模型文件"
     }
@@ -181,29 +225,55 @@ internal fun importModelFileToModelDir(
         if (tempTarget.length() > maximumBytes) {
             throw ModelTransferSizeLimitExceededException(maximumBytes)
         }
-        val moved = runCatching {
-            Files.move(
-                tempTarget.toPath(),
-                target.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING
-            )
-        }.recoverCatching {
-            Files.move(
-                tempTarget.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING
-            )
-        }
-        if (moved.isFailure) error("无法保存模型文件")
     } catch (throwable: Throwable) {
         tempTarget.delete()
         throw throwable
     }
-    return ImportedModelFile(
-        path = target.absolutePath,
-        displayName = target.nameWithoutExtension
-    )
+    return StagedModelImport(tempTarget, target)
+}
+
+internal fun importModelFileToModelDir(
+    modelDir: File,
+    displayName: String,
+    sourceSizeBytes: Long,
+    usableSpaceBytes: Long = modelDir.usableSpace,
+    maximumBytes: Long = CUSTOM_MODEL_MAX_BYTES,
+    copyToTemp: (File) -> Unit
+): ImportedModelFile = stageModelFileInModelDir(
+    modelDir,
+    displayName,
+    sourceSizeBytes,
+    usableSpaceBytes,
+    maximumBytes,
+    copyToTemp
+).commit()
+
+/**
+ * Cancellable copy, then an uncancellable commit. Cancellation before the commit starts deletes the temp file and
+ * writes nothing. Once the move begins, the move and [register] always finish together so cancellation cannot split
+ * file placement from model registration; a cancelled caller must check its own job after this returns.
+ * This is coroutine-cancellation atomicity only, not crash atomicity across file, Room and settings writes.
+ */
+internal suspend fun <T> importModelFileAndCommit(
+    modelDir: File,
+    displayName: String,
+    sourceSizeBytes: Long,
+    usableSpaceBytes: Long = modelDir.usableSpace,
+    maximumBytes: Long = CUSTOM_MODEL_MAX_BYTES,
+    copyToTemp: (tempTarget: File, ensureActive: () -> Unit) -> Unit,
+    register: (ImportedModelFile) -> T
+): T {
+    val job = currentCoroutineContext()
+    val staged = stageModelFileInModelDir(modelDir, displayName, sourceSizeBytes, usableSpaceBytes, maximumBytes) { temp ->
+        copyToTemp(temp) { job.ensureActive() }
+    }
+    try {
+        job.ensureActive()
+    } catch (cancelled: CancellationException) {
+        staged.discard()
+        throw cancelled
+    }
+    return withContext(NonCancellable) { register(staged.commit()) }
 }
 
 data class ModelSelectionState(
@@ -347,28 +417,31 @@ class ModelRepository(
         return currentEntity.toSummary()
     }
 
-    override fun importModel(
+    override suspend fun importModel(
         uri: Uri,
         onProgress: (TransferProgress) -> Unit
     ): String {
+        currentCoroutineContext().ensureActive()
         clearPendingDownload()
         val displayName = resolveDisplayName(uri)
         val sourceSize = resolveFileSize(uri)
-        val imported = importModelFileToModelDir(
+        return importModelFileAndCommit(
             modelDir = modelDir,
             displayName = displayName,
             sourceSizeBytes = sourceSize,
-            maximumBytes = CUSTOM_MODEL_MAX_BYTES
-        ) { tempTarget ->
-            copyUriToFile(uri, tempTarget, CUSTOM_MODEL_MAX_BYTES, onProgress)
+            maximumBytes = CUSTOM_MODEL_MAX_BYTES,
+            copyToTemp = { tempTarget, ensureActive ->
+                copyUriToFile(uri, tempTarget, CUSTOM_MODEL_MAX_BYTES, ensureActive, onProgress)
+            }
+        ) { imported ->
+            registerInstalledModel(
+                path = imported.path,
+                displayName = imported.displayName,
+                recommendedModelId = imported.recommendedModelId,
+                verificationStatus = imported.verificationStatus
+            )
+            imported.path
         }
-        registerInstalledModel(
-            path = imported.path,
-            displayName = imported.displayName,
-            recommendedModelId = imported.recommendedModelId,
-            verificationStatus = imported.verificationStatus
-        )
-        return imported.path
     }
 
     override fun pendingDownloadId(): Long = downloadRecordDao.record()?.downloadManagerId ?: -1L
@@ -526,6 +599,7 @@ class ModelRepository(
         uri: Uri,
         target: File,
         maximumBytes: Long,
+        ensureActive: () -> Unit,
         onProgress: (TransferProgress) -> Unit
     ) {
         val total = resolveFileSize(uri)
@@ -536,7 +610,7 @@ class ModelRepository(
         appContext.contentResolver.openInputStream(uri)?.use { input ->
             target.outputStream().use { output ->
                 var lastReported = 0L
-                copyStreamWithByteLimit(input, output, maximumBytes) { copied ->
+                copyStreamWithByteLimit(input, output, maximumBytes, ensureActive) { copied ->
                     if (copied - lastReported >= 1_048_576L || copied == total) {
                         lastReported = copied
                         onProgress(

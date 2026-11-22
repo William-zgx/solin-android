@@ -12,6 +12,7 @@ import com.bytedance.zgx.solin.data.ModelSelectionState
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import com.bytedance.zgx.solin.data.SessionStore
 import com.bytedance.zgx.solin.download.ModelDownloadClient
+import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.runtime.DisabledLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
 import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
@@ -24,7 +25,10 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +40,7 @@ import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -137,6 +142,71 @@ class ModelLoadControllerTest {
         assertEquals(1, repository.stateCalls.get())
     }
 
+    @Test
+    fun importContinuationNeverRunsOnTheCallerThread() {
+        val recorder = ImportRecorder()
+        val uiState = MutableStateFlow(ChatUiState())
+        val controller = importController(recorder, uiState)
+
+        runBlocking { withTimeout(5_000) { controller.launchImport { "/tmp/imported.litertlm" }.join() } }
+        awaitChildren()
+
+        assertEquals(
+            setOf("dismiss", "state", "saveMode", "clearPending"),
+            recorder.threads.keys.toSet()
+        )
+        recorder.threads.forEach { (step, thread) ->
+            assertTrue("$step ran on $thread", thread.startsWith("import-io"))
+        }
+        assertEquals("/tmp/imported.litertlm", uiState.value.modelPath)
+    }
+
+    @Test
+    fun importFailureEndsBusyWithoutSuccessSideEffects() {
+        val recorder = ImportRecorder()
+        val uiState = MutableStateFlow(ChatUiState(isBusy = true))
+        val controller = importController(recorder, uiState)
+
+        runBlocking {
+            withTimeout(5_000) {
+                controller.launchImport { throw java.io.IOException("boom") }.join()
+            }
+        }
+
+        assertTrue(uiState.value.statusText.contains("导入失败：boom"))
+        assertFalse(uiState.value.isBusy)
+        assertTrue(recorder.threads.isEmpty())
+    }
+
+    @Test
+    fun cancelledImportThatCommittedSkipsDismissalStateRefreshSuccessAndLoad() {
+        val recorder = ImportRecorder()
+        val uiState = MutableStateFlow(ChatUiState(isBusy = true))
+        val controller = importController(recorder, uiState)
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+
+        val job = controller.launchImport {
+            entered.complete(Unit)
+            // The repository commit is uncancellable, so a cancelled import can still return a path.
+            withContext(NonCancellable) { gate.await() }
+            "/tmp/committed.litertlm"
+        }
+        runBlocking {
+            withTimeout(5_000) { entered.await() }
+            job.cancel()
+            gate.complete(Unit)
+            withTimeout(5_000) { job.join() }
+        }
+
+        assertTrue(job.isCancelled)
+        assertTrue(recorder.threads.isEmpty())
+        assertEquals(0, recorder.stateCalls.get())
+        assertEquals(null, uiState.value.modelPath)
+        assertFalse(uiState.value.statusText == "模型已导入")
+        assertTrue(uiState.value.isBusy)
+    }
+
     private fun awaitChildren() = runBlocking {
         withTimeout(5_000) {
             scopes.forEach { scope -> scope.coroutineContext[Job]!!.children.toList().joinAll() }
@@ -147,6 +217,95 @@ class ModelLoadControllerTest {
         val executor = Executors.newFixedThreadPool(threads)
         executors += executor
         return executor.asCoroutineDispatcher()
+    }
+
+    private class ImportRecorder {
+        val threads: MutableMap<String, String> = java.util.concurrent.ConcurrentHashMap()
+        val stateCalls = AtomicInteger()
+    }
+
+    private fun namedExecutor(prefix: String): java.util.concurrent.ExecutorService {
+        val counter = AtomicInteger()
+        val executor = Executors.newFixedThreadPool(2) { runnable ->
+            Thread(runnable, "$prefix-${counter.incrementAndGet()}")
+        }
+        executors += executor
+        return executor
+    }
+
+    private fun importController(
+        recorder: ImportRecorder,
+        uiState: MutableStateFlow<ChatUiState>
+    ): ModelLoadController {
+        val ioDispatcher = namedExecutor("import-io").asCoroutineDispatcher()
+        val callerDispatcher = namedExecutor("import-caller").asCoroutineDispatcher()
+        val scope = CoroutineScope(SupervisorJob() + callerDispatcher)
+        scopes += scope
+        val repository = Proxy.newProxyInstance(
+            ModelRepositoryFacade::class.java.classLoader,
+            arrayOf(ModelRepositoryFacade::class.java)
+        ) { _, method, _ ->
+            when (method.name) {
+                "currentState" -> {
+                    recorder.stateCalls.incrementAndGet()
+                    recorder.threads["state"] = Thread.currentThread().name
+                    ModelSelectionState(DEFAULT_CHAT_MODEL_ID, null, null, emptyList())
+                }
+                else -> defaultFor(method.returnType)
+            }
+        } as ModelRepositoryFacade
+        val remoteStore = Proxy.newProxyInstance(
+            RemoteModelStore::class.java.classLoader,
+            arrayOf(RemoteModelStore::class.java)
+        ) { _, method, _ ->
+            when (method.name) {
+                "saveMode" -> {
+                    recorder.threads["saveMode"] = Thread.currentThread().name
+                    InferenceMode.Local
+                }
+                else -> defaultFor(method.returnType)
+            }
+        } as RemoteModelStore
+        val firstRun = Proxy.newProxyInstance(
+            FirstRunSetupStore::class.java.classLoader,
+            arrayOf(FirstRunSetupStore::class.java)
+        ) { _, method, _ ->
+            if (method.name == "markSetupDismissed") {
+                recorder.threads["dismiss"] = Thread.currentThread().name
+            }
+            defaultFor(method.returnType)
+        } as FirstRunSetupStore
+        return ModelLoadController(
+            modelRepository = repository,
+            downloadService = stub<ModelDownloadClient>(),
+            runtime = DisabledLiteRtRuntime,
+            remoteModelRepository = remoteStore,
+            huggingFaceAuthStore = stub<HuggingFaceAuthStore>(),
+            firstRunSetupRepository = firstRun,
+            generationParametersRepository = stub<GenerationParametersStore>(),
+            sessionRepository = stub<SessionStore>(),
+            bundledModelInstaller = stub<BundledModelInstaller>(),
+            remoteConnectivityRefreshCoordinator = RemoteConnectivityRefreshCoordinator(
+                remoteStore,
+                stub<RemoteModelConnectivityProbe>(),
+                scope,
+                ioDispatcher
+            ),
+            semanticMemoryRuntimeController = null,
+            ioDispatcher = ioDispatcher,
+            scope = scope,
+            uiState = uiState,
+            runtimeLock = Mutex(),
+            isArm64DeviceProvider = { true },
+            skipStartupModelRuntimeWork = true,
+            autoInferenceAuthorizationCoordinator = AutoInferenceAuthorizationCoordinator(
+                AdaptiveInferenceRollout.Off,
+                remoteStore
+            ),
+            clearPendingRemoteState = { recorder.threads["clearPending"] = Thread.currentThread().name },
+            resetRemoteSendDisclosureSuppression = {},
+            rebuildMemoryIndex = {}
+        )
     }
 
     private fun controller(
