@@ -18,14 +18,23 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
 import org.junit.rules.RuleChain
 
 class MainActivityLongTermMemoryUiTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
+    private var viewModelJobForTeardown: Job? = null
 
     init {
         resetMainActivityPersistentState(
@@ -40,9 +49,35 @@ class MainActivityLongTermMemoryUiTest {
             ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext, ReadyRemoteModelConfig))
         ) { rule -> activityFromScenarioRule(rule) }
 
+    private val awaitViewModelTeardown = object : ExternalResource() {
+        override fun after() {
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            // The next test class may close Room during reset; join all cancelled child bodies first.
+            viewModelJobForTeardown?.let { job ->
+                runBlocking {
+                    withTimeout(10_000) {
+                        job.join()
+                    }
+                }
+            }
+            viewModelJobForTeardown = null
+        }
+    }
+
     // The probe endpoint must be up before the Activity (started by the inner rule) probes it.
     @get:Rule
-    val ruleChain: RuleChain = RuleChain.outerRule(LocalModelProbeServerRule()).around(composeRule)
+    val ruleChain: RuleChain = RuleChain
+        .outerRule(LocalModelProbeServerRule())
+        .around(awaitViewModelTeardown)
+        .around(composeRule)
+
+    @After
+    fun captureViewModelForTeardown() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            viewModelJobForTeardown = ViewModelProvider(composeRule.activity)[SolinViewModel::class.java]
+                .viewModelScope.coroutineContext[Job]
+        }
+    }
 
     @Test
     fun explicitPreferencesCanBeForgottenAndClearedFromLongTermMemoryPanel() {
