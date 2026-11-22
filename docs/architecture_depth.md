@@ -185,8 +185,12 @@ node and screenshot reads also probe on entry and after the walk/capture, so a
 cross-lock result is discarded rather than returned or published. Locked and
 unknown both map to `SnapshotUnknown`, preventing a distinct lock-state bit from
 reaching a remote planner. The background helper reuses this classifier while
-keeping its independent display, focus and frame-freshness checks. This slice
-does not cover MediaProjection OCR or prove OEM/physical lock transitions.
+keeping its independent display, focus and frame-freshness checks.
+`CurrentScreenshotOcrToolExecutor` applies the same classifier at the existing
+MediaProjection tool/fusion boundary before capture and after OCR/fusion.
+Refusal clears only that request's one-shot consent and returns no OCR text,
+blocks or fused observation. No probe is atomic with an OS lock transition;
+ABA transitions and OEM/physical behavior remain outside the JVM guarantee.
 
 **Tool layer.** `skill/SkillRunExecutor.kt` used to call `toolExecutor.execute`
 directly, skipping the execution boundary's authorizer. It had no production

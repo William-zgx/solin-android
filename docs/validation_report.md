@@ -18137,3 +18137,31 @@ git diff --check
   status/reviewer/date/approved-evidence 待审批项，**无 SHA mismatch**；notice candidate SHA 为
   `5271c8d20b7f5966f94e46a4baedb6f507c7c7bf9cb922debc6c43dd554a5cbc`，release/security/legal
   均保持 pending，哈希刷新不是人工批准。Hosted CI 与物理设备结果另行记录，不由本地门禁推断。
+- Hosted [#193](https://github.com/William-zgx/solin-android/actions/runs/45036030418)（`034bbe03`）：
+  Verify 与 emulator-regression 均 **success**。emulator 12m35s，原始日志 `OK (104 tests)`，脚本汇总
+  **104 discovered / 91 executed / 13 skipped / 0 failed**。这闭合 G/H1 的 hosted 证据；
+  MediaProjection 与语音 watchdog 是后续独立切片，物理锁屏/OEM 仍未验收。
+
+## 2026-11-22 — MediaProjection lock truth and voice watchdog
+
+- MediaProjection 锁屏门禁 `8f28b8e4` + `bef2bc4c`，格式 `b20bf8e2`：现有
+  `CurrentScreenshotOcrToolExecutor` 在 consent/background 顺序后、Accessibility/捕获前要求
+  Unlocked，并在 OCR/fusion 后、唯一成功返回前再次探测。Locked/Unknown/异常只清理同 request 的
+  一次性 consent，返回非重试 generic ExecutionFailed，不含锁屏状态位、OCR text/blocks、
+  screenObservationJson 或后续 tap grounding。未改 provider、consent Activity、schema 或
+  multimodal→device 依赖。Ungated seam RED 为 6 tests failed；最终 tool/multimodal/device-lock/
+  architecture focused suites 通过，Opus 5.5 初始与返修均 ACCEPT、简化 CLEAN。最终探针不与
+  OS 锁屏原子化，ABA 与真实投影行为仍需物理验收。
+- 语音 watchdog `2d366c64` + `20fe0653` + `21889d31`，格式 `dba4afcb`：每个显式
+  generation 只有一个 60 秒绝对截止，覆盖 listening/transcribing，RMS/partial/finish 不延长；
+  result/error/cancel/timeout/onStop 在 main 上竞争单一终态。onStop 取消、DESTROYED/active start
+  no-op，activity.lifecycleScope 复用，迟到回调不生成 draft，不自动重开或记录语音内容。
+  Stubbed watchdog/onStop/reentry RED 为 13 tests / 6 failures，最终新测试 **13/13** 且相关
+  voice/shared-input/architecture 命令成功；Opus 5.5 ACCEPT、简化最终 CLEAN。协调器 Android
+  接线、物理麦克风指示器和 OEM callback 仍待设备验收。
+- 最终 integrated `:app:testDebugUnitTest spotlessCheck` **SUCCESS**：XML 汇总
+  **3112 tests / 0 failures / 0 errors / 15 skipped**。`scripts/privacy_scan.sh` 通过。
+  `verify_privacy_review.sh --report …` 仍仅报告既有 status/reviewer/date/approved-evidence
+  待审批原因，无 SHA mismatch；notice candidate SHA 为
+  `d1fea2b1827cc0317a1a8df9ae7979f7ccf15aa7727446bded3fca3270fda412`，三项人工审批保持
+  pending。Hosted CI 与本批物理结果另行记录，不由 JVM 或格式检查推断。

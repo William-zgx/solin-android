@@ -157,8 +157,9 @@ Current status:
   screenshot or terminal submission. Locked or unknown state refuses without a fallback write; reads
   re-probe after tree walks/capture and discard cross-lock text, nodes or pixels. Both cases surface
   as `SnapshotUnknown`, so remote planning receives only `unknown`. The background helper reuses the
-  same classifier without replacing its focus/frame checks. This covers Accessibility/background,
-  not the separate MediaProjection OCR path; JVM contracts do not establish physical lock behavior.
+  same classifier without replacing its focus/frame checks. The MediaProjection OCR tool/fusion owner
+  also probes before capture and after OCR/fusion; refusal clears request-scoped consent and returns
+  no OCR text, blocks or fused observation. JVM contracts do not establish physical lock behavior.
 - `SolinAccessibilityService.onUnbind` invalidates the active device-control owner/lease before
   clipboard restoration. Safe typing additionally requires visible-to-user, non-empty bounds,
   current focus and the original node identity at pre-write and read-back checks. New JVM/source
@@ -997,7 +998,13 @@ Current status:
   automatically.
 - Voice input launches Android speech recognition and stages the transcript as
   a one-shot draft. It does not read audio files, auto-send, or create chat
-  messages until the user taps send.
+  messages until the user taps send. `VoiceRecognitionCoordinator` gives each
+  explicitly started generation one absolute 60-second deadline across listening
+  and transcription; RMS/partials do not extend it. Results, errors, cancellation,
+  timeout and lifecycle stop share one main-thread terminal claim. `onStop`
+  cancels, destroyed/active starts are no-ops, and nothing reopens the microphone
+  automatically or logs transcript/audio content. JVM tests cover app state and
+  cancellation requests, not physical microphone indicators or OEM callbacks.
 - OCR outside shared-input scanned-PDF fallback remains a confirmed tool flow:
   recent screenshot OCR, recent image OCR, and one-shot current screenshot OCR
   all return bounded text excerpts only.
@@ -1008,6 +1015,7 @@ Tests:
 - `CurrentScreenshotOcrContractTest`
 - `SolinViewModelTest`
 - `MainActivitySharedIntentTest`
+- `VoiceRecognitionCoordinatorTest`
 
 ## Structured Logging
 

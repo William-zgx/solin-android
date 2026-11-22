@@ -382,9 +382,9 @@ python3 -I scripts/run_phone_task_benchmark.py --compare <old>/results.jsonl <ne
 
 ### 必须手工验收的系统入口
 
-- 语音输入必须在设备上点麦克风入口，观察 Android 系统语音识别、收音/转写条、取消/完成状态和最终文本进入输入框。
+- 语音输入必须在设备上点麦克风入口，观察 Android 系统语音识别、收音/转写条、取消/完成状态和最终文本进入输入框。另需覆盖识别中重复点击不新建会话、切后台/旋转后取消、无终态回调时 60 秒绝对超时，以及超时后迟到结果不进入输入框、回到前台不自动重开麦克风。
 - 系统文档选择器必须从输入区附件按钮打开，观察本地摘录、metadata-only、远程预览确认和取消路径。
-- 当前屏幕截图 OCR 必须在确认卡后观察 Android MediaProjection 前台同意弹窗；取消和同意后的单次消费行为不能用 provider 直接调用替代。
+- 当前屏幕截图 OCR 必须在确认卡后观察 Android MediaProjection 前台同意弹窗；取消和同意后的单次消费行为不能用 provider 直接调用替代。另在锁屏通知 canary 下分别于捕获前、捕获中和捕获后锁屏，均不得返回成功 OCR/融合观察或复用 consent，前台通知/服务应按既有生命周期消失。
 
 聊天中只应追加安全摘要；结构化工具结果、allowlisted completion metadata
 和执行细节通过 Agent trace / audit 入口查看。Agent trace / audit 应提供足够的

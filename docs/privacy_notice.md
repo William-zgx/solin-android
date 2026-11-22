@@ -211,8 +211,13 @@ Accessibility text/snapshot observation, input actions and
 probe: both Android Keyguard lock signals must read false. Locked or unreadable
 state fails closed without a fallback action. Text, nodes and pixels are checked
 again after tree walking or capture and discarded if the device locked or the
-state became unreadable. The separate MediaProjection OCR path does not use this
-Accessibility lock-state gate; its lock-screen hardening remains a separate item.
+state became unreadable. The MediaProjection OCR tool applies the same lock
+classifier at its existing tool/fusion boundary: it requires `Unlocked` before
+Accessibility observation or capture and probes again after OCR/fusion before
+returning success. Locked or unreadable state clears that request's one-shot
+consent and returns a generic failure without OCR text, blocks or fused screen
+observations. These checks cannot make the OS lock transition and final probe
+atomic; physical lock-screen behavior remains a separate acceptance item.
 
 For screen understanding specifically, screen pixels, OCR excerpts,
 Accessibility text, Accessibility snapshot nodes/bounds metadata, and
