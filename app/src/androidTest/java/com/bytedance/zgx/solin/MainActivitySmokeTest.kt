@@ -17,9 +17,15 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.ExternalResource
@@ -27,6 +33,7 @@ import org.junit.rules.RuleChain
 
 class MainActivitySmokeTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
+    private var viewModelJobForTeardown: Job? = null
 
     init {
         // First test and cross-class state; the outer after rule handles prior Activity teardown.
@@ -38,8 +45,16 @@ class MainActivitySmokeTest {
 
     private val resetAfterScenario = object : ExternalResource() {
         override fun after() {
-            // Let the previous Activity reach onCleared before replacing shared persistence.
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            // AndroidX has cancelled the scope; join all child bodies before closing Room.
+            viewModelJobForTeardown?.let { job ->
+                runBlocking {
+                    withTimeout(10_000) {
+                        job.join()
+                    }
+                }
+            }
+            viewModelJobForTeardown = null
             resetMainActivityPersistentState(
                 context = targetContext,
                 inferenceMode = InferenceMode.Local
@@ -54,6 +69,14 @@ class MainActivitySmokeTest {
 
     @get:Rule
     val ruleChain: RuleChain = RuleChain.outerRule(resetAfterScenario).around(composeRule)
+
+    @After
+    fun captureViewModelForTeardown() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            viewModelJobForTeardown = ViewModelProvider(composeRule.activity)[SolinViewModel::class.java]
+                .viewModelScope.coroutineContext[Job]
+        }
+    }
 
     @Test
     fun chatShellShowsModelManager() {
