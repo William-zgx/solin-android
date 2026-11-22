@@ -18087,4 +18087,4 @@ git diff --check
   promptOverride 返回 null。Local prompt 保留目录，guard、记忆/设备拒绝和 summary-only audit
   不变。普通 Remote 请求与审计不含目录，未放宽 RemoteEligible 信任。规范与质量评审通过，
   完整 JVM **3078 tests / 0 failures / 0 errors / 15 skipped**，androidTest 编译、Spotless、
-  隐私扫描通过；owner privacy doc 已同步，hosted 结果待下一次 run。
+  隐私扫描通过；owner privacy doc 与 candidate/evidence SHA 已同步，人工审批状态不变，hosted 结果待下一次 run。
