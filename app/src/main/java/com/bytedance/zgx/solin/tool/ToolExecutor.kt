@@ -7,6 +7,7 @@ import com.bytedance.zgx.solin.device.CalendarAvailabilityProvider
 import com.bytedance.zgx.solin.device.ContactSummaryProvider
 import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
 import com.bytedance.zgx.solin.device.CurrentScreenTextProvider
+import com.bytedance.zgx.solin.device.DeviceLockState
 import com.bytedance.zgx.solin.device.ForegroundAppProvider
 import com.bytedance.zgx.solin.device.NotificationSummaryProvider
 import com.bytedance.zgx.solin.device.RecentFileProvider
@@ -60,7 +61,7 @@ interface ToolExecutor {
     }
 }
 
-class RoutingToolExecutor(
+internal class RoutingToolExecutor(
     private val calendarAvailabilityProvider: CalendarAvailabilityProvider,
     private val foregroundAppProvider: ForegroundAppProvider,
     private val contactSummaryProvider: ContactSummaryProvider,
@@ -79,7 +80,8 @@ class RoutingToolExecutor(
     // by the `else` branch and mis-partitioned. See [defaultBuiltInToolRegistry].
     private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     private val toolHandlers: Map<String, ToolHandler> = emptyMap(),
-    private val clockMillis: () -> Long = { System.currentTimeMillis() }
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val currentScreenshotDeviceLockState: () -> DeviceLockState = { DeviceLockState.Unknown }
 ) : ToolExecutor {
     private val currentScreenOcrGroundingCache = CurrentScreenOcrGroundingCache(clockMillis)
     private val currentScreenControlProviderWithOcrGrounding =
@@ -108,7 +110,8 @@ class RoutingToolExecutor(
         CurrentScreenshotOcrToolExecutor(
             provider = currentScreenshotOcrProvider,
             currentScreenControlProvider = currentScreenControlProvider,
-            clockMillis = clockMillis
+            clockMillis = clockMillis,
+            deviceLockState = currentScreenshotDeviceLockState
         )
     private val deviceControlToolExecutor =
         DeviceControlToolExecutor(

@@ -153,6 +153,23 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         assertNull("second tap must not reuse a consumed hint", provider.tapOcrGroundingHints[1])
     }
 
+    /** A lock-refused OCR capture must not seed a grounding hint for a later tap. */
+    @Test
+    fun lockRefusedOcrDoesNotSeedGroundingHintForLaterTap() {
+        listOf(com.bytedance.zgx.solin.device.DeviceLockState.Locked, com.bytedance.zgx.solin.device.DeviceLockState.Unknown).forEach { state ->
+            val provider = RecordingControlProvider(
+                observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
+            )
+            val executor = routingExecutorWithOcrGrounding(provider, lockState = { state })
+
+            val ocr = executor.execute(captureOcrRequest())
+            executor.execute(tapRequest("tap-after-refusal"))
+
+            assertEquals(ToolStatus.Failed, ocr.status)
+            assertEquals(listOf<UiOcrGroundingHint?>(null), provider.tapOcrGroundingHints)
+        }
+    }
+
     /** A non-OCR built-in tool between capture and tap must invalidate the hint. */
     @Test
     fun unrelatedToolBetweenCaptureAndTapInvalidatesTheGroundingHint() {
@@ -306,6 +323,8 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     private fun routingExecutorWithOcrGrounding(
         provider: CurrentScreenControlProvider,
         ocrText: String = GROUNDED_TARGET,
+        lockState: () -> com.bytedance.zgx.solin.device.DeviceLockState =
+            { com.bytedance.zgx.solin.device.DeviceLockState.Unlocked },
     ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
@@ -382,6 +401,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
                     )
             },
             currentScreenControlProvider = provider,
+            currentScreenshotDeviceLockState = lockState,
         )
 
     /**

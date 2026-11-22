@@ -124,6 +124,11 @@ class BackgroundPhoneOcrIsolationTest {
             observeCalls++
             ScreenStateReadResult.PermissionDenied("fixture has no accessibility consent")
         } as CurrentScreenControlProvider
-        val executor = CurrentScreenshotOcrToolExecutor(provider, screen) { 1_000L }
+        val executor = CurrentScreenshotOcrToolExecutor(
+            provider,
+            screen,
+            { 1_000L },
+            { com.bytedance.zgx.solin.device.DeviceLockState.Unlocked },
+        )
     }
 }

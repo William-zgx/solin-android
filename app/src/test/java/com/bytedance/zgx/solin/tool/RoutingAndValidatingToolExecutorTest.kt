@@ -3367,6 +3367,148 @@ class RoutingAndValidatingToolExecutorTest {
         assertTrue(delegate.requests.isEmpty())
     }
 
+    // ---- MediaProjection OCR lock-screen gate ----
+
+    private class OcrLockFixture(
+        var lock: com.bytedance.zgx.solin.device.DeviceLockState,
+        private val probeThrows: Boolean = false,
+    ) {
+        var probes = 0
+        var captures = 0
+        var observes = 0
+        val cleared = mutableListOf<String>()
+        var onCapture: () -> Unit = {}
+        var onObserve: (Int) -> Unit = {}
+        val request = ToolRequest(
+            id = "ocr-lock-gate",
+            toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            arguments = mapOf("captureMode" to "current_screen"),
+            reason = "test",
+        )
+        private val provider = object : CurrentScreenshotOcrProvider {
+            override fun setOneShotConsent(
+                requestId: String,
+                resultCode: Int,
+                data: android.content.Intent?,
+                issuedAtMillis: Long,
+            ) = Unit
+
+            override fun clearOneShotConsent(requestId: String) {
+                cleared += requestId
+            }
+
+            override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean = true
+
+            override fun captureCurrentScreenshotOcr(requestId: String, nowMillis: Long): CurrentScreenshotOcrReadResult {
+                captures++
+                onCapture()
+                return CurrentScreenshotOcrReadResult.Available(
+                    text = CANARY,
+                    truncated = false,
+                    ocrBlocks = listOf(
+                        OcrTextBlock(
+                            text = CANARY,
+                            bounds = OcrTextBounds(left = 1, top = 2, right = 120, bottom = 42),
+                            lines = listOf(OcrTextLine(text = CANARY)),
+                        ),
+                    ),
+                )
+            }
+        }
+        private val screen = java.lang.reflect.Proxy.newProxyInstance(
+            CurrentScreenControlProvider::class.java.classLoader,
+            arrayOf(CurrentScreenControlProvider::class.java),
+        ) { _, method, _ ->
+            check(method.name == "observeCurrentScreen") { "Unexpected device operation: ${method.name}" }
+            observes++
+            onObserve(observes)
+            ScreenStateReadResult.Available(staticSnapshot("stable"))
+        } as CurrentScreenControlProvider
+        val probe: () -> com.bytedance.zgx.solin.device.DeviceLockState = {
+            probes++
+            if (probeThrows) throw IllegalStateException("keyguard unavailable")
+            lock
+        }
+        val executor = CurrentScreenshotOcrToolExecutor(provider, screen, { 1_000L }, probe)
+
+        fun assertRefusedGenerically(result: ToolResult) {
+            assertEquals(ToolStatus.Failed, result.status)
+            assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+            assertFalse(result.retryable)
+            assertEquals(request.id, result.requestId)
+            assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+            assertEquals("true", result.data["requiresLocalModel"])
+            assertEquals(listOf(request.id), cleared)
+            val visible = result.summary + result.data.toString() + result.error?.message.orEmpty()
+            assertFalse(visible.contains(CANARY))
+            assertFalse(visible.contains("lock", ignoreCase = true))
+            assertFalse(visible.contains("Unknown", ignoreCase = true))
+            assertFalse(result.data.containsKey("ocrText"))
+            assertFalse(result.data.containsKey("ocrBlocksJson"))
+            assertFalse(result.data.containsKey("screenObservationJson"))
+            assertFalse(result.data.containsKey("screenObservationIncluded"))
+        }
+    }
+
+    @Test
+    fun ocrRefusesInitialLockedAndUnknownBeforeAnyAccessibilityOrCapture() {
+        listOf(com.bytedance.zgx.solin.device.DeviceLockState.Locked, com.bytedance.zgx.solin.device.DeviceLockState.Unknown).forEach { state ->
+            val fixture = OcrLockFixture(state)
+            val result = fixture.executor.execute(fixture.request)
+            fixture.assertRefusedGenerically(result)
+            assertEquals(0, fixture.captures)
+            assertEquals(0, fixture.observes)
+        }
+    }
+
+    @Test
+    fun ocrThrowingLockProbeIsUnknownAndNeverCaptures() {
+        val fixture = OcrLockFixture(com.bytedance.zgx.solin.device.DeviceLockState.Unlocked, probeThrows = true)
+        val result = fixture.executor.execute(fixture.request)
+        fixture.assertRefusedGenerically(result)
+        assertEquals(0, fixture.captures)
+        assertEquals(0, fixture.observes)
+    }
+
+    @Test
+    fun ocrDroppedWhenDeviceLocksOrBecomesUnknownDuringCapture() {
+        listOf(com.bytedance.zgx.solin.device.DeviceLockState.Locked, com.bytedance.zgx.solin.device.DeviceLockState.Unknown).forEach { state ->
+            val fixture = OcrLockFixture(com.bytedance.zgx.solin.device.DeviceLockState.Unlocked)
+            fixture.onCapture = { fixture.lock = state }
+            val result = fixture.executor.execute(fixture.request)
+            fixture.assertRefusedGenerically(result)
+            assertEquals(1, fixture.captures)
+        }
+    }
+
+    @Test
+    fun ocrFinalProbeCatchesLockAfterLastAccessibilityObservation() {
+        val fixture = OcrLockFixture(com.bytedance.zgx.solin.device.DeviceLockState.Unlocked)
+        fixture.onObserve = { count ->
+            if (count == 2) fixture.lock = com.bytedance.zgx.solin.device.DeviceLockState.Locked
+        }
+        val result = fixture.executor.execute(fixture.request)
+        fixture.assertRefusedGenerically(result)
+        assertEquals(1, fixture.captures)
+        assertEquals(2, fixture.observes)
+    }
+
+    @Test
+    fun ocrStableUnlockedPublishesFusedOutputWithEntryAndFinalProbes() {
+        val fixture = OcrLockFixture(com.bytedance.zgx.solin.device.DeviceLockState.Unlocked)
+        val result = fixture.executor.execute(fixture.request)
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(CANARY, result.data["ocrText"])
+        assertNotNull(result.data["ocrBlocksJson"])
+        assertEquals("true", result.data["screenObservationIncluded"])
+        assertNotNull(result.data["screenObservationJson"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals(1, fixture.captures)
+        assertEquals(2, fixture.observes)
+        assertEquals(2, fixture.probes)
+        assertTrue(fixture.cleared.isEmpty())
+    }
+
     private fun routingExecutor(
         delegate: ToolExecutor,
         backgroundTaskScheduler: BackgroundTaskScheduler? = StaticBackgroundTaskScheduler(),
@@ -3379,6 +3521,8 @@ class RoutingAndValidatingToolExecutorTest {
         webSearchProvider: WebSearchProvider = StaticWebSearchProvider(),
         currentScreenControlProvider: CurrentScreenControlProvider? = StaticCurrentScreenControlProvider(),
         clockMillis: () -> Long = { System.currentTimeMillis() },
+        deviceLockState: () -> com.bytedance.zgx.solin.device.DeviceLockState =
+            { com.bytedance.zgx.solin.device.DeviceLockState.Unlocked },
     ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
@@ -3467,6 +3611,7 @@ class RoutingAndValidatingToolExecutorTest {
             currentScreenshotOcrProvider = currentScreenshotOcrProvider,
             currentScreenControlProvider = currentScreenControlProvider,
             clockMillis = clockMillis,
+            currentScreenshotDeviceLockState = deviceLockState,
         )
 
     private class StaticCurrentScreenControlProvider(
@@ -3608,6 +3753,8 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     private companion object {
+        const val CANARY = "CANARY-OCR-PRIVATE-7391"
+
         fun staticSnapshot(
             id: String,
             packageName: String = "com.example.app",

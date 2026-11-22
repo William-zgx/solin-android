@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.tool
 
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
+import com.bytedance.zgx.solin.device.DeviceLockState
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.toScreenObservationJsonString
@@ -11,10 +12,11 @@ import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrReadResult
 import com.bytedance.zgx.solin.multimodal.OcrTextBlock
 import com.bytedance.zgx.solin.multimodal.toOcrBlocksJsonString
 
-class CurrentScreenshotOcrToolExecutor(
+internal class CurrentScreenshotOcrToolExecutor(
     private val provider: CurrentScreenshotOcrProvider?,
     private val currentScreenControlProvider: CurrentScreenControlProvider? = null,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val deviceLockState: () -> DeviceLockState = { DeviceLockState.Unknown },
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR) {
@@ -28,11 +30,15 @@ class CurrentScreenshotOcrToolExecutor(
                 retryable = false, data = request.localOnlyData())
         }
         val nowMillis = clockMillis()
-        val screenObservationBeforeCapture = provider
-            ?.takeIf { candidate -> candidate.hasOneShotConsent(request.id, nowMillis) }
-            ?.let {
-                currentScreenControlProvider?.observeCurrentScreen()
-            }
+        val hasConsent = provider?.hasOneShotConsent(request.id, nowMillis) == true
+        // Threat: a locked screen mirrored through MediaProjection/Accessibility would leak
+        // lock-screen content into OCR. Fail closed (Unknown counts as locked) before any read.
+        if (hasConsent && !isUnlocked()) return request.lockRefusal(provider)
+        val screenObservationBeforeCapture = if (hasConsent) {
+            currentScreenControlProvider?.observeCurrentScreen()
+        } else {
+            null
+        }
         return when (val result = provider?.captureCurrentScreenshotOcr(request.id, nowMillis)) {
             null ->
                 request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "当前屏幕截图 OCR 服务不可用")
@@ -61,6 +67,8 @@ class CurrentScreenshotOcrToolExecutor(
                     ocrBlocks = result.ocrBlocks,
                     beforeCapture = screenObservationBeforeCapture,
                 )
+                // Best-effort re-check right before publication; not atomic with the OS lock.
+                if (!isUnlocked()) return request.lockRefusal(provider)
                 request.succeeded(
                     summary = if (ocrText == null) {
                         "已完成当前屏幕单次 OCR，未识别到可用文字。"
@@ -80,6 +88,20 @@ class CurrentScreenshotOcrToolExecutor(
                 )
             }
         }
+    }
+
+    private fun isUnlocked(): Boolean =
+        runCatching { deviceLockState() }.getOrDefault(DeviceLockState.Unknown) == DeviceLockState.Unlocked
+
+    /** Generic refusal: consumes the one-shot consent and reveals neither lock state nor content. */
+    private fun ToolRequest.lockRefusal(provider: CurrentScreenshotOcrProvider?): ToolResult {
+        provider?.clearOneShotConsent(id)
+        return failed(
+            code = ToolErrorCode.ExecutionFailed,
+            summary = "当前屏幕截图 OCR 暂不可用，未返回屏幕内容",
+            retryable = false,
+            data = currentScreenshotOcrBaseData(),
+        )
     }
 
     private fun CurrentScreenControlProvider?.screenObservationData(
