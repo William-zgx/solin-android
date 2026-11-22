@@ -691,6 +691,7 @@ internal class ModelLoadController(
     /**
      * Runs the import and its whole continuation on [ioDispatcher]: the follow-up setup, Room and settings writes
      * are blocking I/O. A cancelled import never dismisses setup, refreshes read models, reports success or loads.
+     * Cancellation today only comes from scope teardown, so a cancelled import leaves its busy state untouched.
      */
     internal fun launchImport(importOperation: suspend (onProgress: (TransferProgress) -> Unit) -> String): Job = scope.launch(ioDispatcher) {
         val result = try {
@@ -710,7 +711,9 @@ internal class ModelLoadController(
                 }
             )
         } catch (cancelled: CancellationException) {
-            throw cancelled
+            // A provider or runtime future can throw this type while this coroutine is still active.
+            if (!isActive) throw cancelled
+            Result.failure(cancelled)
         } catch (throwable: Throwable) {
             Result.failure(throwable)
         }

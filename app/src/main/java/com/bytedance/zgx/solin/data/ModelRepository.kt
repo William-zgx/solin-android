@@ -24,7 +24,6 @@ import java.io.OutputStream
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -163,10 +162,6 @@ internal class StagedModelImport(
     private val tempTarget: File,
     private val target: File
 ) {
-    fun discard() {
-        tempTarget.delete()
-    }
-
     fun commit(): ImportedModelFile {
         try {
             val moved = runCatching {
@@ -232,26 +227,14 @@ internal fun stageModelFileInModelDir(
     return StagedModelImport(tempTarget, target)
 }
 
-internal fun importModelFileToModelDir(
-    modelDir: File,
-    displayName: String,
-    sourceSizeBytes: Long,
-    usableSpaceBytes: Long = modelDir.usableSpace,
-    maximumBytes: Long = CUSTOM_MODEL_MAX_BYTES,
-    copyToTemp: (File) -> Unit
-): ImportedModelFile = stageModelFileInModelDir(
-    modelDir,
-    displayName,
-    sourceSizeBytes,
-    usableSpaceBytes,
-    maximumBytes,
-    copyToTemp
-).commit()
-
 /**
  * Cancellable copy, then an uncancellable commit. Cancellation before the commit starts deletes the temp file and
  * writes nothing. Once the move begins, the move and [register] always finish together so cancellation cannot split
  * file placement from model registration; a cancelled caller must check its own job after this returns.
+ *
+ * Today the commit and [register] are plain non-suspending code, so cancellation cannot interrupt them anyway.
+ * [NonCancellable] is deliberate future-proofing: if a suspension point is ever added inside the commit, it must not
+ * be able to split the move from the registration.
  * This is coroutine-cancellation atomicity only, not crash atomicity across file, Room and settings writes.
  */
 internal suspend fun <T> importModelFileAndCommit(
@@ -263,15 +246,11 @@ internal suspend fun <T> importModelFileAndCommit(
     copyToTemp: (tempTarget: File, ensureActive: () -> Unit) -> Unit,
     register: (ImportedModelFile) -> T
 ): T {
-    val job = currentCoroutineContext()
+    val callerContext = currentCoroutineContext()
+    // The post-copy check lives inside staging so its Throwable cleanup deletes the temp file.
     val staged = stageModelFileInModelDir(modelDir, displayName, sourceSizeBytes, usableSpaceBytes, maximumBytes) { temp ->
-        copyToTemp(temp) { job.ensureActive() }
-    }
-    try {
-        job.ensureActive()
-    } catch (cancelled: CancellationException) {
-        staged.discard()
-        throw cancelled
+        copyToTemp(temp) { callerContext.ensureActive() }
+        callerContext.ensureActive()
     }
     return withContext(NonCancellable) { register(staged.commit()) }
 }

@@ -492,7 +492,7 @@ class ModelRepositoryTest {
             var copyCalled = false
 
             val failure = runCatching {
-                importModelFileToModelDir(
+                importThroughCommitPath(
                     modelDir = modelDir,
                     displayName = "custom-model.bin",
                     sourceSizeBytes = 5L,
@@ -517,7 +517,7 @@ class ModelRepositoryTest {
             var copyCalled = false
 
             val failure = runCatching {
-                importModelFileToModelDir(
+                importThroughCommitPath(
                     modelDir = modelDir,
                     displayName = "custom-model.litertlm",
                     sourceSizeBytes = 11L,
@@ -542,7 +542,7 @@ class ModelRepositoryTest {
             var copyCalled = false
 
             val failure = runCatching {
-                importModelFileToModelDir(
+                importThroughCommitPath(
                     modelDir = modelDir,
                     displayName = "custom-model.litertlm",
                     sourceSizeBytes = 6L,
@@ -565,7 +565,7 @@ class ModelRepositoryTest {
     fun importModelFileRejectsFalseSmallSizeAndDeletesTmp() {
         withTempModelDir { modelDir ->
             val failure = runCatching {
-                importModelFileToModelDir(
+                importThroughCommitPath(
                     modelDir = modelDir,
                     displayName = "custom-model.litertlm",
                     sourceSizeBytes = 1L,
@@ -591,7 +591,7 @@ class ModelRepositoryTest {
     fun importModelFileRejectsEmptyCopiedFileAndDeletesTmp() {
         withTempModelDir { modelDir ->
             val failure = runCatching {
-                importModelFileToModelDir(
+                importThroughCommitPath(
                     modelDir = modelDir,
                     displayName = "custom-model.litertlm",
                     sourceSizeBytes = 0L,
@@ -613,7 +613,7 @@ class ModelRepositoryTest {
     fun importModelFileDeletesTmpWhenCopyFails() {
         withTempModelDir { modelDir ->
             val failure = runCatching {
-                importModelFileToModelDir(
+                importThroughCommitPath(
                     modelDir = modelDir,
                     displayName = "custom-model.litertlm",
                     sourceSizeBytes = 5L,
@@ -635,7 +635,7 @@ class ModelRepositoryTest {
     @Test
     fun importModelFileMovesCopiedFileAsUnverifiedCustomRegistration() {
         withTempModelDir { modelDir ->
-            val imported = importModelFileToModelDir(
+            val imported = importThroughCommitPath(
                 modelDir = modelDir,
                 displayName = "custom-model.litertlm",
                 sourceSizeBytes = 5L,
@@ -733,7 +733,7 @@ class ModelRepositoryTest {
     }
 
     @Test
-    fun cancellationAfterCommitEntryStillRegistersExactlyOnce() {
+    fun cancellationDuringNonSuspendingCommitRegistersExactlyOnce() {
         withTempModelDir { modelDir ->
             val registered = mutableListOf<String>()
             var returned: String? = null
@@ -816,6 +816,26 @@ class ModelRepositoryTest {
             assertNoTemporaryModels(modelDir)
             assertFalse(File(modelDir, "custom-model.litertlm").exists())
         }
+    }
+
+    /** Runs the real production import path; the commit registers nothing beyond returning the imported file. */
+    private fun importThroughCommitPath(
+        modelDir: File,
+        displayName: String,
+        sourceSizeBytes: Long,
+        usableSpaceBytes: Long,
+        maximumBytes: Long = CUSTOM_MODEL_MAX_BYTES,
+        copyToTemp: (File) -> Unit,
+    ): ImportedModelFile = runBlocking {
+        importModelFileAndCommit(
+            modelDir = modelDir,
+            displayName = displayName,
+            sourceSizeBytes = sourceSizeBytes,
+            usableSpaceBytes = usableSpaceBytes,
+            maximumBytes = maximumBytes,
+            copyToTemp = { tempTarget, _ -> copyToTemp(tempTarget) },
+            register = { it },
+        )
     }
 
     private fun withTempModelFile(content: String, block: (File) -> Unit) {

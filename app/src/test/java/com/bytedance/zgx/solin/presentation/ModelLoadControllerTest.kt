@@ -25,6 +25,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -179,6 +180,21 @@ class ModelLoadControllerTest {
     }
 
     @Test
+    fun cancellationExceptionFromActiveImportEndsBusyAsFailure() {
+        val recorder = ImportRecorder()
+        val uiState = MutableStateFlow(ChatUiState(isBusy = true))
+        val controller = importController(recorder, uiState)
+
+        val job = controller.launchImport { throw CancellationException("provider future cancelled") }
+        runBlocking { withTimeout(5_000) { job.join() } }
+
+        assertFalse(job.isCancelled)
+        assertTrue(uiState.value.statusText.contains("导入失败"))
+        assertFalse(uiState.value.isBusy)
+        assertTrue(recorder.threads.isEmpty())
+    }
+
+    @Test
     fun cancelledImportThatCommittedSkipsDismissalStateRefreshSuccessAndLoad() {
         val recorder = ImportRecorder()
         val uiState = MutableStateFlow(ChatUiState(isBusy = true))
@@ -204,6 +220,7 @@ class ModelLoadControllerTest {
         assertEquals(0, recorder.stateCalls.get())
         assertEquals(null, uiState.value.modelPath)
         assertFalse(uiState.value.statusText == "模型已导入")
+        // Documents scope-teardown behaviour: nothing resets busy, which is not a goal for per-job cancellation.
         assertTrue(uiState.value.isBusy)
     }
 
