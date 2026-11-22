@@ -157,7 +157,7 @@ class EgressGateTest {
         assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), typed("hello wor", "hello world"))
         val multi = gate.evaluate(
             shareText,
-            request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "hello", "subject" to "♥")),
+            request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "hello", "title" to "♥")),
             context = { EgressRunContext(true, "hello") }
         )
         assertEquals(setOf(EgressTrigger.TextHandedToExternalApp), multi)
