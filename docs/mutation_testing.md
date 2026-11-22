@@ -1,7 +1,7 @@
 # Mutation testing pilot
 
 `scripts/mutation_test.py` provides a small, deterministic mutation-testing pilot for the pure-JVM
-`persistedEnumOrNull` and `StrictJsonScan` paths. It does not change production behavior or run against
+`persistedEnumOrNull`, `StrictJsonScan` and `EgressGate` paths. It does not change production behavior or run against
 an online model.
 
 ## Safety and execution contract
@@ -40,12 +40,20 @@ paired device benchmarks, migration tests, privacy review or release approval.
 
 - Null vs thrown/unknown enum values, case sensitivity, empty enum values.
 - Strict JSON trailing content, object guards and depth-boundary rejection.
+- EgressGate user-wording matching (empty tokens, symbol sequence, NFKC normalization, whole ASCII
+  tokens) and trigger conditions (network private-read, external-app any-taint).
 
-The current campaign proves the focused tests kill these mutants without deriving the JSON boundary
+The focused run covers `PersistedEnumTest`, `StrictJsonScanTest` and
+`com.bytedance.zgx.solin.safety.EgressGateTest`. The campaign now registers 12 mutants and makes 13
+focused launches including the baseline. It remains opt-in and is not part of `verify_local.sh` or CI.
+No total for the expanded campaign is recorded here until it completes; reports stay under the ignored
+`build/verification/mutation` directory and are not committed.
+
+Historical pilot (JSON targets only, before the EgressGate mutants): the campaign proved the focused tests kill these mutants without deriving the JSON boundary
 fixture from the mutable production constant. On 2026-11-13 the hardened runner at
 `b435164f02ae042fe1945016385af2bb145c28c4` completed with **baseline passed, 6 killed and 0 survivors**;
 see `build/verification/mutation/mutation-report.json` (`SolinMutationReport/v2`, recorded at
 `2026-11-13T13:21:38.304335+00:00`). Six lightweight runner self-tests also passed.
 Expanding the pilot to trace
-receipt/placement recovery and egress decisions requires additional deterministic fixtures; it should not
+receipt/placement recovery requires additional deterministic fixtures; it should not
 be used as an excuse to weaken fail-closed or confirmation rules merely to make mutants pass.

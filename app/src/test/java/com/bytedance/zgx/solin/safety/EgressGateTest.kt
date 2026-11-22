@@ -202,6 +202,23 @@ class EgressGateTest {
         assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), supplementary)
     }
 
+    @Test
+    fun compatibilitySymbolMatchesUserWordingAfterNormalization() {
+        assertTrue(typed("＃", "输入 #").isEmpty())
+    }
+
+    @Test
+    fun symbolSequenceMustAppearContiguouslyInUserInput() {
+        assertTrue(typed("♥♦", "输入 ♥♦ 然后停止").isEmpty())
+        assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), typed("♥♦", "输入 ♥ 然后 ♦"))
+    }
+
+    @Test
+    fun asciiTokensMatchWholeTokensNotSubstrings() {
+        assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), typed("1", "给10086发短信说查询话费"))
+        assertTrue(typed("10086 查询话费", "给10086发短信说查询话费").isEmpty())
+    }
+
     private fun spec(toolName: String): ToolSpec = requireNotNull(defaultBuiltInToolRegistry.specFor(toolName))
 
     private fun request(

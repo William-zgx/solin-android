@@ -19,7 +19,9 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 TEST_PATTERN = "com.bytedance.zgx.solin.common.PersistedEnumTest"
 STRICT_PATTERN = "com.bytedance.zgx.solin.orchestration.collab.StrictJsonScanTest"
+EGRESS_PATTERN = "com.bytedance.zgx.solin.safety.EgressGateTest"
 JSON_READERS = "app/src/main/java/com/bytedance/zgx/solin/common/JsonReaders.kt"
+EGRESS_GATE = "app/src/main/java/com/bytedance/zgx/solin/safety/EgressGate.kt"
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,22 @@ MUTATIONS = [
     Mutation("json-trailing-inverted", JSON_READERS, "if (cursor.atEnd()) null else StrictJsonRejection.TrailingContent", "if (cursor.atEnd()) StrictJsonRejection.TrailingContent else null"),
     Mutation("json-object-guard-inverted", JSON_READERS, "if (cursor.current() != '{') return StrictJsonRejection.NotJsonObject", "if (cursor.current() == '{') return StrictJsonRejection.NotJsonObject"),
     Mutation("json-depth-off-by-one", JSON_READERS, "const val MAX_DEPTH = 8", "const val MAX_DEPTH = 9"),
+    Mutation("egress-empty-token-falls-through-to-contains-all", EGRESS_GATE,
+             "if (typed.asciiTokens.isEmpty() && typed.otherCodePoints.isEmpty()) {",
+             "if (typed.normalized.isEmpty()) {"),
+    Mutation("egress-symbol-sequence-becomes-character-set", EGRESS_GATE,
+             "input.normalized.contains(symbols)", "symbols.all { input.normalized.contains(it) }"),
+    Mutation("egress-symbol-nfkc-dropped", EGRESS_GATE,
+             "val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase()",
+             "val normalized = text.lowercase()"),
+    Mutation("egress-ascii-tokens-become-substrings", EGRESS_GATE,
+             "input.asciiTokens.containsAll(typed.asciiTokens)",
+             "typed.asciiTokens.all { input.normalized.contains(it) }"),
+    Mutation("egress-network-private-read-dropped", EGRESS_GATE,
+             "sensitiveText || context().privateReadBefore", "sensitiveText"),
+    Mutation("egress-external-any-taint-becomes-all", EGRESS_GATE,
+             "textArguments.any { text -> !isTextFromUser(input, text) }",
+             "textArguments.all { text -> !isTextFromUser(input, text) }"),
 ]
 
 
@@ -96,6 +114,7 @@ def test_command():
         ":app:testDebugUnitTest",
         "--tests", TEST_PATTERN,
         "--tests", STRICT_PATTERN,
+        "--tests", EGRESS_PATTERN,
         "-x", ":app:downloadZvecNativeLibs",
         "--console=plain",
         "--no-daemon",
@@ -261,15 +280,19 @@ class MutationTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "primary"
-            source = repo / JSON_READERS
-            source.parent.mkdir(parents=True)
-            source.write_text((REPO / JSON_READERS).read_text())
-            original = source.read_text()
+            sources = {}
+            for filename in {mutation.file for mutation in MUTATIONS}:
+                path = repo / filename
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text((REPO / filename).read_text())
+                sources[filename] = path.read_text()
             report = run_campaign(fake_run, repo=repo, report_path=repo / "report.json", popen_factory=fake_popen)
             self.assertEqual(len(MUTATIONS), report["killed"])
             self.assertEqual(0, report["survived"])
-            self.assertEqual(original, source.read_text())
+            for filename, original in sources.items():
+                self.assertEqual(original, (repo / filename).read_text())
             self.assertTrue(any(call[0] == "./gradlew" for call in gradle_calls))
+            self.assertTrue(all(EGRESS_PATTERN in call for call in gradle_calls))
 
     @patch.dict(os.environ, {"JAVA_HOME": "/jdk", "ANDROID_SDK_ROOT": "/sdk"})
     def test_survivor_is_a_failure(self):
@@ -286,9 +309,12 @@ class MutationTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "primary"
-            source = repo / JSON_READERS
-            source.parent.mkdir(parents=True)
-            source.write_text((REPO / JSON_READERS).read_text())
+            sources = {}
+            for filename in {mutation.file for mutation in MUTATIONS}:
+                path = repo / filename
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text((REPO / filename).read_text())
+                sources[filename] = path.read_text()
             with self.assertRaises(MutationError):
                 run_campaign(fake_run, repo=repo, report_path=repo / "report.json", popen_factory=fake_popen)
             self.assertEqual("failed", json.loads((repo / "report.json").read_text())["status"])
