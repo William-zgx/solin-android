@@ -4,7 +4,6 @@ import android.app.DownloadManager
 import android.content.Context
 import android.database.Cursor
 import android.view.KeyEvent
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.ComposeTestRule
@@ -26,22 +25,22 @@ import java.io.Closeable
 import java.io.EOFException
 import java.io.OutputStream
 import java.net.InetAddress
-import java.net.URI
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
-import org.json.JSONArray
-import org.json.JSONObject
 
 class MainActivityComprehensiveTest {
     @get:Rule
@@ -57,8 +56,8 @@ class MainActivityComprehensiveTest {
                 remoteModelConfig = RemoteModelConfig(
                     baseUrl = server.baseUrl,
                     modelName = "mock-model",
-                    supportsVisionInput = true,
-                ),
+                    supportsVisionInput = true
+                )
             ).use {
                 dismissFirstRunSetupIfPresent()
                 configureRemoteModel(server.baseUrl)
@@ -70,9 +69,9 @@ class MainActivityComprehensiveTest {
                     listOf(
                         "已记住这条本地偏好",
                         "本地记忆已关闭，未保存",
-                        "本地记忆暂不可用",
+                        "本地记忆暂不可用"
                     ),
-                    substring = true,
+                    substring = true
                 )
                 server.assertNoPost()
 
@@ -128,8 +127,8 @@ class MainActivityComprehensiveTest {
                 remoteModelConfig = RemoteModelConfig(
                     baseUrl = server.baseUrl,
                     modelName = "mock-model",
-                    supportsVisionInput = true,
-                ),
+                    supportsVisionInput = true
+                )
             ).use {
                 dismissFirstRunSetupIfPresent()
                 // Run configureRemoteModel even though state is pre-configured:
@@ -145,7 +144,7 @@ class MainActivityComprehensiveTest {
                 composeRule.waitForAnyText(
                     listOf("正在使用工具：Web 搜索", "已完成 Web 搜索"),
                     timeoutMillis = 15_000,
-                    substring = true,
+                    substring = true
                 )
                 composeRule.waitForTagGone("action_confirm_button")
             }
@@ -154,12 +153,12 @@ class MainActivityComprehensiveTest {
 
     private fun launchComprehensiveActivity(
         inferenceMode: InferenceMode = InferenceMode.Local,
-        remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
+        remoteModelConfig: RemoteModelConfig = RemoteModelConfig()
     ): ActivityScenario<MainActivity> {
         resetMainActivityPersistentState(
             context = targetContext,
             inferenceMode = inferenceMode,
-            remoteModelConfig = remoteModelConfig,
+            remoteModelConfig = remoteModelConfig
         )
         return ActivityScenario.launch(mainActivitySkipStartupIntent(targetContext))
     }
@@ -205,7 +204,7 @@ class MainActivityComprehensiveTest {
     private fun dismissRemoteModeDisclosureIfPresent() {
         val needsConfirmation = composeRule.waitForOptionalTag(
             tag = "remote_mode_disclosure_sheet",
-            timeoutMillis = 5_000,
+            timeoutMillis = 5_000
         )
         if (!needsConfirmation) return
         composeRule.onNodeWithTag("remote_mode_confirm_button").performClick()
@@ -223,7 +222,7 @@ class MainActivityComprehensiveTest {
     private fun confirmRemoteSendIfPresent(server: LocalOpenAiServer? = null) {
         val needsConfirmation = composeRule.waitForOptionalTag(
             tag = "remote_send_disclosure_sheet",
-            timeoutMillis = 5_000,
+            timeoutMillis = 5_000
         )
         if (!needsConfirmation) return
         server?.assertNoPost(timeoutMillis = 250)
@@ -275,9 +274,9 @@ class MainActivityComprehensiveTest {
                 "正在建立语义记忆索引",
                 "记忆模型已安装但语义运行时未通过探测",
                 "记忆模型资产已安装",
-                "当前使用本地轻量索引",
+                "当前使用本地轻量索引"
             ),
-            substring = true,
+            substring = true
         )
 
         composeRule.onNodeWithTag("model_tab_models").performClick()
@@ -351,7 +350,7 @@ class MainActivityComprehensiveTest {
     private fun ComposeTestRule.waitForText(
         text: String,
         timeoutMillis: Long = 10_000,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
@@ -361,7 +360,7 @@ class MainActivityComprehensiveTest {
     private fun ComposeTestRule.waitForAnyText(
         texts: List<String>,
         timeoutMillis: Long = 10_000,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             texts.any { text ->
@@ -373,18 +372,17 @@ class MainActivityComprehensiveTest {
     private fun ComposeTestRule.waitForTextGone(
         text: String,
         timeoutMillis: Long = 10_000,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isEmpty()
         }
     }
 
-    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean =
-        runCatching {
-            waitForTag(tag, timeoutMillis = timeoutMillis)
-            true
-        }.getOrDefault(false)
+    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean = runCatching {
+        waitForTag(tag, timeoutMillis = timeoutMillis)
+        true
+    }.getOrDefault(false)
 
     private fun ComposeTestRule.replaceTaggedText(tag: String, text: String) {
         onNodeWithTag(tag).performScrollTo()
@@ -393,8 +391,7 @@ class MainActivityComprehensiveTest {
     }
 }
 
-private fun String.isLocalDebugDownloadUrl(): Boolean =
-    runCatching { URI(this).host.isLocalDebugHost() }.getOrDefault(false)
+private fun String.isLocalDebugDownloadUrl(): Boolean = runCatching { URI(this).host.isLocalDebugHost() }.getOrDefault(false)
 
 private class LocalOpenAiServer : Closeable {
     private val serverSocket = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1"))
@@ -479,12 +476,12 @@ private class LocalOpenAiServer : Closeable {
                 if (method == "HEAD") {
                     client.getOutputStream().writeFixedHeaders(
                         contentType = "application/octet-stream",
-                        contentLength = bytes.size,
+                        contentLength = bytes.size
                     )
                 } else {
                     client.getOutputStream().writeFixedResponse(
                         contentType = "application/octet-stream",
-                        body = bytes,
+                        body = bytes
                     )
                 }
                 return
@@ -493,7 +490,7 @@ private class LocalOpenAiServer : Closeable {
             if (body.contains(REMOTE_TOOL_CALL_PROMPT)) {
                 client.getOutputStream().writeSseToolCall(
                     toolName = "web_search",
-                    argumentsJson = JSONObject().put("query", REMOTE_TOOL_CALL_QUERY).toString(),
+                    argumentsJson = JSONObject().put("query", REMOTE_TOOL_CALL_QUERY).toString()
                 )
                 return
             }
@@ -540,7 +537,7 @@ private data class RequestRecord(
     val method: String,
     val path: String,
     val headers: Map<String, String>,
-    val body: String,
+    val body: String
 )
 
 private const val REMOTE_TOOL_CALL_PROMPT = "远程模型工具调用夹具 7c9e"
@@ -572,7 +569,7 @@ private fun OutputStream.writeFixedHeaders(contentType: String, contentLength: I
                 "Content-Length: $contentLength\r\n" +
                 "Connection: close\r\n" +
                 "\r\n"
-        ).toByteArray(StandardCharsets.UTF_8),
+            ).toByteArray(StandardCharsets.UTF_8)
     )
     flush()
 }
@@ -580,7 +577,7 @@ private fun OutputStream.writeFixedHeaders(contentType: String, contentLength: I
 private fun OutputStream.writeFixedResponse(contentType: String, body: ByteArray) {
     writeFixedHeaders(
         contentType = contentType,
-        contentLength = body.size,
+        contentLength = body.size
     )
     write(body)
     flush()
@@ -601,7 +598,7 @@ private fun OutputStream.writeSsePrefix() {
                 "Cache-Control: no-cache\r\n" +
                 "Connection: close\r\n" +
                 "\r\n"
-        ).toByteArray(StandardCharsets.UTF_8),
+            ).toByteArray(StandardCharsets.UTF_8)
     )
     flush()
 }
@@ -631,12 +628,12 @@ private fun OutputStream.writeSseToolCall(toolName: String, argumentsJson: Strin
                                     "function",
                                     JSONObject()
                                         .put("name", toolName)
-                                        .put("arguments", argumentsJson),
-                                ),
-                        ),
-                    ),
-                ),
-            ),
+                                        .put("arguments", argumentsJson)
+                                )
+                        )
+                    )
+                )
+            )
         )
     write("data: $chunk\n\n".toByteArray(StandardCharsets.UTF_8))
     write("data: [DONE]\n\n".toByteArray(StandardCharsets.UTF_8))
