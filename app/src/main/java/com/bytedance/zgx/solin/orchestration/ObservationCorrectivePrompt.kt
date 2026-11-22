@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.action.ActionDraft
+import com.bytedance.zgx.solin.device.SnapshotRefs
 import com.bytedance.zgx.solin.tool.ToolRegistry
 
 /**
@@ -47,7 +48,10 @@ internal fun AgentObservationReplanContext.correctiveObservationModelPrompt(
     val shortlist = observedResult.localObservationEvidencePrompt(intentPreview, parseCache)
         .targetShortlistTargetValues()
         .take(MAX_CORRECTIVE_SHORTLIST_VALUES)
-        .map { value -> value.shortTraceText(maxLength = MAX_CORRECTIVE_TARGET_CHARS) }
+        // A scoped ref (~55+ chars) would be cut by the 48-char cap, so list its bare node id, which the
+        // executor still accepts. Typing and ocrFallback entries are already bare; duplicates collapse.
+        .map { value -> (SnapshotRefs.parse(value)?.nodeId ?: value).shortTraceText(maxLength = MAX_CORRECTIVE_TARGET_CHARS) }
+        .distinct()
     val shortlistText = if (shortlist.isEmpty()) {
         "无；不要输出需要 target 的工具"
     } else {

@@ -352,15 +352,17 @@ class ModelObservationReplanner(
             ?.normalizedUiTargetDraft()
             ?.tapFirstForSearchTypingTarget(this, parseCache)
             ?: return ModelObservationReplanAcceptance(rejectionReason = "missing_model_draft")
+        // Target guards see the node a scoped ref resolves to; the returned draft keeps the ref.
+        val guardDraft = draft.withResolvedScopedTarget(this, parseCache)
         val rejectionReason = when {
             shouldRejectNonLocalObservationTool(draft, toolRegistry) -> "non_local_observation_tool"
             draft.hasMissingRequiredUiTarget() -> "missing_required_ui_target"
-            shouldRejectDangerousObservationAction(draft, parseCache) -> "dangerous_observation_action"
+            shouldRejectDangerousObservationAction(guardDraft, parseCache) -> "dangerous_observation_action"
             shouldRejectTextOnlyUiControl(draft) -> "text_only_ui_control_without_structured_target"
             shouldRejectUnsupportedSubmitSearch(draft, parseCache) -> "unsupported_submit_search"
             shouldRejectUnsupportedTargetlessTyping(draft, parseCache) -> "unsupported_targetless_typing"
-            shouldRejectUnsupportedObservedTarget(draft, parseCache) -> "unsupported_observed_target"
-            shouldRejectUnsupportedRepeatTarget(draft, parseCache) -> "unsupported_repeat_target"
+            shouldRejectUnsupportedObservedTarget(guardDraft, parseCache) -> "unsupported_observed_target"
+            shouldRejectUnsupportedRepeatTarget(guardDraft, parseCache) -> "unsupported_repeat_target"
             else -> null
         }
         if (rejectionReason != null) {

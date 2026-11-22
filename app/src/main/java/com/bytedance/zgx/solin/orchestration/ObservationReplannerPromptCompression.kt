@@ -196,8 +196,10 @@ internal fun String.targetShortlistTargetSummary(): String? {
 }
 
 internal fun String.targetShortlistTargetValues(): List<String> {
-    val shortlist = Regex("""targetShortlist\(([^)]*)\)""")
-        .find(this)
+    // Only the after snapshot is published for scoped refs, so its shortlist wins when present.
+    val afterStart = indexOf("afterScreenObservationJson(").coerceAtLeast(0)
+    val pattern = Regex("""targetShortlist\(([^)]*)\)""")
+    val shortlist = (pattern.find(this, afterStart) ?: pattern.find(this))
         ?.groupValues
         ?.getOrNull(1)
         ?: return emptyList()

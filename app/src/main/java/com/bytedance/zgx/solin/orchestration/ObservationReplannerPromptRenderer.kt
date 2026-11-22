@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.common.jsonObjects
 import com.bytedance.zgx.solin.common.optNullableString
 import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.device.ScreenObservation
+import com.bytedance.zgx.solin.device.SnapshotRefs
 import com.bytedance.zgx.solin.device.UiTargetEvidenceCandidate
 import com.bytedance.zgx.solin.device.UiTargetKind
 import com.bytedance.zgx.solin.device.UiTargetResolver
@@ -22,6 +23,8 @@ private const val MAX_LOCAL_TARGET_CANDIDATES = 8
 private const val MAX_LOCAL_TARGET_LABELS_PER_MODE = 4
 private const val MAX_LOCAL_EVIDENCE_CHARS = 2_000
 private const val MAX_LOCAL_DIAGNOSTICS_CHARS = 800
+/** Longer snapshot-scoped refs fall back to the bare id so evidence lines stay bounded. */
+private const val MAX_SCOPED_TARGET_CHARS = 120
 private const val MAX_MINIMAL_OBSERVATION_PROMPT_CHARS = 1_200
 private const val MINIMAL_PROMPT_USER_TEXT_BUDGET = 120
 
@@ -73,13 +76,31 @@ private data class LocalObservationPromptSection(
     val containsOcrSource: Boolean
 )
 
+/**
+ * [targetValue] is the legacy bare target (always valid for type / ocrFallback; the executor rejects
+ * scoped refs for typing). [scopedRef] is the `<observationId>/<nodeId>` form, set only for a genuine
+ * Accessibility node with a tap or scroll mode, and is what those two modes expose.
+ */
 private data class LocalTargetCandidatePrompt(
     val label: String,
     val targetValue: String,
     val modeTags: List<String>,
     val role: String,
-    val promptText: String
-)
+    val promptText: String,
+    val scopedRef: String? = null
+) {
+    fun targetFor(mode: String): String = if (mode.isScopedMode()) scopedRef ?: targetValue else targetValue
+
+    /** Value shown as `target=` / `id=`; see [displayTargetFor]. */
+    val displayTarget: String get() = displayTargetFor(modeTags, targetValue, scopedRef)
+}
+
+/** Only tap and scroll accept scoped refs; typing and ocrFallback stay bare. */
+private fun String.isScopedMode(): Boolean = this == "tap" || this == "scroll"
+
+/** Scoped only when no mode of the candidate needs the bare id, so `target=` never disagrees with the shortlist. */
+private fun displayTargetFor(modeTags: List<String>, targetValue: String, scopedRef: String?): String =
+    if ("type" in modeTags || "ocrFallback" in modeTags) targetValue else scopedRef ?: targetValue
 
 private data class ResolverTargetRank(
     val mode: String,
@@ -243,6 +264,10 @@ private fun String.withLineAfter(prefix: String, line: String?): String {
     return (lines.subList(0, index + 1) + line + lines.subList(index + 1, lines.size)).joinToString("\n")
 }
 
+private val scopedRefPrefixPattern = Regex("""[^\s/|,=;()\[\]]+/(?=n\d+_)""")
+
+private fun scopedRefPrefixChars(text: String): Int = scopedRefPrefixPattern.findAll(text).sumOf { match -> match.value.length }
+
 internal fun AgentObservationReplanContext.minimalObservationModelPrompt(
     toolRegistry: ToolRegistry,
     parseCache: ObservationJsonParseCache? = null
@@ -253,7 +278,7 @@ internal fun AgentObservationReplanContext.minimalObservationModelPrompt(
     val localEvidence = observedResult.localObservationEvidencePrompt(intentPreview, parseCache)
     val targetShortlists = localEvidence.targetShortlistSummariesForPrompt()
     val targetEvidence = localEvidence.targetEvidenceSummariesForPrompt()
-    val targetAnchors = targetShortlists.targetShortlistTargetSummary().orEmpty()
+    val targetAnchors = localEvidence.targetShortlistTargetSummary().orEmpty()
     val appSearchProgress = observedResult.appSearchProgressPromptText(parseCache)
     return """
         本机已获得用户授权执行手机 UI 自动化。只输出一个 call，不解释，不拒绝。
@@ -270,8 +295,11 @@ internal fun AgentObservationReplanContext.minimalObservationModelPrompt(
         // The user line is no longer capped at MINIMAL_PROMPT_USER_TEXT_BUDGET chars. Grow the cap by
         // the overflow so every other line keeps the budget it had. Otherwise the over-cap fallback,
         // which only keeps English-labelled lines, would drop all of this prompt's Chinese rule lines.
+        // The same applies to the `<observationId>/` prefix of scoped refs, which the shortlist, evidence
+        // and anchors each repeat: only the prefix is added, so the rest keeps its original budget.
         maxChars = MAX_MINIMAL_OBSERVATION_PROMPT_CHARS +
-            (intentPreview.length - MINIMAL_PROMPT_USER_TEXT_BUDGET).coerceAtLeast(0)
+            (intentPreview.length - MINIMAL_PROMPT_USER_TEXT_BUDGET).coerceAtLeast(0) +
+            scopedRefPrefixChars("$targetShortlists $targetEvidence $targetAnchors")
     )
 }
 
@@ -362,15 +390,17 @@ private fun String.toScreenObservationPromptSection(
     val selectedElements = elements.selectedObservationElementsForPrompt()
     val elementSummaries = selectedElements
         .map { element -> element.toObservationElementPromptText() }
-    val fusedTargetCandidates = elements.ocrGroundedAccessibilityTargetCandidates()
+    // Only the after / current snapshot is published for refs; "before" stays legacy bare evidence.
+    val observationId = if (key == "beforeScreenObservationJson") "" else json.optString("observationId")
+    val fusedTargetCandidates = elements.ocrGroundedAccessibilityTargetCandidates(observationId)
     val resolverTargetRanks = (
         parseCache?.screenObservationOrNull(this)
             ?: screenObservationFromJsonStringOrNull(this)
         )
-        .resolverTargetRanks(intentTargetKind)
+        .resolverTargetRanks(intentTargetKind, observationId)
     val targetCandidates = (
         fusedTargetCandidates +
-            selectedElements.mapNotNull { element -> element.toTargetCandidatePrompt() }
+            selectedElements.mapNotNull { element -> element.toTargetCandidatePrompt(observationId) }
         )
         .distinctBy { candidate -> candidate.promptText }
         .rankedByResolver(resolverTargetRanks)
@@ -503,7 +533,7 @@ private fun JSONObject.toObservationElementPromptText(): String {
     }
 }
 
-private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
+private fun JSONObject.toTargetCandidatePrompt(observationId: String): LocalTargetCandidatePrompt? {
     val text = optString("text")
         .takeIf { value -> value.isNotBlank() }
         ?.shortTraceText(maxLength = 72)
@@ -518,15 +548,15 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
         if (source == "ocr") add("ocrFallback")
     }
     if (modeTags.isEmpty()) return null
-    val targetValue = optString("id")
-        .takeIf { value -> value.isNotBlank() }
-        ?.shortTraceText(maxLength = 72)
-        ?: text
+    val id = optString("id").takeIf { value -> value.isNotBlank() }
+    val targetValue = id?.shortTraceText(maxLength = 72) ?: text
+    val scopedRef = id?.takeIf { source == "accessibility" && modeTags.hasScopedMode() }
+        ?.let { nodeId -> scopedNodeTarget(observationId, nodeId) }
     val bounds = optJSONObject("bounds")?.boundsPromptText()
     val promptText = buildString {
         append(text)
         append("{target=")
-        append(targetValue)
+        append(displayTargetFor(modeTags, targetValue, scopedRef))
         append(",modeTags=")
         append(modeTags.joinToString(separator = "+"))
         append(",source=")
@@ -546,9 +576,12 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
         targetValue = targetValue,
         modeTags = modeTags,
         role = role,
-        promptText = promptText
+        promptText = promptText,
+        scopedRef = scopedRef
     )
 }
+
+private fun List<String>.hasScopedMode(): Boolean = any { mode -> mode.isScopedMode() }
 
 /** Target mode tags implied by a `clickability` object, in prompt order: type, tap, scroll. */
 private fun JSONObject?.clickabilityModeTags(): List<String> {
@@ -560,7 +593,7 @@ private fun JSONObject?.clickabilityModeTags(): List<String> {
     }
 }
 
-private fun JSONArray.ocrGroundedAccessibilityTargetCandidates(): List<LocalTargetCandidatePrompt> {
+private fun JSONArray.ocrGroundedAccessibilityTargetCandidates(observationId: String): List<LocalTargetCandidatePrompt> {
     val allElements = jsonObjects()
     val ocrElements = allElements
         .filter { element ->
@@ -577,14 +610,15 @@ private fun JSONArray.ocrGroundedAccessibilityTargetCandidates(): List<LocalTarg
                 element.hasActionableModeForPrompt() &&
                 element.optJSONObject("bounds") != null
         }
-        .mapNotNull { element -> element.toOcrGroundedAccessibilityTargetCandidate(ocrElements) }
+        .mapNotNull { element -> element.toOcrGroundedAccessibilityTargetCandidate(ocrElements, observationId) }
         .distinctBy { candidate -> candidate.targetValue }
         .take(MAX_LOCAL_TARGET_CANDIDATES)
         .toList()
 }
 
 private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
-    ocrElements: List<JSONObject>
+    ocrElements: List<JSONObject>,
+    observationId: String
 ): LocalTargetCandidatePrompt? {
     val bounds = optJSONObject("bounds") ?: return null
     val ocrText = ocrElements
@@ -599,18 +633,17 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
         .takeIf { text -> text.isNotBlank() }
         ?.shortTraceText(maxLength = 72)
         ?: return null
-    val targetValue = optString("id")
-        .takeIf { value -> value.isNotBlank() }
-        ?.shortTraceText(maxLength = 72)
-        ?: return null
+    val id = optString("id").takeIf { value -> value.isNotBlank() } ?: return null
+    val targetValue = id.shortTraceText(maxLength = 72)
     val clickability = optJSONObject("clickability")
     val role = optString("role", "unknown")
     val modeTags = clickability.clickabilityModeTags()
     if (modeTags.isEmpty()) return null
+    val scopedRef = id.takeIf { modeTags.hasScopedMode() }?.let { nodeId -> scopedNodeTarget(observationId, nodeId) }
     val promptText = buildString {
         append(ocrText)
         append("{target=")
-        append(targetValue)
+        append(displayTargetFor(modeTags, targetValue, scopedRef))
         append(",modeTags=")
         append(modeTags.joinToString(separator = "+"))
         append(",source=accessibility+ocr,role=")
@@ -626,7 +659,8 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
         targetValue = targetValue,
         modeTags = modeTags,
         role = role,
-        promptText = promptText
+        promptText = promptText,
+        scopedRef = scopedRef
     )
 }
 
@@ -636,7 +670,7 @@ private fun List<LocalTargetCandidatePrompt>.targetShortlistPromptText(): String
         .mapNotNull { mode ->
             val targetValues = asSequence()
                 .filter { candidate -> mode in candidate.modeTags }
-                .map { candidate -> candidate.targetValue }
+                .map { candidate -> candidate.targetFor(mode) }
                 .distinct()
                 .take(MAX_LOCAL_TARGET_LABELS_PER_MODE)
                 .toList()
@@ -653,7 +687,7 @@ private fun List<LocalTargetCandidatePrompt>.targetEvidencePromptText(): String?
     .joinToString(separator = "; ") { candidate ->
         buildString {
             append("id=")
-            append(candidate.targetValue.shortTraceText(maxLength = 96))
+            append(candidate.displayTarget)
             append(",text=")
             append(candidate.label.shortTraceText(maxLength = 48))
             append(",mode=")
@@ -683,7 +717,7 @@ private fun List<LocalTargetCandidatePrompt>.rankedByResolver(
 }
 
 private fun LocalTargetCandidatePrompt.bestResolverRank(rankByModeAndTarget: Map<String, Int>): Int = modeTags.minOfOrNull { mode ->
-    rankByModeAndTarget["$mode:${targetValue.normalizedLookupKey()}"]
+    rankByModeAndTarget["$mode:${targetFor(mode).normalizedLookupKey()}"]
         ?: rankByModeAndTarget["$mode:${label.normalizedLookupKey()}"]
         ?: Int.MAX_VALUE
 } ?: Int.MAX_VALUE
@@ -704,7 +738,19 @@ private fun String?.promptResolverTargetKind(): UiTargetKind? {
     }
 }
 
-private fun ScreenObservation?.resolverTargetRanks(intentTargetKind: UiTargetKind?): List<ResolverTargetRank> = this?.let { observation ->
+/**
+ * `<observationId>/<nodeId>` for a genuine Accessibility node id, else null (caller keeps the bare
+ * value). [SnapshotRefs] is the one validator: a blank or malformed observation id, an OCR or
+ * text-label id, or an already scoped id never yields a ref, so nothing is double-prefixed.
+ */
+private fun scopedNodeTarget(observationId: String, nodeId: String): String? {
+    val scoped = "$observationId/$nodeId"
+    if (scoped.length > MAX_SCOPED_TARGET_CHARS) return null
+    val ref = SnapshotRefs.parse(scoped) ?: return null
+    return scoped.takeIf { ref.snapshotId == observationId && ref.nodeId == nodeId }
+}
+
+private fun ScreenObservation?.resolverTargetRanks(intentTargetKind: UiTargetKind?, observationId: String): List<ResolverTargetRank> = this?.let { observation ->
     val rankedKinds = defaultResolverPromptTargetKinds.prioritizing(intentTargetKind)
     rankedKinds.flatMapIndexed { kindIndex, kind ->
         UiTargetResolver.explain(observation, kind)
@@ -712,6 +758,7 @@ private fun ScreenObservation?.resolverTargetRanks(intentTargetKind: UiTargetKin
             .take(MAX_LOCAL_TARGET_LABELS_PER_MODE)
             .flatMapIndexed { candidateIndex, candidate ->
                 candidate.toResolverTargetRanks(
+                    observationId = observationId,
                     kind = kind,
                     rank = (kindIndex * MAX_LOCAL_TARGET_LABELS_PER_MODE) + candidateIndex
                 )
@@ -725,11 +772,20 @@ private fun List<UiTargetKind>.prioritizing(kind: UiTargetKind?): List<UiTargetK
     listOf(kind) + filterNot { candidate -> candidate == kind }
 }
 
+private fun UiTargetEvidenceCandidate.modeTargetValue(mode: String, nodeValue: String, observationId: String): String =
+    if (source.schemaValue == "accessibility" && mode.isScopedMode()) {
+        scopedNodeTarget(observationId, nodeValue) ?: nodeValue
+    } else {
+        nodeValue
+    }
+
 private fun UiTargetEvidenceCandidate.toResolverTargetRanks(
+    observationId: String,
     kind: UiTargetKind,
     rank: Int
 ): List<ResolverTargetRank> {
-    val targetValue = nodeId?.takeIf { value -> value.isNotBlank() } ?: label
+    val targetValue = nodeId?.takeIf { value -> value.isNotBlank() }
+        ?: label
     val modes = when (kind) {
         UiTargetKind.SearchEntry -> buildList {
             if (editable) add("type")
@@ -752,7 +808,7 @@ private fun UiTargetEvidenceCandidate.toResolverTargetRanks(
         .distinct()
         .flatMap { mode ->
             listOf(
-                ResolverTargetRank(mode = mode, targetValue = targetValue, rank = rank),
+                ResolverTargetRank(mode = mode, targetValue = modeTargetValue(mode, targetValue, observationId), rank = rank),
                 ResolverTargetRank(mode = mode, targetValue = label, rank = rank)
             )
         }

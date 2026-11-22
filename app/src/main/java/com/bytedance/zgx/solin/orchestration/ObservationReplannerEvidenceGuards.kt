@@ -5,6 +5,7 @@ import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.extractUiTargetArgumentValue
 import com.bytedance.zgx.solin.common.jsonObjects
+import com.bytedance.zgx.solin.device.SnapshotRefs
 import com.bytedance.zgx.solin.device.hasDangerousActionText
 import com.bytedance.zgx.solin.device.hasDangerousTapTargetText
 import com.bytedance.zgx.solin.device.hasOcrDangerousActionText
@@ -72,6 +73,35 @@ internal fun ActionDraft.normalizedUiTargetDraft(): ActionDraft {
     val normalizedTarget = rawTarget.extractUiTargetArgumentValue(toolName = functionName)
     if (normalizedTarget == rawTarget) return this
     return copy(parameters = parameters + ("target" to normalizedTarget))
+}
+
+/**
+ * Maps a snapshot-scoped tap/scroll target back to the real evidence node for the guards. Threat: a
+ * ref to a stale, foreign or dangerous node being judged by text-matching on a different string.
+ * Only the latest model-facing observation (after when present, else current) resolves, and only to
+ * an Accessibility element whose id equals the ref's node id; the draft then carries that bare id,
+ * so ordinary and dangerous-target matching see the same node. Anything else keeps the scoped text,
+ * which matches no evidence and is rejected. The caller still returns the original scoped draft.
+ * Typing never resolves (the executor rejects scoped typing); bare targets pass through unchanged.
+ */
+internal fun ActionDraft.withResolvedScopedTarget(
+    context: AgentObservationReplanContext,
+    parseCache: ObservationJsonParseCache,
+): ActionDraft {
+    if (functionName != MobileActionFunctions.UI_TAP && functionName != MobileActionFunctions.UI_SCROLL) return this
+    val ref = SnapshotRefs.parse(parameters["target"]) ?: return this
+    val data = context.observedResult.data
+    val latest = data["afterScreenObservationJson"]?.takeIf { value -> value.isNotBlank() }
+        ?: data["screenObservationJson"]?.takeIf { value -> value.isNotBlank() }
+        ?: return this
+    val observationId = parseCache.screenObservationOrNull(latest)?.observationId
+    if (observationId != ref.snapshotId) return this
+    val found = latest.withObservationElements(parseCache) { elements ->
+        elements.jsonObjects().any { element ->
+            element.optString("source") == "accessibility" && element.optString("id") == ref.nodeId
+        }
+    }
+    return if (found) copy(parameters = parameters + ("target" to ref.nodeId)) else this
 }
 
 internal fun ActionDraft.tapFirstForSearchTypingTarget(
@@ -262,7 +292,9 @@ internal fun AgentObservationReplanContext.shouldRejectUnsupportedRepeatTarget(
     if (observedResult.status != ToolStatus.Failed) return false
     if (previousRequest.toolName != draft.functionName) return false
     if (!draft.functionName.acceptsGuardedUiTarget()) return false
-    val previousTarget = previousRequest.arguments["target"].normalizedLookupKey()
+    val previousTarget = previousRequest.arguments["target"]
+        .let { value -> SnapshotRefs.parse(value)?.nodeId ?: value }
+        .normalizedLookupKey()
         .takeIf { value -> value.isNotBlank() }
         ?: return false
     val nextTarget = draft.parameters["target"].normalizedLookupKey()
