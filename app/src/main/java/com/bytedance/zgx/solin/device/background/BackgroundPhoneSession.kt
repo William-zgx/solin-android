@@ -78,7 +78,10 @@ class BackgroundPhoneSession private constructor(
     fun <T> withControl(block: () -> T): T {
         check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { "Use a worker thread" }
         check(controlBinding.get() == null) { "Nested background session" }
-        return withBinding(Binding(this, status()), block)
+        val binding = Binding(this, status())
+        // Reused sessions: frames rendered before this run must not count as its evidence.
+        markRunStart()
+        return withBinding(binding, block)
     }
 
     @Synchronized
@@ -104,11 +107,15 @@ class BackgroundPhoneSession private constructor(
     fun capture(): ByteArray {
         val response = call(JSONObject().put("method", "capture"))
         // Reject frames the producer did not render during this run (T3: stale/replayed content).
-        val timestamp = requireFreshFrame(response.optLong("timestampNanos", 0L), runStartNanos)
+        val timestamp = acceptFrameTimestamp(response.optLong("timestampNanos", 0L))
         val png = Base64.decode(response.getString("png"), Base64.NO_WRAP)
         lastCaptureTimestampNanos = timestamp
         return png
     }
+
+    internal fun markRunStart(nowNanos: Long = System.nanoTime()) { runStartNanos = nowNanos }
+
+    internal fun acceptFrameTimestamp(timestampNanos: Long): Long = requireFreshFrame(timestampNanos, runStartNanos)
 
     /** Producer Image.timestamp of the last accepted capture; 0 before any. Read-only evidence. */
     @Volatile var lastCaptureTimestampNanos: Long = 0L

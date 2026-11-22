@@ -71,4 +71,17 @@ class BackgroundPhoneEvidenceTest {
         assertEquals("independent_focus_unavailable", BackgroundPhoneProtocol.safeFailure(error.message))
         BackgroundDisplayPolicy.requireOwnFocus(true)
     }
+
+    @Test fun reusedSessionRejectsEarlierRunFramesAndAcceptsOnlyCurrentRun() {
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val unsafe = unsafeClass.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null)
+        val session = unsafeClass.getMethod("allocateInstance", Class::class.java)
+            .invoke(unsafe, BackgroundPhoneSession::class.java) as BackgroundPhoneSession
+        session.markRunStart(1_000L)
+        assertEquals(1_500L, session.acceptFrameTimestamp(1_500L))
+        session.markRunStart(2_000L)
+        assertEquals("stale_frame", code { session.acceptFrameTimestamp(1_500L) })
+        assertEquals("stale_frame", code { session.acceptFrameTimestamp(0L) })
+        assertEquals(2_500L, session.acceptFrameTimestamp(2_500L))
+    }
 }
