@@ -195,7 +195,7 @@ object BackgroundPhoneHelper {
 
         private fun launch(packageName: String): JSONObject {
             require(BackgroundPhoneProtocol.validPackage(packageName))
-            check(state().getBoolean("isolatedFocus")) { "independent_focus_unavailable" }
+            BackgroundDisplayPolicy.requireOwnFocus(state().getBoolean("isolatedFocus"))
             val id = checkNotNull(display).display.displayId
             val currentTasks = tasks()
             // Do not steal any existing task from another display, even a task behind the foreground.
@@ -238,7 +238,8 @@ object BackgroundPhoneHelper {
         }
 
         private fun capture(): JSONObject {
-            state()
+            // Before any pixel is read or copied: no own focus means no isolated capture.
+            BackgroundDisplayPolicy.requireOwnFocus(state().getBoolean("isolatedFocus"))
             var frameTimestamp = 0L
             val cropped = synchronized(framesLock) {
                 frameTimestamp = latestTimestampNanos
@@ -319,6 +320,8 @@ object BackgroundPhoneHelper {
 internal object BackgroundDisplayPolicy {
     /** Actual display capability, not an SDK guess. Unknown flags are false. */
     fun hasOwnFocus(displayFlags: Int): Boolean = displayFlags and DISPLAY_FLAG_OWN_FOCUS != 0
+
+    fun requireOwnFocus(ownFocus: Boolean) = check(ownFocus) { "independent_focus_unavailable" }
 
     /** android.view.Display.FLAG_OWN_FOCUS is @hide in the public SDK; value is 1 shl 11. */
     const val DISPLAY_FLAG_OWN_FOCUS = 1 shl 11

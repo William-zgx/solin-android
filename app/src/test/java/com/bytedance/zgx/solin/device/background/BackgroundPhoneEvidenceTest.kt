@@ -62,4 +62,13 @@ class BackgroundPhoneEvidenceTest {
         assertTrue(BackgroundDisplayPolicy.hasOwnFocus(BackgroundDisplayPolicy.DISPLAY_FLAG_OWN_FOCUS or 1))
         assertFalse(BackgroundDisplayPolicy.hasOwnFocus(0))
     }
+
+    @Test fun captureGateRejectsDisplayWithoutOwnFocusBeforeAnyFrame() {
+        val error = assertThrows(IllegalStateException::class.java) {
+            BackgroundDisplayPolicy.requireOwnFocus(BackgroundDisplayPolicy.hasOwnFocus(0))
+        }
+        assertEquals("independent_focus_unavailable", error.message)
+        assertEquals("independent_focus_unavailable", BackgroundPhoneProtocol.safeFailure(error.message))
+        BackgroundDisplayPolicy.requireOwnFocus(true)
+    }
 }
