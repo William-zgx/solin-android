@@ -6,6 +6,10 @@ import android.database.Cursor
 import android.view.KeyEvent
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -245,9 +249,9 @@ class MainActivityComprehensiveTest {
 
         composeRule.onNodeWithTag("top_session_button").performClick()
         composeRule.waitForText(previousSessionTitle)
-        composeRule.onAllNodesWithText(previousSessionTitle)
-            .onFirst()
-            .performClick()
+        composeRule.onNode(
+            hasTestTagPrefix("session_row_") and hasText(previousSessionTitle)
+        ).performClick()
         composeRule.waitForText("记忆回答")
 
         composeRule.onNodeWithTag("top_session_button").performClick()
@@ -262,6 +266,10 @@ class MainActivityComprehensiveTest {
         composeRule.onNodeWithTag("session_delete_button").performClick()
         composeRule.waitForTagGone("session_delete_confirm_dialog", timeoutMillis = 5_000)
         closeSheet("session_manager_title")
+    }
+
+    private fun hasTestTagPrefix(prefix: String): SemanticsMatcher = SemanticsMatcher("has test tag prefix $prefix") { node ->
+        node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
     }
 
     private fun exerciseModelManagerControlsAndCustomDownload(server: LocalOpenAiServer) {
