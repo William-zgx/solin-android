@@ -18009,7 +18009,15 @@ git diff --check
   placement canonical-UUID 门禁；进一步复核发现仅补 UUID 还会缺少 SecretStore integrity hash。
   这是测试配置问题，未放宽 production placement。
 - F4 `867a8160` + `bc2d839a`：configured fixture 改用 `RemoteModelRepository.saveConfig(...)`
-  并 `.getOrThrow()`，同步生成 revision/hash；失败 dump 以 `id/boundsInRoot/config` 放入
-  suppressed instrumentation error，保留原异常与 24000 字上限。after-scenario idle/reset 仅作为
-  实验，不宣称已解决 IO 中的 DB 调用。Opus 5.5 对两个初审阻断的修复 clean；
-  `compileDebugAndroidTestKotlin`、Spotless、隐私扫描通过。实际结果待下一次 hosted run。
+  并 `.getOrThrow()`，同步生成 revision/hash；失败 dump 以 `id/boundsInRoot/config` 和脱敏
+  remote state 通过 `Instrumentation.sendStatus` 写入结果，保留原异常与 24000 字上限。
+  after-scenario idle/reset 仅作为实验，不宣称已解决 IO 中的 DB 调用。Opus 5.5 对两个初审阻断的
+  修复 clean；`compileDebugAndroidTestKotlin`、Spotless、隐私扫描通过。
+- Hosted [#178](https://github.com/William-zgx/solin-android/actions/runs/44995871210)（`63bcc6b7`）：
+  Verify 成功，但远程发送/确认组仍失败且 Room 崩溃复现，整体 **failure**。这否定了“fixture
+  revision/integrity 是唯一剩余原因”的假设；没有改 production 路由或放宽 placement。
+- F5 最终 `9d61bdb8`：不再增加 ViewModel/controller await API（此前 2 行 forwarder 会突破
+  852-line 架构护栏）。测试在 Activity 存活时保存公开 `viewModelScope` 的 `Job`，scenario 关闭后
+  以 10 秒上限 join 所有子协程实际完成，再 reset persistence。F3 的 job 跟踪/取消保持不变，
+  Opus 5.5 clean。最终完整 JVM **3069 tests / 0 failures / 0 errors / 15 skipped**，androidTest
+  编译、Spotless、隐私扫描通过；远程组和 teardown 仍需下一次 hosted artifact 验证。
