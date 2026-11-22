@@ -1,7 +1,11 @@
 package com.bytedance.zgx.solin.device
 
 import com.bytedance.zgx.solin.tool.CurrentScreenOcrGroundingCache
+import com.bytedance.zgx.solin.tool.DeviceControlToolExecutor
+import com.bytedance.zgx.solin.tool.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.OcrGroundingCurrentScreenControlProvider
+import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolStatus
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -173,9 +177,12 @@ class SnapshotScopedRefTest {
         assertEquals(UiActionFailureKind.RefRetired, failure { SnapshotRefs.validate(SnapshotRefs.parse(ref)!!, fresh, "com.example.app") })
     }
 
-    private class FakeProvider(var next: ScreenStateSnapshot) : CurrentScreenControlProvider {
+    private class FakeProvider(
+        var next: ScreenStateSnapshot,
+        var tapResult: UiActionReadResult = UiActionReadResult.Failed("fake"),
+    ) : CurrentScreenControlProvider {
         override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int) = ScreenStateReadResult.Available(next)
-        override fun tap(target: String, timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
+        override fun tap(target: String, timeoutMillis: Long): UiActionReadResult = tapResult
         override fun typeText(text: String, target: String?, timeoutMillis: Long, allowClipboardPasteFallback: Boolean): UiActionReadResult = UiActionReadResult.Failed("fake")
         override fun submitSearch(timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
         override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Failed("fake")
@@ -200,5 +207,42 @@ class SnapshotScopedRefTest {
         assertEquals("screen_1701_deadbeef", SnapshotRefRegistry.publishedSnapshot?.id)
         SnapshotRefRegistry.clear()
         assertNull(SnapshotRefRegistry.publishedSnapshot)
+    }
+
+    @Test
+    fun tapResultPublishesAfterSnapshotSoNextScopedRefIsNotRetired() {
+        SnapshotRefRegistry.clear()
+        try {
+            val afterNode = node.copy(id = "n1_cafe5678_beef0001", text = "结果")
+            val after = snapshot.copy(id = "screen_1800_beef0001", nodes = listOf(afterNode))
+            SnapshotRefRegistry.publish(snapshot)
+            val provider = FakeProvider(
+                next = snapshot,
+                tapResult = UiActionReadResult.Available(
+                    UiActionExecutionResult(
+                        status = UiActionStatus.Succeeded,
+                        before = snapshot,
+                        after = after,
+                        summary = "ok",
+                        retryable = false,
+                    ),
+                ),
+            )
+            val result = DeviceControlToolExecutor(provider).execute(
+                ToolRequest(
+                    id = "tap-1",
+                    toolName = MobileActionFunctions.UI_TAP,
+                    arguments = mapOf("target" to "搜索"),
+                    reason = "test",
+                ),
+            )
+            assertEquals(result.summary, ToolStatus.Succeeded, result.status)
+            assertEquals(after.id, result.data["afterObservationId"])
+            assertEquals(after, SnapshotRefRegistry.publishedSnapshot)
+            val ref = SnapshotRefs.parse("${after.id}/${afterNode.id}")!!
+            assertEquals(afterNode, SnapshotRefs.validate(ref, SnapshotRefRegistry.publishedSnapshot, "com.example.app"))
+        } finally {
+            SnapshotRefRegistry.clear()
+        }
     }
 }
