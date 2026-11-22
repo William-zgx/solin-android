@@ -152,7 +152,7 @@ class ModelLoadControllerTest {
     private fun controller(
         repository: FakeRepository,
         dispatcher: CoroutineDispatcher,
-        uiState: MutableStateFlow<ChatUiState> = MutableStateFlow(ChatUiState()),
+        uiState: MutableStateFlow<ChatUiState> = MutableStateFlow(ChatUiState())
     ): ModelLoadController {
         val scope = CoroutineScope(SupervisorJob() + dispatcher)
         scopes += scope
@@ -171,7 +171,7 @@ class ModelLoadControllerTest {
                 remoteStore,
                 stub<RemoteModelConnectivityProbe>(),
                 scope,
-                dispatcher,
+                dispatcher
             ),
             semanticMemoryRuntimeController = null,
             ioDispatcher = dispatcher,
@@ -182,11 +182,11 @@ class ModelLoadControllerTest {
             skipStartupModelRuntimeWork = true,
             autoInferenceAuthorizationCoordinator = AutoInferenceAuthorizationCoordinator(
                 AdaptiveInferenceRollout.Off,
-                remoteStore,
+                remoteStore
             ),
             clearPendingRemoteState = {},
             resetRemoteSendDisclosureSuppression = {},
-            rebuildMemoryIndex = {},
+            rebuildMemoryIndex = {}
         )
     }
 
@@ -195,7 +195,7 @@ class ModelLoadControllerTest {
         val stateCalls = AtomicInteger()
         val facade: ModelRepositoryFacade = Proxy.newProxyInstance(
             ModelRepositoryFacade::class.java.classLoader,
-            arrayOf(ModelRepositoryFacade::class.java),
+            arrayOf(ModelRepositoryFacade::class.java)
         ) { _, method, _ ->
             when (method.name) {
                 "verifyLegacyRecommendedModels" -> {
@@ -213,7 +213,7 @@ class ModelLoadControllerTest {
 
     private inline fun <reified T : Any> stub(): T = Proxy.newProxyInstance(
         T::class.java.classLoader,
-        arrayOf(T::class.java),
+        arrayOf(T::class.java)
     ) { _, method, _ -> defaultFor(method.returnType) } as T
 }
 

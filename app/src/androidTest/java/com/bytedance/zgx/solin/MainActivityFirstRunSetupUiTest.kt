@@ -27,7 +27,7 @@ class MainActivityFirstRunSetupUiTest {
         resetMainActivityFreshInstallState(targetContext)
 
         ActivityScenario.launch<MainActivity>(
-            mainActivitySkipStartupIntent(targetContext),
+            mainActivitySkipStartupIntent(targetContext)
         ).use {
             composeRule.waitForTag("app_title", timeoutMillis = 10_000)
             composeRule.onNodeWithTag("model_startup_banner")

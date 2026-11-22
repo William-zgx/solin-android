@@ -1,16 +1,10 @@
 package com.bytedance.zgx.solin.presentation
 
-import android.net.Uri
 import android.app.DownloadManager
-import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_BYTES
-import com.bytedance.zgx.solin.data.ModelDownloadSource
-import com.bytedance.zgx.solin.download.ModelDownloadClient
-import java.io.File
-import java.util.ArrayDeque
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import android.net.Uri
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_BYTES
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
@@ -18,40 +12,46 @@ import com.bytedance.zgx.solin.ModelHealth
 import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
 import com.bytedance.zgx.solin.RemoteModelConfig
-import com.bytedance.zgx.solin.SemanticMemoryStatus
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
-import com.bytedance.zgx.solin.destinationHostLabel
-import com.bytedance.zgx.solin.label
-import com.bytedance.zgx.solin.modelProfile
+import com.bytedance.zgx.solin.SemanticMemoryStatus
 import com.bytedance.zgx.solin.data.BundledModelInstaller
 import com.bytedance.zgx.solin.data.FirstRunSetupStore
 import com.bytedance.zgx.solin.data.GenerationParametersStore
 import com.bytedance.zgx.solin.data.HuggingFaceAuthStore
+import com.bytedance.zgx.solin.data.ModelDownloadSource
 import com.bytedance.zgx.solin.data.ModelRepositoryFacade
 import com.bytedance.zgx.solin.data.ModelSelectionState
 import com.bytedance.zgx.solin.data.ModelVerificationStatus
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import com.bytedance.zgx.solin.data.SessionStore
+import com.bytedance.zgx.solin.destinationHostLabel
+import com.bytedance.zgx.solin.download.ModelDownloadClient
+import com.bytedance.zgx.solin.label
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
+import com.bytedance.zgx.solin.logging.cleanMessage
 import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.solinI
-import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeController
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeStatus
+import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
+import java.io.File
+import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import com.bytedance.zgx.solin.logging.cleanMessage
 
 /**
  * Owns local/remote model selection, download/import, HF auth, the first-run setup download
@@ -78,7 +78,7 @@ internal class ModelLoadController(
     private val autoInferenceAuthorizationCoordinator: AutoInferenceAuthorizationCoordinator,
     private val clearPendingRemoteState: () -> Unit,
     private val resetRemoteSendDisclosureSuppression: () -> Unit,
-    private val rebuildMemoryIndex: () -> Unit,
+    private val rebuildMemoryIndex: () -> Unit
 ) {
     private var bundledModelInstallJob: Job? = null
     private var remoteConnectivityUiJob: Job? = null
@@ -90,6 +90,7 @@ internal class ModelLoadController(
     private var legacyVerifyJob: Job? = null
     private var closed = false
     private var activeDownloadId: Long? = null
+
     /** The running download's source; kept so the user can resume it over cellular data. */
     private var activeDownloadSource: ModelDownloadSource? = null
 
@@ -110,14 +111,13 @@ internal class ModelLoadController(
     }
 
     // Same read as MemoryController.semanticMemoryState(), without rebuilding the index.
-    private fun semanticMemoryStatus(): SemanticMemoryStatus =
-        SemanticMemoryStatus(
-            enabled = semanticMemoryRuntimeController?.semanticMemoryEnabled == true,
-            runtimeStatus = semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
-                ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable,
-            indexedRecordCount = semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0,
-            lastRebuiltAtMillis = semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis,
-        )
+    private fun semanticMemoryStatus(): SemanticMemoryStatus = SemanticMemoryStatus(
+        enabled = semanticMemoryRuntimeController?.semanticMemoryEnabled == true,
+        runtimeStatus = semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
+            ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable,
+        indexedRecordCount = semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0,
+        lastRebuiltAtMillis = semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis
+    )
 
     fun startBundledModelInstallOnStartup(skipModelRuntimeWork: Boolean): Boolean {
         if (skipModelRuntimeWork || !bundledModelInstaller.isEnabled || bundledModelInstallJob != null) {
@@ -127,7 +127,7 @@ internal class ModelLoadController(
             uiState.update {
                 it.copy(
                     showFirstRunSetup = false,
-                    statusText = "正在准备内置模型",
+                    statusText = "正在准备内置模型"
                 )
             }
             val result = runCatching { bundledModelInstaller.install() }
@@ -156,7 +156,7 @@ internal class ModelLoadController(
                             "内置模型已准备好，正在加载"
                         else ->
                             "内置模型已准备好"
-                    },
+                    }
                 )
             }
             if (
@@ -173,13 +173,13 @@ internal class ModelLoadController(
     fun configureDebugRemoteModelForScreenshotEvidence(
         baseUrl: String,
         modelName: String,
-        supportsVisionInput: Boolean = false,
+        supportsVisionInput: Boolean = false
     ) {
         val config = RemoteModelConfig(
             baseUrl = baseUrl,
             modelName = modelName,
             apiKey = "",
-            supportsVisionInput = supportsVisionInput,
+            supportsVisionInput = supportsVisionInput
         ).normalized()
         if (!config.isConfigured) {
             uiState.update { it.copy(statusText = "截图验证远程配置无效") }
@@ -196,7 +196,7 @@ internal class ModelLoadController(
                             it.copy(
                                 remoteModelConfig = normalized,
                                 inferenceMode = InferenceMode.Remote,
-                                showFirstRunSetup = false,
+                                showFirstRunSetup = false
                             )
                         }
                         updateRemoteReadiness("远程模型")
@@ -205,9 +205,9 @@ internal class ModelLoadController(
                         uiState.update {
                             it.copy(statusText = "截图验证远程配置保存失败：${throwable.cleanMessage()}")
                         }
-                    },
+                    }
                 )
-            },
+            }
         )
     }
 
@@ -230,7 +230,7 @@ internal class ModelLoadController(
                     it.copy(
                         huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
                         pendingHuggingFaceAuthorizationModelId = null,
-                        statusText = "Hugging Face 授权已保存，可以下载原始记忆模型",
+                        statusText = "Hugging Face 授权已保存，可以下载原始记忆模型"
                     )
                 }
             }
@@ -247,7 +247,7 @@ internal class ModelLoadController(
                 uiState.update {
                     it.copy(
                         huggingFaceAccessTokenConfigured = false,
-                        statusText = "Hugging Face 授权已清除",
+                        statusText = "Hugging Face 授权已清除"
                     )
                 }
             }
@@ -266,7 +266,7 @@ internal class ModelLoadController(
                     state.setupSelectedModelIds + modelId
                 } else {
                     state.setupSelectedModelIds - modelId
-                },
+                }
             )
         }
     }
@@ -282,7 +282,7 @@ internal class ModelLoadController(
             uiState.update {
                 it.copy(
                     showFirstRunSetup = false,
-                    statusText = if (it.modelPath == null) "可稍后在模型管理安装模型" else it.statusText,
+                    statusText = if (it.modelPath == null) "可稍后在模型管理安装模型" else it.statusText
                 )
             }
             return
@@ -317,7 +317,7 @@ internal class ModelLoadController(
         uiState.update {
             it.copy(
                 showFirstRunSetup = false,
-                statusText = if (it.modelPath == null) "已跳过模型准备，可稍后在模型管理安装" else it.statusText,
+                statusText = if (it.modelPath == null) "已跳过模型准备，可稍后在模型管理安装" else it.statusText
             )
         }
     }
@@ -376,7 +376,7 @@ internal class ModelLoadController(
 
     private fun beginModelDownload(
         source: ModelDownloadSource,
-        allowMetered: Boolean = false,
+        allowMetered: Boolean = false
     ): Boolean {
         refreshDeviceStatus()
         if (uiState.value.isBusy || uiState.value.isDownloading) return false
@@ -426,7 +426,7 @@ internal class ModelLoadController(
                     "正在准备模型下载"
                 },
                 isReady = false,
-                showFirstRunSetup = false,
+                showFirstRunSetup = false
             )
         }
         enqueueModelDownload(source, target, allowMetered)
@@ -442,7 +442,7 @@ internal class ModelLoadController(
     private fun enqueueModelDownload(
         source: ModelDownloadSource,
         target: File,
-        allowMetered: Boolean,
+        allowMetered: Boolean
     ) {
         val preflightJob = scope.launch(ioDispatcher) {
             val downloadResult = downloadService.enqueue(source, target, allowMetered)
@@ -468,7 +468,7 @@ internal class ModelLoadController(
                     isWaitingForWifiDownload = false,
                     statusText = "模型下载中",
                     isReady = false,
-                    showFirstRunSetup = false,
+                    showFirstRunSetup = false
                 )
             }
             monitorDownload(downloadId, target, source)
@@ -488,7 +488,7 @@ internal class ModelLoadController(
             it.copy(
                 pendingHuggingFaceAuthorizationModelId = source.modelId,
                 huggingFaceAccessTokenConfigured = false,
-                statusText = "需要先登录 Hugging Face、接受模型许可，并保存 read token 后再下载",
+                statusText = "需要先登录 Hugging Face、接受模型许可，并保存 read token 后再下载"
             )
         }
         return true
@@ -497,7 +497,7 @@ internal class ModelLoadController(
     fun monitorDownload(
         downloadId: Long,
         targetFile: File,
-        source: ModelDownloadSource,
+        source: ModelDownloadSource
     ) {
         downloadMonitorJob?.cancel()
         activeDownloadId = downloadId
@@ -529,7 +529,7 @@ internal class ModelLoadController(
                             "等待 Wi-Fi，可改用移动数据"
                         } else {
                             info.statusText
-                        },
+                        }
                     )
                 }
 
@@ -549,7 +549,7 @@ internal class ModelLoadController(
                                 isDownloading = true,
                                 isWaitingForWifiDownload = false,
                                 downloadProgressPercent = null,
-                                statusText = "正在校验模型文件",
+                                statusText = "正在校验模型文件"
                             )
                         }
                         modelRepository.clearPendingDownload()
@@ -588,7 +588,7 @@ internal class ModelLoadController(
 
     private fun verifyAndRegisterDownloadedModel(
         targetFile: File,
-        source: ModelDownloadSource,
+        source: ModelDownloadSource
     ) {
         // Hashing a file already on disk is still download-owned work, like the post-download
         // check: it keeps isDownloading so model guards hold, but never takes over isBusy.
@@ -597,7 +597,7 @@ internal class ModelLoadController(
                 isDownloading = true,
                 downloadProgressPercent = null,
                 statusText = "正在校验模型文件",
-                isReady = false,
+                isReady = false
             )
         }
         scope.launch(ioDispatcher) {
@@ -630,7 +630,7 @@ internal class ModelLoadController(
                     ModelVerificationStatus.UnverifiedCustom
                 } else {
                     ModelVerificationStatus.VerifiedRecommended
-                },
+                }
             )
         }
         return true
@@ -661,12 +661,11 @@ internal class ModelLoadController(
         }
     }
 
-    private fun downloadFailureStatusText(reasonText: String, source: ModelDownloadSource): String =
-        if (source.requiresHuggingFaceAuthorization) {
-            "Hugging Face 下载失败：请确认已登录、已接受模型许可，且 read token 有效（$reasonText）"
-        } else {
-            "下载失败：$reasonText"
-        }
+    private fun downloadFailureStatusText(reasonText: String, source: ModelDownloadSource): String = if (source.requiresHuggingFaceAuthorization) {
+        "Hugging Face 下载失败：请确认已登录、已接受模型许可，且 read token 有效（$reasonText）"
+    } else {
+        "下载失败：$reasonText"
+    }
 
     fun importModel(uri: Uri) {
         refreshDeviceStatus()
@@ -682,7 +681,7 @@ internal class ModelLoadController(
             it.copy(
                 isBusy = true,
                 isReady = false,
-                statusText = "正在导入模型",
+                statusText = "正在导入模型"
             )
         }
 
@@ -697,7 +696,7 @@ internal class ModelLoadController(
                                     downloadProgressPercent = progress.percent,
                                     downloadedBytes = progress.transferredBytes,
                                     totalBytes = progress.totalBytes,
-                                    statusText = "正在导入模型",
+                                    statusText = "正在导入模型"
                                 )
                             }
                         }
@@ -718,7 +717,7 @@ internal class ModelLoadController(
                             downloadedBytes = 0L,
                             totalBytes = 0L,
                             statusText = "模型已导入",
-                            showFirstRunSetup = false,
+                            showFirstRunSetup = false
                         )
                     }
                     loadModel()
@@ -726,7 +725,7 @@ internal class ModelLoadController(
                 onFailure = { throwable ->
                     // Import owns isBusy (it closed the runtime), so its failure ends it explicitly.
                     uiState.update { it.downloadFinished("导入失败：${throwable.cleanMessage()}").copy(isBusy = false) }
-                },
+                }
             )
         }
     }
@@ -744,7 +743,7 @@ internal class ModelLoadController(
             it.copy(
                 backend = choice,
                 isReady = false,
-                statusText = "已切换到 ${choice.label()}，点击加载模型",
+                statusText = "已切换到 ${choice.label()}，点击加载模型"
             )
         }
     }
@@ -785,7 +784,7 @@ internal class ModelLoadController(
                                     "远程配置已更新，自动模式已关闭"
                                 } else {
                                     it.statusText
-                                },
+                                }
                             )
                         }
                         if (normalized.isConfigured) {
@@ -802,12 +801,12 @@ internal class ModelLoadController(
                                 remoteModelConfig = previousConfig,
                                 pendingRemoteModeDisclosure = null,
                                 pendingRemoteSendDisclosure = null,
-                                statusText = "远程配置保存失败：${throwable.cleanMessage()}",
+                                statusText = "远程配置保存失败：${throwable.cleanMessage()}"
                             )
                         }
-                    },
+                    }
                 )
-            },
+            }
         )
     }
 
@@ -818,7 +817,7 @@ internal class ModelLoadController(
             uiState.update {
                 it.copy(
                     remoteModelConfig = config.copy(connectivityStatus = RemoteModelConnectivityStatus.Unknown),
-                    statusText = "请先填写有效远程配置",
+                    statusText = "请先填写有效远程配置"
                 )
             }
             return
@@ -835,16 +834,16 @@ internal class ModelLoadController(
     private fun observeRemoteConnectivity(
         config: RemoteModelConfig,
         force: Boolean,
-        announce: Boolean,
+        announce: Boolean
     ) {
         val revision = config.profileRevision
         if (announce) {
             uiState.update {
                 it.copy(
                     remoteModelConfig = config.copy(
-                        connectivityStatus = RemoteModelConnectivityStatus.Checking,
+                        connectivityStatus = RemoteModelConnectivityStatus.Checking
                     ),
-                    statusText = "正在测试远程连接",
+                    statusText = "正在测试远程连接"
                 )
             }
         }
@@ -862,7 +861,7 @@ internal class ModelLoadController(
             uiState.update {
                 it.copy(
                     remoteModelConfig = currentConfig.copy(connectivityStatus = status),
-                    statusText = if (announce) "远程连接${status.label}" else it.statusText,
+                    statusText = if (announce) "远程连接${status.label}" else it.statusText
                 )
             }
         }
@@ -878,14 +877,15 @@ internal class ModelLoadController(
                 isReady = if (activated == null) it.isReady else false,
                 statusText = activated
                     ?.let { model -> "已切换到 ${model.displayName}，点击加载模型" }
-                    ?: "已选择 ${modelRepository.selectedRecommendedModel().shortName}",
+                    ?: "已选择 ${modelRepository.selectedRecommendedModel().shortName}"
             )
         }
         refreshDeviceStatus()
     }
 
     fun selectInstalledModel(modelId: String) {
-        if (uiState.value.isBusy || uiState.value.isDownloading ||
+        if (uiState.value.isBusy ||
+            uiState.value.isDownloading ||
             uiState.value.activeInstalledModelId == modelId
         ) {
             return
@@ -901,7 +901,7 @@ internal class ModelLoadController(
                 pendingRemoteModeDisclosure = null,
                 pendingRemoteSendDisclosure = null,
                 isReady = false,
-                statusText = "已切换到 ${installed.displayName}，点击加载模型",
+                statusText = "已切换到 ${installed.displayName}，点击加载模型"
             )
         }
     }
@@ -914,7 +914,7 @@ internal class ModelLoadController(
         uiState.update {
             it.copy(
                 isBusy = true,
-                statusText = "正在删除 ${target.displayName}",
+                statusText = "正在删除 ${target.displayName}"
             )
         }
         scope.launch(ioDispatcher) {
@@ -945,14 +945,14 @@ internal class ModelLoadController(
                                 ?: "已删除 ${target.displayName}，请下载或导入本地模型"
                         } else {
                             "已删除 ${target.displayName}"
-                        },
+                        }
                     )
                 } else {
                     current.copy(
                         isBusy = false,
                         isReady = if (wasActive) false else current.isReady,
                         isGenerating = if (wasActive) false else current.isGenerating,
-                        statusText = "删除 ${target.displayName} 失败",
+                        statusText = "删除 ${target.displayName} 失败"
                     )
                 }
             }
@@ -979,7 +979,7 @@ internal class ModelLoadController(
                 isDownloading = false,
                 isReady = false,
                 statusText = "正在校验本地模型",
-                modelHealth = it.localModelHealth(ModelHealthState.Loading, backendChoice),
+                modelHealth = it.localModelHealth(ModelHealthState.Loading, backendChoice)
             )
         }
 
@@ -995,8 +995,8 @@ internal class ModelLoadController(
                         modelHealth = it.localModelHealth(
                             ModelHealthState.LoadFailed,
                             backendChoice,
-                            failureReason = "模型文件校验失败",
-                        ),
+                            failureReason = "模型文件校验失败"
+                        )
                     )
                 }
                 return@launch
@@ -1006,11 +1006,11 @@ internal class ModelLoadController(
                 it.loadSettled(
                     isReady = false,
                     statusText = "正在初始化 ${backendChoice.label()}",
-                    modelHealth = it.localModelHealth(ModelHealthState.Loading, backendChoice),
+                    modelHealth = it.localModelHealth(ModelHealthState.Loading, backendChoice)
                 ).copy(
                     inferenceMode = InferenceMode.Local,
                     backend = backendChoice,
-                    isBusy = true,
+                    isBusy = true
                 )
             }
 
@@ -1023,7 +1023,7 @@ internal class ModelLoadController(
                             modelPath = path,
                             backend = backend,
                             history = sessionRepository.activeMessages(),
-                            parameters = uiState.value.generationParameters,
+                            parameters = uiState.value.generationParameters
                         )
                     }
                 }
@@ -1037,7 +1037,7 @@ internal class ModelLoadController(
                     it.loadSettled(
                         isReady = true,
                         statusText = "就绪 · ${it.backend.label()}",
-                        modelHealth = it.localModelHealth(ModelHealthState.Loaded, backendChoice),
+                        modelHealth = it.localModelHealth(ModelHealthState.Loaded, backendChoice)
                     )
                 }
                 rebuildMemoryIndex()
@@ -1057,8 +1057,8 @@ internal class ModelLoadController(
                             modelHealth = it.localModelHealth(
                                 ModelHealthState.FallbackActive,
                                 BackendChoice.CPU,
-                                failureReason = "GPU 初始化失败：${failure.cleanMessage()}",
-                            ).copy(fallbackBackend = BackendChoice.CPU),
+                                failureReason = "GPU 初始化失败：${failure.cleanMessage()}"
+                            ).copy(fallbackBackend = BackendChoice.CPU)
                         ).copy(backend = BackendChoice.CPU)
                     }
                     rebuildMemoryIndex()
@@ -1075,8 +1075,8 @@ internal class ModelLoadController(
                     modelHealth = it.localModelHealth(
                         ModelHealthState.LoadFailed,
                         backendChoice,
-                        failureReason = failureReason,
-                    ),
+                        failureReason = failureReason
+                    )
                 )
             }
         }
@@ -1093,7 +1093,7 @@ internal class ModelLoadController(
                 localPreferredBackends = modelState.localPreferredBackends(),
                 modelHealth = modelState.modelHealthForCurrentSelection(it.backend),
                 semanticMemory = semanticMemoryStatus(),
-                huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
+                huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken()
             )
         }
     }
@@ -1158,14 +1158,13 @@ internal class ModelLoadController(
                 modelHealth = ModelHealth(
                     profileId = config.modelProfile().id,
                     state = if (config.isConfigured) ModelHealthState.Loaded else ModelHealthState.LoadFailed,
-                    failureReason = if (config.isConfigured) null else "远程模型未配置",
-                ),
+                    failureReason = if (config.isConfigured) null else "远程模型未配置"
+                )
             )
         }
     }
 
-    fun remoteModeDisclosure(): PendingRemoteModeDisclosure =
-        buildRemoteModeDisclosure(remoteModelRepository.loadConfig())
+    fun remoteModeDisclosure(): PendingRemoteModeDisclosure = buildRemoteModeDisclosure(remoteModelRepository.loadConfig())
 
     private fun buildRemoteModeDisclosure(config: RemoteModelConfig): PendingRemoteModeDisclosure {
         val normalized = config.normalized()
@@ -1175,7 +1174,7 @@ internal class ModelLoadController(
             apiKeyConfigured = normalized.apiKey.isNotBlank(),
             connectivityStatus = normalized.connectivityStatus,
             supportsVisionInput = normalized.modelProfile().supportsVisionInput,
-            isConfigured = normalized.isConfigured,
+            isConfigured = normalized.isConfigured
         )
     }
 
@@ -1183,7 +1182,7 @@ internal class ModelLoadController(
         uiState.update {
             it.copy(
                 isArm64Supported = isArm64DeviceProvider(),
-                availableModelStorageBytes = modelRepository.resolveModelStorageBytes(),
+                availableModelStorageBytes = modelRepository.resolveModelStorageBytes()
             )
         }
     }
@@ -1192,47 +1191,42 @@ internal class ModelLoadController(
 private fun ChatUiState.localModelHealth(
     state: ModelHealthState,
     backend: BackendChoice,
-    failureReason: String? = null,
-): ModelHealth =
-    ModelHealth(
-        profileId = activeModelProfileId(),
-        state = state,
-        backend = backend,
-        failureReason = failureReason,
-    )
+    failureReason: String? = null
+): ModelHealth = ModelHealth(
+    profileId = activeModelProfileId(),
+    state = state,
+    backend = backend,
+    failureReason = failureReason
+)
 
 /** A local load step finished: not busy, no download progress, with the given readiness. */
 private fun ChatUiState.loadSettled(
     isReady: Boolean,
     statusText: String,
-    modelHealth: ModelHealth,
-): ChatUiState =
-    copy(
-        isBusy = false,
-        isDownloading = false,
-        isReady = isReady,
-        downloadProgressPercent = null,
-        downloadedBytes = 0L,
-        totalBytes = 0L,
-        statusText = statusText,
-        modelHealth = modelHealth,
-    )
+    modelHealth: ModelHealth
+): ChatUiState = copy(
+    isBusy = false,
+    isDownloading = false,
+    isReady = isReady,
+    downloadProgressPercent = null,
+    downloadedBytes = 0L,
+    totalBytes = 0L,
+    statusText = statusText,
+    modelHealth = modelHealth
+)
 
-private fun ChatUiState.withDownloadProgressReset(): ChatUiState =
-    copy(downloadProgressPercent = null, downloadedBytes = 0L, totalBytes = 0L)
+private fun ChatUiState.withDownloadProgressReset(): ChatUiState = copy(downloadProgressPercent = null, downloadedBytes = 0L, totalBytes = 0L)
 
 /**
  * Ends the download state but keeps the last byte counts on screen. A download never owns
  * `isBusy` (a chat may be generating meanwhile), so ending it must not clear `isBusy` either.
  */
-private fun ChatUiState.downloadStopped(statusText: String): ChatUiState =
-    copy(
-        isDownloading = false,
-        isWaitingForWifiDownload = false,
-        downloadProgressPercent = null,
-        statusText = statusText,
-    )
+private fun ChatUiState.downloadStopped(statusText: String): ChatUiState = copy(
+    isDownloading = false,
+    isWaitingForWifiDownload = false,
+    downloadProgressPercent = null,
+    statusText = statusText
+)
 
 /** Clears all download progress and ends the download state. */
-internal fun ChatUiState.downloadFinished(statusText: String): ChatUiState =
-    withDownloadProgressReset().downloadStopped(statusText)
+internal fun ChatUiState.downloadFinished(statusText: String): ChatUiState = withDownloadProgressReset().downloadStopped(statusText)

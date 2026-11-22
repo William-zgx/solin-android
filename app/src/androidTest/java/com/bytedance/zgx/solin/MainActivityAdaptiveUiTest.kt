@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.view.KeyEvent
-import java.util.concurrent.atomic.AtomicReference
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
@@ -15,8 +14,8 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -33,6 +32,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.bytedance.zgx.solin.ui.REMOTE_ATTACHMENT_PROTECTION_NOTICE
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PRIVACY_DESCRIPTION
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -46,7 +46,7 @@ class MainActivityCompactResourceUiTest {
         composeRule.setSolinScreenWithResourceSnapshot(
             modifier = Modifier
                 .width(360.dp)
-                .height(720.dp),
+                .height(720.dp)
         )
 
         composeRule.waitForTag("app_title")
@@ -82,7 +82,7 @@ class MainActivityAdaptiveUiTest {
                     applyFontScale(activity, 1.3f)
                     assertTrue(
                         "Expected test font scale to be applied to MainActivity.",
-                        activity.resources.configuration.fontScale >= 1.29f,
+                        activity.resources.configuration.fontScale >= 1.29f
                     )
                 }
                 composeRule.waitForTag("app_title")
@@ -95,7 +95,7 @@ class MainActivityAdaptiveUiTest {
                 composeRule.waitForTag("model_manager_sheet")
                 // The closed session drawer keeps its own "模型管理" row composed, so scope to the sheet.
                 composeRule.onNode(
-                    hasText("模型管理") and hasAnyAncestor(hasTestTag("model_manager_sheet")),
+                    hasText("模型管理") and hasAnyAncestor(hasTestTag("model_manager_sheet"))
                 ).assertIsDisplayed()
                 composeRule.onNodeWithTag("model_tab_advanced").performClick()
                 composeRule.waitForText("生成参数")
@@ -105,7 +105,7 @@ class MainActivityAdaptiveUiTest {
                     originalConfiguration.get()?.let { configuration ->
                         activity.resources.updateConfiguration(
                             configuration,
-                            activity.resources.displayMetrics,
+                            activity.resources.displayMetrics
                         )
                     }
                 }
@@ -118,7 +118,7 @@ class MainActivityAdaptiveUiTest {
         resetMainActivityPersistentState(
             context = targetContext,
             inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig,
+            remoteModelConfig = ReadyRemoteModelConfig
         )
 
         ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).use {
@@ -129,7 +129,7 @@ class MainActivityAdaptiveUiTest {
             composeRule.assertLabeledAction("top_more_button", "更多")
             composeRule.assertLabeledAction(
                 "composer_attachment_button",
-                "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR",
+                "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR"
             )
             composeRule.assertLabeledAction("composer_voice_button", VOICE_INPUT_PRIVACY_DESCRIPTION)
             composeRule.onNodeWithTag("remote_attachment_protection_notice").assertIsDisplayed()
@@ -150,7 +150,7 @@ class MainActivityAdaptiveUiTest {
                 .height
             assertTrue(
                 "Expected composer input to grow for multiline text.",
-                expandedComposerHeight > initialComposerHeight,
+                expandedComposerHeight > initialComposerHeight
             )
             composeRule.assertLabeledAction("composer_send_button", "发送")
 
@@ -173,7 +173,7 @@ class MainActivityAdaptiveUiTest {
         resetMainActivityPersistentState(
             context = targetContext,
             inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig,
+            remoteModelConfig = ReadyRemoteModelConfig
         )
 
         ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).use { scenario ->
@@ -202,13 +202,14 @@ class MainActivityAdaptiveUiTest {
     }
 
     private fun skipStartupIntent(
-        debugRemoteModelConfig: RemoteModelConfig? = null,
-    ): Intent =
-        (if (debugRemoteModelConfig == null) {
+        debugRemoteModelConfig: RemoteModelConfig? = null
+    ): Intent = (
+        if (debugRemoteModelConfig == null) {
             mainActivitySkipStartupIntent(targetContext)
         } else {
             mainActivitySkipStartupIntent(targetContext, debugRemoteModelConfig)
-        })
+        }
+        )
 
     @Suppress("DEPRECATION")
     private fun applyFontScale(activity: android.app.Activity, scale: Float) {

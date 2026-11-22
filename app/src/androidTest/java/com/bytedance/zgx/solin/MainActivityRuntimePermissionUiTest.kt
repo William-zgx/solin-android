@@ -4,8 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.ParcelFileDescriptor
-import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -23,10 +23,10 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import java.util.regex.Pattern
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
-import java.util.regex.Pattern
 
 class MainActivityRuntimePermissionUiTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
@@ -169,7 +169,7 @@ class MainActivityRuntimePermissionUiTest {
             composeRule.waitForTag("runtime_permission_requirements")
             composeRule.onNodeWithText("查询最近文件").assertIsDisplayed()
             composeRule.onNodeWithText(
-                "将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。",
+                "将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。"
             ).assertIsDisplayed()
             composeRule.onNodeWithTag("runtime_permission_requirements")
                 .assertIsDisplayed()
@@ -194,13 +194,13 @@ class MainActivityRuntimePermissionUiTest {
         resetMainActivityPersistentState(
             context = targetContext,
             inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig,
+            remoteModelConfig = ReadyRemoteModelConfig
         )
         return ActivityScenario.launch(
             mainActivitySkipStartupIntent(
                 context = targetContext,
-                debugRemoteModelConfig = ReadyRemoteModelConfig,
-            ),
+                debugRemoteModelConfig = ReadyRemoteModelConfig
+            )
         )
     }
 
@@ -249,18 +249,17 @@ class MainActivityRuntimePermissionUiTest {
     private fun ComposeTestRule.waitForText(
         text: String,
         timeoutMillis: Long = 5_000,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
-    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean =
-        runCatching {
-            waitForTag(tag, timeoutMillis = timeoutMillis)
-            true
-        }.getOrDefault(false)
+    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean = runCatching {
+        waitForTag(tag, timeoutMillis = timeoutMillis)
+        true
+    }.getOrDefault(false)
 
     private fun ComposeTestRule.assertTagAbsent(tag: String) {
         waitUntil(timeoutMillis = 5_000) {
@@ -277,7 +276,7 @@ class MainActivityRuntimePermissionUiTest {
     private fun resetPermission(permission: String) {
         assumeTrue(
             "$permission must be denied before instrumentation starts; revoke it before launching tests.",
-            targetContext.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED,
+            targetContext.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
         )
         shell("pm clear-permission-flags ${targetContext.packageName} $permission user-set user-fixed")
     }
@@ -319,11 +318,10 @@ class MainActivityRuntimePermissionUiTest {
         check(false) { "Permission deny button not found" }
     }
 
-    private fun isPermissionControllerVisible(): Boolean =
-        device.currentPackageName == "com.android.permissioncontroller" ||
-            device.currentPackageName == "com.google.android.permissioncontroller" ||
-            device.hasObject(By.pkg("com.android.permissioncontroller")) ||
-            device.hasObject(By.pkg("com.google.android.permissioncontroller")) ||
-            device.hasObject(By.pkg("com.miui.securitycenter")) ||
-            device.hasObject(By.pkg("com.lbe.security.miui"))
+    private fun isPermissionControllerVisible(): Boolean = device.currentPackageName == "com.android.permissioncontroller" ||
+        device.currentPackageName == "com.google.android.permissioncontroller" ||
+        device.hasObject(By.pkg("com.android.permissioncontroller")) ||
+        device.hasObject(By.pkg("com.google.android.permissioncontroller")) ||
+        device.hasObject(By.pkg("com.miui.securitycenter")) ||
+        device.hasObject(By.pkg("com.lbe.security.miui"))
 }

@@ -30,14 +30,14 @@ class MainActivityLongTermMemoryUiTest {
         resetMainActivityPersistentState(
             context = targetContext,
             inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig,
+            remoteModelConfig = ReadyRemoteModelConfig
         )
     }
 
     @get:Rule
     val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeTestRule(
-            ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext, ReadyRemoteModelConfig)),
+            ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext, ReadyRemoteModelConfig))
         ) { rule -> activityFromScenarioRule(rule) }
 
     @Test
@@ -101,18 +101,16 @@ class MainActivityLongTermMemoryUiTest {
         waitForText("长期记忆")
     }
 
-    private fun ComposeTestRule.onModelSheetText(text: String) =
-        onNode(
-            hasText(text, substring = true) and
-                hasAnyAncestor(hasTestTag("model_manager_sheet")),
-        )
+    private fun ComposeTestRule.onModelSheetText(text: String) = onNode(
+        hasText(text, substring = true) and
+            hasAnyAncestor(hasTestTag("model_manager_sheet"))
+    )
 
-    private fun ComposeTestRule.onForgetLongTermMemoryButton(memoryText: String) =
-        onNode(
-            hasClickAction() and
-                hasContentDescription("遗忘这条记忆：$memoryText") and
-                hasAnyAncestor(hasTestTag("model_manager_sheet")),
-        )
+    private fun ComposeTestRule.onForgetLongTermMemoryButton(memoryText: String) = onNode(
+        hasClickAction() and
+            hasContentDescription("遗忘这条记忆：$memoryText") and
+            hasAnyAncestor(hasTestTag("model_manager_sheet"))
+    )
 
     private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
@@ -130,7 +128,7 @@ class MainActivityLongTermMemoryUiTest {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodes(
                 hasText(text, substring = true) and
-                    hasAnyAncestor(hasTestTag("model_manager_sheet")),
+                    hasAnyAncestor(hasTestTag("model_manager_sheet"))
             ).fetchSemanticsNodes().isEmpty()
         }
     }
@@ -138,7 +136,7 @@ class MainActivityLongTermMemoryUiTest {
     private fun ComposeTestRule.waitForText(
         text: String,
         timeoutMillis: Long = 10_000,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()

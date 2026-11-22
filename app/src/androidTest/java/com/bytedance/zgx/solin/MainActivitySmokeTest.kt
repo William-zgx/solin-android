@@ -8,6 +8,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as createAndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -20,7 +21,6 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import org.junit.Rule
 import org.junit.Test
-import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as createAndroidComposeTestRule
 
 class MainActivitySmokeTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
@@ -28,14 +28,14 @@ class MainActivitySmokeTest {
     init {
         resetMainActivityPersistentState(
             context = targetContext,
-            inferenceMode = InferenceMode.Local,
+            inferenceMode = InferenceMode.Local
         )
     }
 
     @get:Rule
     val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeTestRule(
-            ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext)),
+            ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext))
         ) { rule -> activityFromScenarioRule(rule) }
 
     @Test
@@ -203,7 +203,7 @@ class MainActivitySmokeTest {
 
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForText(
         text: String,
-        substring: Boolean = false,
+        substring: Boolean = false
     ) {
         waitUntil(timeoutMillis = 5_000) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
@@ -218,15 +218,14 @@ class MainActivitySmokeTest {
 
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForTagGone(
         tag: String,
-        timeoutMillis: Long = 5_000,
+        timeoutMillis: Long = 5_000
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
         }
     }
 
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.scrollToModelManagerText(text: String) =
-        onNode(hasText(text) and hasAnyAncestor(hasTestTag("model_manager_sheet"))).performScrollTo()
+    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.scrollToModelManagerText(text: String) = onNode(hasText(text) and hasAnyAncestor(hasTestTag("model_manager_sheet"))).performScrollTo()
 
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.openDrawerItem(tag: String) {
         onNodeWithTag("top_session_button").performClick()
