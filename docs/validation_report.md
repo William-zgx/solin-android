@@ -18021,3 +18021,16 @@ git diff --check
   以 10 秒上限 join 所有子协程实际完成，再 reset persistence。F3 的 job 跟踪/取消保持不变，
   Opus 5.5 clean。最终完整 JVM **3069 tests / 0 failures / 0 errors / 15 skipped**，androidTest
   编译、Spotless、隐私扫描通过；远程组和 teardown 仍需下一次 hosted artifact 验证。
+- Hosted [#179](https://github.com/William-zgx/solin-android/actions/runs/44998497935)（`15718a6a`）：
+  Verify 成功，**Room 进程崩溃消失**，公开 scope join 生效。远程配置显示 configured=true、
+  revisionPresent=true，但界面 `StateDescription` 明确为“无法继续：本次运行位置无法安全恢复”。
+  进一步定位到 emulator 的 `BOOT_COUNT=-1`，而不是 privacy/confirmation 或远程 key 问题。
+  整体仍为 **failure**；Smoke/Release 还暴露了始终组合的 drawer 所造成的测试选择器漂移。
+- F6 `173ac7b6`：新 binding 与 dispatch claim 统一把未知 bootCount 归一为 0，恢复检查继续
+  对原始负值返回 `BootChanged`，防止跨启动重放。新增测试先证明 fromDecision 拒绝 -1、claim
+  返回 Rejected，修复后新 run 可 Started 且恢复仍拒绝；相关 Store/Recovery/Policy/Coordinator
+  和 architecture 套件通过，Opus 5.5 clean。
+- Smoke/Release `37738028`：按真实 sheet/tag 限定标题、使用当前完整首页文案、以 not-displayed
+  验证 drawer 关闭，并让 Release 等待稳定的“模型管理”入口，Opus 5.5 clean。最终 `b7cf4272`
+  完整 JVM **3072 tests / 0 failures / 0 errors / 15 skipped**，androidTest 编译、Spotless、
+  隐私扫描通过。下一次 hosted run 才决定是否真正全绿。

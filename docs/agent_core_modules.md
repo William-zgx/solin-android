@@ -228,6 +228,11 @@ Current status:
   send-anyway, and cancel choices; image sends always require confirmation.
 - Pending remote sends fail closed after restart; they are not replayed without
   a fresh user action.
+- `RunPlacementBinding` also binds execution to the current boot generation. When the platform
+  offers no usable `BOOT_COUNT` (for example an emulator returns -1), new binding and dispatch use
+  the sentinel 0 so the current run can proceed. Recovery keeps the raw value and rejects an unknown
+  current boot as `BootChanged`; it never treats 0 as proof of the same boot generation or replays
+  stale work.
 - Private observations are synthesized locally and take precedence over generic
   replanning. Unknown privacy metadata fails closed as `LocalOnly`.
 - Low-risk phone-control replanning can use a verified local Chat model.
@@ -371,6 +376,7 @@ Tests:
 - `AgentRunBudgetTest`
 - `LocalModelFirstPlanningTest`
 - `AgentRunOptionsTest`
+- `RunPlacementBindingStoreTest`
 - `AssistantOrchestratorTest`
 - `ToolExecutionBoundaryTest`
 - `SolinViewModelTest`
