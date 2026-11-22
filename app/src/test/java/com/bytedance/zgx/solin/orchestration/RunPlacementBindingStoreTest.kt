@@ -5,6 +5,8 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -15,8 +17,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 class RunPlacementBindingStoreTest {
     @Test
@@ -27,7 +27,7 @@ class RunPlacementBindingStoreTest {
 
         val results = listOf(
             async(Dispatchers.Default) { store.bindAndReserve(testBinding("run-race", RunPlacement.Local)) },
-            async(Dispatchers.Default) { store.bindAndReserve(testBinding("run-race", RunPlacement.Remote)) },
+            async(Dispatchers.Default) { store.bindAndReserve(testBinding("run-race", RunPlacement.Remote)) }
         ).awaitAll()
 
         assertEquals(1, results.count { it is BindAndReserveResult.Bound })
@@ -61,11 +61,11 @@ class RunPlacementBindingStoreTest {
         assertTrue(store.createCriticalRun(testRun("run-stopped-before-bind")))
         assertTrue(
             store.terminalizeRun("run-stopped-before-bind", AgentRunState.Cancelled, 2_000L)
-                is TerminalizeRunResult.Terminalized,
+                is TerminalizeRunResult.Terminalized
         )
 
         assertTrue(
-            store.bindAndReserve(testBinding("run-stopped-before-bind")) is BindAndReserveResult.Rejected,
+            store.bindAndReserve(testBinding("run-stopped-before-bind")) is BindAndReserveResult.Rejected
         )
         assertNull(dao.binding("run-stopped-before-bind"))
         assertNull(store.activeBinding("run-stopped-before-bind"))
@@ -92,7 +92,7 @@ class RunPlacementBindingStoreTest {
                 store.terminalizeRun(
                     "run-bind-publish-race",
                     AgentRunState.Cancelled,
-                    2_000L,
+                    2_000L
                 )
             }.await()
             assertTrue(terminalized is TerminalizeRunResult.Terminalized)
@@ -111,18 +111,22 @@ class RunPlacementBindingStoreTest {
         val dao = FakeRunPlacementBindingDao()
         val first = store(dao)
         assertTrue(first.createCriticalRun(testRun("run-activate-publish-race")))
-        val initialPermit = (first.bindAndReserve(
-            testBinding("run-activate-publish-race", RunPlacement.Remote),
-        ) as BindAndReserveResult.Bound).permit
-        val invocation = (first.claimForDispatch(initialPermit, testReceipt(RunPlacement.Remote)) as
-            ClaimInvocationResult.Started).invocation
+        val initialPermit = (
+            first.bindAndReserve(
+                testBinding("run-activate-publish-race", RunPlacement.Remote)
+            ) as BindAndReserveResult.Bound
+            ).permit
+        val invocation = (
+            first.claimForDispatch(initialPermit, testReceipt(RunPlacement.Remote)) as
+                ClaimInvocationResult.Started
+            ).invocation
         assertTrue(first.finishInvocation(invocation))
         makePendingRecoveryEligible(dao, "run-activate-publish-race")
 
         val restarted = store(dao)
         val candidate = restarted.inspectForRecovery(
             "run-activate-publish-race",
-            validRecoveryContext(),
+            validRecoveryContext()
         ) as RecoveryInspection.ContinuationCandidate
         val snapshotRead = CountDownLatch(1)
         val releaseActivation = CountDownLatch(1)
@@ -137,7 +141,7 @@ class RunPlacementBindingStoreTest {
                 restarted.terminalizeRun(
                     "run-activate-publish-race",
                     AgentRunState.Cancelled,
-                    3_000L,
+                    3_000L
                 )
             }
             releaseActivation.countDown()
@@ -163,11 +167,11 @@ class RunPlacementBindingStoreTest {
         assertNull(restarted.activeBinding("run-pending"))
         val inspection = restarted.inspectForRecovery(
             "run-pending",
-            RunPlacementRecoveryContext(bootCount = 7L, elapsedRealtimeMillis = 2_000L),
+            RunPlacementRecoveryContext(bootCount = 7L, elapsedRealtimeMillis = 2_000L)
         )
         assertEquals(
             RunPlacementRecoveryRejection.PendingNeverStarted,
-            (inspection as RecoveryInspection.NotRestorable).rejection,
+            (inspection as RecoveryInspection.NotRestorable).rejection
         )
         assertNull(restarted.activeBinding("run-pending"))
     }
@@ -177,9 +181,11 @@ class RunPlacementBindingStoreTest {
         val dao = FakeRunPlacementBindingDao()
         val first = store(dao)
         assertTrue(first.createCriticalRun(testRun("run-recovery")))
-        val permit = (first.bindAndReserve(
-            testBinding("run-recovery", RunPlacement.Remote),
-        ) as BindAndReserveResult.Bound).permit
+        val permit = (
+            first.bindAndReserve(
+                testBinding("run-recovery", RunPlacement.Remote)
+            ) as BindAndReserveResult.Bound
+            ).permit
         val started = first.claimForDispatch(permit, testReceipt(RunPlacement.Remote)) as ClaimInvocationResult.Started
         assertTrue(first.finishInvocation(started.invocation))
         makePendingRecoveryEligible(dao, "run-recovery")
@@ -190,8 +196,8 @@ class RunPlacementBindingStoreTest {
             RunPlacementRecoveryContext(
                 bootCount = 7L,
                 elapsedRealtimeMillis = 1_000L + RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS,
-                remoteProfileRevision = TEST_REMOTE_REVISION,
-            ),
+                remoteProfileRevision = TEST_REMOTE_REVISION
+            )
         )
         val candidate = inspection as RecoveryInspection.ContinuationCandidate
         assertNull(restarted.activeBinding("run-recovery"))
@@ -207,29 +213,31 @@ class RunPlacementBindingStoreTest {
         val dao = FakeRunPlacementBindingDao()
         val first = store(dao)
         assertTrue(first.createCriticalRun(testRun("run-activation-freshness")))
-        val permit = (first.bindAndReserve(
-            testBinding("run-activation-freshness", RunPlacement.Remote),
-        ) as BindAndReserveResult.Bound).permit
+        val permit = (
+            first.bindAndReserve(
+                testBinding("run-activation-freshness", RunPlacement.Remote)
+            ) as BindAndReserveResult.Bound
+            ).permit
         val started = first.claimForDispatch(permit, testReceipt(RunPlacement.Remote)) as ClaimInvocationResult.Started
         assertTrue(first.finishInvocation(started.invocation))
         makePendingRecoveryEligible(dao, "run-activation-freshness")
         var freshContext = RunPlacementRecoveryContext(
             bootCount = 7L,
             elapsedRealtimeMillis = 2_000L,
-            remoteProfileRevision = TEST_REMOTE_REVISION,
+            remoteProfileRevision = TEST_REMOTE_REVISION
         )
         val restarted = store(dao) { freshContext }
         val candidate = restarted.inspectForRecovery("run-activation-freshness", freshContext)
             as RecoveryInspection.ContinuationCandidate
 
         freshContext = freshContext.copy(
-            elapsedRealtimeMillis = 1_001L + RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS,
+            elapsedRealtimeMillis = 1_001L + RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS
         )
         assertNull(restarted.activate(candidate))
 
         freshContext = freshContext.copy(
             elapsedRealtimeMillis = 2_000L,
-            remoteProfileRevision = "00000000-0000-0000-0000-000000000002",
+            remoteProfileRevision = "00000000-0000-0000-0000-000000000002"
         )
         assertNull(restarted.activate(candidate))
         assertNull(restarted.activeBinding("run-activation-freshness"))
@@ -249,9 +257,9 @@ class RunPlacementBindingStoreTest {
                 localHardBlocked = false,
                 thermalPressure = com.bytedance.zgx.solin.resource.ThermalPressure.Normal,
                 localState = CandidateState.Unavailable,
-                remoteState = CandidateState.Eligible,
+                remoteState = CandidateState.Eligible
             ),
-            placement = RunPlacement.Remote,
+            placement = RunPlacement.Remote
         )
 
         val binding = RunPlacementBinding.fromDecision(
@@ -259,7 +267,7 @@ class RunPlacementBindingStoreTest {
             decision = decision,
             remoteProfileRevision = TEST_REMOTE_REVISION,
             bootCount = -1L,
-            boundAtElapsedRealtimeMillis = 1_000L,
+            boundAtElapsedRealtimeMillis = 1_000L
         )
 
         assertEquals(0L, binding.bootCount)
@@ -270,7 +278,7 @@ class RunPlacementBindingStoreTest {
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.BootChanged,
             contextTransform = { context -> context.copy(bootCount = -1L) },
-            mutate = { dao, runId -> dao.mutateBinding(runId) { it.copy(bootCount = 0L) } },
+            mutate = { dao, runId -> dao.mutateBinding(runId) { it.copy(bootCount = 0L) } }
         )
     }
 
@@ -279,14 +287,16 @@ class RunPlacementBindingStoreTest {
         val unknownBoot = RunPlacementRecoveryContext(
             bootCount = -1L,
             elapsedRealtimeMillis = 2_000L,
-            remoteProfileRevision = TEST_REMOTE_REVISION,
+            remoteProfileRevision = TEST_REMOTE_REVISION
         )
         val dao = FakeRunPlacementBindingDao()
         val store = store(dao) { unknownBoot }
         assertTrue(store.createCriticalRun(testRun("run-unknown-boot-claim")))
-        val permit = (store.bindAndReserve(
-            testBinding("run-unknown-boot-claim", RunPlacement.Remote, bootCount = 0L),
-        ) as BindAndReserveResult.Bound).permit
+        val permit = (
+            store.bindAndReserve(
+                testBinding("run-unknown-boot-claim", RunPlacement.Remote, bootCount = 0L)
+            ) as BindAndReserveResult.Bound
+            ).permit
 
         val started = store.claimForDispatch(permit, testReceipt(RunPlacement.Remote))
             as ClaimInvocationResult.Started
@@ -296,7 +306,7 @@ class RunPlacementBindingStoreTest {
         val inspection = store(dao) { unknownBoot }.inspectForRecovery("run-unknown-boot-claim", unknownBoot)
         assertEquals(
             RunPlacementRecoveryRejection.BootChanged,
-            (inspection as RecoveryInspection.NotRestorable).rejection,
+            (inspection as RecoveryInspection.NotRestorable).rejection
         )
     }
 
@@ -305,32 +315,32 @@ class RunPlacementBindingStoreTest {
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.BootChanged,
             contextTransform = { context ->
-            context.copy(bootCount = context.bootCount + 1)
-            },
+                context.copy(bootCount = context.bootCount + 1)
+            }
         )
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.Expired,
             contextTransform = { context ->
-            context.copy(elapsedRealtimeMillis = 1_001L + RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS)
-            },
+                context.copy(elapsedRealtimeMillis = 1_001L + RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS)
+            }
         )
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.RemoteRevisionChanged,
             contextTransform = { context ->
-            context.copy(remoteProfileRevision = "00000000-0000-0000-0000-000000000002")
-            },
+                context.copy(remoteProfileRevision = "00000000-0000-0000-0000-000000000002")
+            }
         )
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.UnknownSchema,
-            mutate = { dao, runId -> dao.mutateBinding(runId) { it.copy(schemaVersion = 99) } },
+            mutate = { dao, runId -> dao.mutateBinding(runId) { it.copy(schemaVersion = 99) } }
         )
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.StartedNeverReplayed,
-            finish = false,
+            finish = false
         )
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.TerminalRun,
-            mutate = { dao, runId -> dao.updateRunTerminal(runId, "Completed", 2_000L) },
+            mutate = { dao, runId -> dao.updateRunTerminal(runId, "Completed", 2_000L) }
         )
         assertRecoveryRejected(
             expected = RunPlacementRecoveryRejection.TraceMismatch,
@@ -339,7 +349,7 @@ class RunPlacementBindingStoreTest {
                     val json = JSONObject(entity.json).put("attempt", 2)
                     entity.copy(json = json.toString())
                 }
-            },
+            }
         )
     }
 
@@ -348,7 +358,7 @@ class RunPlacementBindingStoreTest {
         listOf(
             AgentRunState.Created,
             AgentRunState.Planning,
-            AgentRunState.GeneratingAnswer,
+            AgentRunState.GeneratingAnswer
         ).forEach { state ->
             val dao = FakeRunPlacementBindingDao()
             val runId = "run-state-${state.name.lowercase()}"
@@ -359,13 +369,13 @@ class RunPlacementBindingStoreTest {
 
             assertEquals(
                 RunPlacementRecoveryRejection.RunStateNotRestorable,
-                (inspection as RecoveryInspection.NotRestorable).rejection,
+                (inspection as RecoveryInspection.NotRestorable).rejection
             )
         }
 
         listOf(
             AgentRunState.AwaitingUserConfirmation,
-            AgentRunState.AwaitingExternalOutcome,
+            AgentRunState.AwaitingExternalOutcome
         ).forEach { state ->
             val dao = FakeRunPlacementBindingDao()
             val runId = "run-evidence-${state.name.lowercase()}"
@@ -376,14 +386,14 @@ class RunPlacementBindingStoreTest {
 
             assertEquals(
                 RunPlacementRecoveryRejection.ContinuationEvidenceMissing,
-                (inspection as RecoveryInspection.NotRestorable).rejection,
+                (inspection as RecoveryInspection.NotRestorable).rejection
             )
         }
     }
 
     private fun externalOutcomeInspection(
         toolName: String,
-        extraSteps: (FakeRunPlacementBindingDao, String) -> Unit = { _, _ -> },
+        extraSteps: (FakeRunPlacementBindingDao, String) -> Unit = { _, _ -> }
     ): RecoveryInspection {
         val dao = FakeRunPlacementBindingDao()
         val runId = "run-external-$toolName"
@@ -391,8 +401,8 @@ class RunPlacementBindingStoreTest {
         dao.addStep(
             AgentStep.ToolRequested(
                 ToolRequest(id = "request-launch", toolName = toolName, reason = "launch"),
-                ActionDraft(functionName = toolName, title = "外部界面", summary = "打开外部界面。", parameters = emptyMap()),
-            ).toTraceEntity(runId, position = 0, createdAtMillis = 1L),
+                ActionDraft(functionName = toolName, title = "外部界面", summary = "打开外部界面。", parameters = emptyMap())
+            ).toTraceEntity(runId, position = 0, createdAtMillis = 1L)
         )
         dao.addStep(
             AgentStep.ToolObserved(
@@ -405,10 +415,10 @@ class RunPlacementBindingStoreTest {
                         "completionState" to "ExternalActivityOpened",
                         "completionVerified" to "false",
                         "externalOutcome" to "Unknown",
-                        "externalOutcomeSource" to "Unknown",
-                    ),
-                ),
-            ).toTraceEntity(runId, position = 0, createdAtMillis = 1L),
+                        "externalOutcomeSource" to "Unknown"
+                    )
+                )
+            ).toTraceEntity(runId, position = 0, createdAtMillis = 1L)
         )
         extraSteps(dao, runId)
         dao.mutateRun(runId) { run -> run.copy(state = AgentRunState.AwaitingExternalOutcome.name) }
@@ -432,15 +442,15 @@ class RunPlacementBindingStoreTest {
                         functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                         title = "Wi-Fi",
                         summary = "打开 Wi-Fi 设置。",
-                        parameters = emptyMap(),
-                    ),
-                ).toTraceEntity(runId, position = 0, createdAtMillis = 1L),
+                        parameters = emptyMap()
+                    )
+                ).toTraceEntity(runId, position = 0, createdAtMillis = 1L)
             )
         }
 
         assertEquals(
             RunPlacementRecoveryRejection.ContinuationEvidenceMissing,
-            (inspection as RecoveryInspection.NotRestorable).rejection,
+            (inspection as RecoveryInspection.NotRestorable).rejection
         )
     }
 
@@ -452,7 +462,7 @@ class RunPlacementBindingStoreTest {
 
         assertEquals(
             RunPlacementRecoveryRejection.ContinuationEvidenceMissing,
-            (inspection as RecoveryInspection.NotRestorable).rejection,
+            (inspection as RecoveryInspection.NotRestorable).rejection
         )
     }
 
@@ -463,7 +473,7 @@ class RunPlacementBindingStoreTest {
         assertTrue(activeStore.createCriticalRun(testRun("run-durable-terminal")))
         assertTrue(
             activeStore.bindAndReserve(testBinding("run-durable-terminal", RunPlacement.Remote)) is
-                BindAndReserveResult.Bound,
+                BindAndReserveResult.Bound
         )
         dao.mutateBinding("run-durable-terminal") { binding ->
             binding.copy(placement = "Unknown")
@@ -471,24 +481,24 @@ class RunPlacementBindingStoreTest {
         val restarted = store(dao) {
             validRecoveryContext().copy(
                 bootCount = 99L,
-                elapsedRealtimeMillis = RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS + 9_999L,
+                elapsedRealtimeMillis = RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS + 9_999L
             )
         }
 
         val first = restarted.terminalizeRun(
             "run-durable-terminal",
             AgentRunState.Cancelled,
-            2_000L,
+            2_000L
         )
         val repeated = restarted.terminalizeRun(
             "run-durable-terminal",
             AgentRunState.Cancelled,
-            3_000L,
+            3_000L
         )
         val conflicting = restarted.terminalizeRun(
             "run-durable-terminal",
             AgentRunState.Completed,
-            4_000L,
+            4_000L
         )
 
         assertTrue(first is TerminalizeRunResult.Terminalized)
@@ -514,7 +524,7 @@ class RunPlacementBindingStoreTest {
         // Post-terminal transitions stay idempotent / rejected without the lock.
         assertTrue(
             store.terminalizeRun("run-lock-prune", AgentRunState.Cancelled, 3_000L) is
-                TerminalizeRunResult.Terminalized,
+                TerminalizeRunResult.Terminalized
         )
         assertTrue(store.bindAndReserve(testBinding("run-lock-prune")) is BindAndReserveResult.Rejected)
         assertEquals("Cancelled", dao.run("run-lock-prune")?.state)
@@ -526,14 +536,16 @@ class RunPlacementBindingStoreTest {
         val store = store(dao)
         assertTrue(store.createCriticalRun(testRun("run-finish-idempotent")))
         val permit = (store.bindAndReserve(testBinding("run-finish-idempotent")) as BindAndReserveResult.Bound).permit
-        val invocation = (store.claimForDispatch(permit, testReceipt(RunPlacement.Local)) as
-            ClaimInvocationResult.Started).invocation
+        val invocation = (
+            store.claimForDispatch(permit, testReceipt(RunPlacement.Local)) as
+                ClaimInvocationResult.Started
+            ).invocation
 
         assertTrue(store.finishInvocation(invocation))
         assertTrue(store.finishInvocation(invocation))
         assertTrue(
             store.terminalizeRun("run-finish-idempotent", AgentRunState.Cancelled, 2_000L) is
-                TerminalizeRunResult.Terminalized,
+                TerminalizeRunResult.Terminalized
         )
         assertTrue(store.finishInvocation(invocation))
         assertEquals("Terminal", dao.binding("run-finish-idempotent")?.dispatchState)
@@ -547,10 +559,14 @@ class RunPlacementBindingStoreTest {
         val dao = FakeRunPlacementBindingDao()
         val store = store(dao)
         assertTrue(store.createCriticalRun(testRun("run-conflicting-terminal")))
-        val permit = (store.bindAndReserve(testBinding("run-conflicting-terminal")) as
-            BindAndReserveResult.Bound).permit
-        val invocation = (store.claimForDispatch(permit, testReceipt(RunPlacement.Local)) as
-            ClaimInvocationResult.Started).invocation
+        val permit = (
+            store.bindAndReserve(testBinding("run-conflicting-terminal")) as
+                BindAndReserveResult.Bound
+            ).permit
+        val invocation = (
+            store.claimForDispatch(permit, testReceipt(RunPlacement.Local)) as
+                ClaimInvocationResult.Started
+            ).invocation
         val stopHandle = RecordingRuntimeStopHandle()
         store.startInvocation(permit, invocation) { FakeRunningModelRuntimeCall(stopHandle) }
         dao.mutateRun("run-conflicting-terminal") { run -> run.copy(state = "Failed") }
@@ -569,7 +585,7 @@ class RunPlacementBindingStoreTest {
             "sk-secret-token",
             "private-model-name",
             "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF",
-            "$TEST_REMOTE_REVISION-extra",
+            "$TEST_REMOTE_REVISION-extra"
         )
         canaries.forEach { canary ->
             assertTrue(
@@ -578,9 +594,9 @@ class RunPlacementBindingStoreTest {
                     testBinding(
                         runId = "run-invalid-binding",
                         placement = RunPlacement.Remote,
-                        remoteProfileRevision = canary,
+                        remoteProfileRevision = canary
                     )
-                }.isFailure,
+                }.isFailure
             )
             assertTrue(
                 "invocation accepted unsafe revision: $canary",
@@ -589,9 +605,9 @@ class RunPlacementBindingStoreTest {
                         runId = "run-invalid-invocation",
                         placement = RunPlacement.Remote,
                         attempt = 1,
-                        remoteProfileRevision = canary,
+                        remoteProfileRevision = canary
                     )
-                }.isFailure,
+                }.isFailure
             )
         }
 
@@ -600,7 +616,7 @@ class RunPlacementBindingStoreTest {
         assertTrue(first.createCriticalRun(testRun("run-corrupt-revision")))
         assertTrue(
             first.bindAndReserve(testBinding("run-corrupt-revision", RunPlacement.Remote)) is
-                BindAndReserveResult.Bound,
+                BindAndReserveResult.Bound
         )
         dao.mutateBinding("run-corrupt-revision") { binding ->
             binding.copy(remoteProfileRevision = "https://private.example/v1")
@@ -610,7 +626,7 @@ class RunPlacementBindingStoreTest {
 
         assertEquals(
             RunPlacementRecoveryRejection.UnknownEnum,
-            (inspection as RecoveryInspection.NotRestorable).rejection,
+            (inspection as RecoveryInspection.NotRestorable).rejection
         )
     }
 
@@ -625,7 +641,7 @@ class RunPlacementBindingStoreTest {
         assertEquals("Pending", dao.binding("run-strict")?.dispatchState)
         assertTrue(
             store.terminalizeRun("run-strict", AgentRunState.Completed, 3_000L)
-                is TerminalizeRunResult.Terminalized,
+                is TerminalizeRunResult.Terminalized
         )
         assertEquals("Completed", dao.run("run-strict")?.state)
         assertEquals("Terminal", dao.binding("run-strict")?.dispatchState)
@@ -635,15 +651,17 @@ class RunPlacementBindingStoreTest {
         expected: RunPlacementRecoveryRejection,
         finish: Boolean = true,
         contextTransform: (RunPlacementRecoveryContext) -> RunPlacementRecoveryContext = { it },
-        mutate: (FakeRunPlacementBindingDao, String) -> Unit = { _, _ -> },
+        mutate: (FakeRunPlacementBindingDao, String) -> Unit = { _, _ -> }
     ) {
         val dao = FakeRunPlacementBindingDao()
         val runId = "run-${expected.name.lowercase()}"
         val first = store(dao)
         assertTrue(first.createCriticalRun(testRun(runId)))
-        val permit = (first.bindAndReserve(
-            testBinding(runId, RunPlacement.Remote),
-        ) as BindAndReserveResult.Bound).permit
+        val permit = (
+            first.bindAndReserve(
+                testBinding(runId, RunPlacement.Remote)
+            ) as BindAndReserveResult.Bound
+            ).permit
         val started = first.claimForDispatch(permit, testReceipt(RunPlacement.Remote)) as ClaimInvocationResult.Started
         if (finish) assertTrue(first.finishInvocation(started.invocation))
         makePendingRecoveryEligible(dao, runId)
@@ -653,8 +671,8 @@ class RunPlacementBindingStoreTest {
             RunPlacementRecoveryContext(
                 bootCount = 7L,
                 elapsedRealtimeMillis = 2_000L,
-                remoteProfileRevision = TEST_REMOTE_REVISION,
-            ),
+                remoteProfileRevision = TEST_REMOTE_REVISION
+            )
         )
         val inspection = store(dao).inspectForRecovery(runId, context)
 
@@ -667,13 +685,13 @@ class RunPlacementBindingStoreTest {
             RunPlacementRecoveryContext(
                 bootCount = 7L,
                 elapsedRealtimeMillis = 2_000L,
-                remoteProfileRevision = TEST_REMOTE_REVISION,
+                remoteProfileRevision = TEST_REMOTE_REVISION
             )
-        },
+        }
     ): RoomRunPlacementBindingStore = RoomRunPlacementBindingStore(
         dao = dao,
         currentRecoveryContext = currentContext,
-        traceClockMillis = { 10_000L },
+        traceClockMillis = { 10_000L }
     )
 
     private fun testRun(runId: String): AgentRun = AgentRun(
@@ -681,12 +699,12 @@ class RunPlacementBindingStoreTest {
         input = "must never persist",
         state = AgentRunState.Created,
         createdAtMillis = 1L,
-        updatedAtMillis = 1L,
+        updatedAtMillis = 1L
     )
 
     private fun makePendingRecoveryEligible(
         dao: FakeRunPlacementBindingDao,
-        runId: String,
+        runId: String
     ) {
         dao.mutateRun(runId) { run ->
             run.copy(state = AgentRunState.AwaitingUserConfirmation.name, updatedAtMillis = 2_000L)
@@ -709,28 +727,32 @@ class RunPlacementBindingStoreTest {
                 nextActionInput = null,
                 continuationCursorJson = null,
                 createdAtMillis = 1_000L,
-                updatedAtMillis = 2_000L,
-            ),
+                updatedAtMillis = 2_000L
+            )
         )
     }
 
     private fun prepareIdleRemoteRun(
         dao: FakeRunPlacementBindingDao,
-        runId: String,
+        runId: String
     ) {
         val first = store(dao)
         check(first.createCriticalRun(testRun(runId)))
-        val permit = (first.bindAndReserve(testBinding(runId, RunPlacement.Remote)) as
-            BindAndReserveResult.Bound).permit
-        val invocation = (first.claimForDispatch(permit, testReceipt(RunPlacement.Remote)) as
-            ClaimInvocationResult.Started).invocation
+        val permit = (
+            first.bindAndReserve(testBinding(runId, RunPlacement.Remote)) as
+                BindAndReserveResult.Bound
+            ).permit
+        val invocation = (
+            first.claimForDispatch(permit, testReceipt(RunPlacement.Remote)) as
+                ClaimInvocationResult.Started
+            ).invocation
         check(first.finishInvocation(invocation))
     }
 
     private fun validRecoveryContext(): RunPlacementRecoveryContext = RunPlacementRecoveryContext(
         bootCount = 7L,
         elapsedRealtimeMillis = 2_000L,
-        remoteProfileRevision = TEST_REMOTE_REVISION,
+        remoteProfileRevision = TEST_REMOTE_REVISION
     )
 }
 
@@ -746,7 +768,7 @@ private class RecordingRuntimeStopHandle : RuntimeStopHandle {
 
 /** Minimal [RunningModelRuntimeCall] whose completion is irrelevant to the lifecycle test. */
 private class FakeRunningModelRuntimeCall(
-    private val handle: RuntimeStopHandle,
+    private val handle: RuntimeStopHandle
 ) : RunningModelRuntimeCall<Unit> {
     override suspend fun await(): Unit = Unit
 

@@ -13,7 +13,7 @@ enum class ModelDispatchState {
     Pending,
     Started,
     Idle,
-    Terminal,
+    Terminal
 }
 
 data class RunPlacementBinding(
@@ -31,7 +31,7 @@ data class RunPlacementBinding(
     val bootCount: Long,
     val boundAtElapsedRealtimeMillis: Long,
     val dispatchState: ModelDispatchState = ModelDispatchState.Pending,
-    val attempt: Int = 0,
+    val attempt: Int = 0
 ) {
     init {
         require(runId.isNotBlank()) { "runId must not be blank" }
@@ -61,7 +61,7 @@ data class RunPlacementBinding(
             decision: PlacementDecision.Chosen,
             remoteProfileRevision: String?,
             bootCount: Long,
-            boundAtElapsedRealtimeMillis: Long,
+            boundAtElapsedRealtimeMillis: Long
         ): RunPlacementBinding = RunPlacementBinding(
             runId = runId,
             policyVersion = decision.policyVersion,
@@ -74,13 +74,13 @@ data class RunPlacementBinding(
             remoteState = decision.diagnostics.remoteState,
             remoteProfileRevision = remoteProfileRevision.takeIf { decision.placement == RunPlacement.Remote },
             bootCount = bootCount.toBindingBootCount(),
-            boundAtElapsedRealtimeMillis = boundAtElapsedRealtimeMillis,
+            boundAtElapsedRealtimeMillis = boundAtElapsedRealtimeMillis
         )
     }
 }
 
 internal class ActiveRunPlacementEntry(
-    @Volatile var binding: RunPlacementBinding,
+    @Volatile var binding: RunPlacementBinding
 ) {
     var runtimeEntry: RuntimeInvocationEntry = RuntimeInvocationEntry.Ready
 }
@@ -92,7 +92,7 @@ internal sealed interface RuntimeInvocationEntry {
 
     data class Running(
         val invocation: ModelRuntimeInvocation,
-        val stopHandle: RuntimeStopHandle,
+        val stopHandle: RuntimeStopHandle
     ) : RuntimeInvocationEntry
 
     object Terminal : RuntimeInvocationEntry
@@ -105,14 +105,13 @@ fun interface RuntimeStopHandle {
 
 class ActiveRunPlacementPermit internal constructor(
     internal val entry: ActiveRunPlacementEntry,
-    internal val activationToken: Any,
+    internal val activationToken: Any
 ) {
     val binding: RunPlacementBinding
         get() = entry.binding
 
     internal companion object {
-        fun detached(binding: RunPlacementBinding): ActiveRunPlacementPermit =
-            ActiveRunPlacementPermit(ActiveRunPlacementEntry(binding), Any())
+        fun detached(binding: RunPlacementBinding): ActiveRunPlacementPermit = ActiveRunPlacementPermit(ActiveRunPlacementEntry(binding), Any())
     }
 }
 
@@ -120,7 +119,7 @@ data class ModelRuntimeInvocation(
     val runId: String,
     val placement: RunPlacement,
     val attempt: Int,
-    val remoteProfileRevision: String?,
+    val remoteProfileRevision: String?
 ) {
     init {
         require(runId.isNotBlank()) { "runId must not be blank" }
@@ -139,7 +138,7 @@ data class ModelRuntimeInvocation(
 data class RunPlacementRecoveryContext(
     val bootCount: Long,
     val elapsedRealtimeMillis: Long,
-    val remoteProfileRevision: String? = null,
+    val remoteProfileRevision: String? = null
 )
 
 enum class RunPlacementRecoveryRejection {
@@ -158,38 +157,36 @@ enum class RunPlacementRecoveryRejection {
     RunStateNotRestorable,
     ContinuationEvidenceMissing,
     InvalidAttempt,
-    TraceMismatch,
+    TraceMismatch
 }
 
 sealed interface RecoveryInspection {
     class ContinuationCandidate internal constructor(
         val binding: RunPlacementBinding,
         internal val context: RunPlacementRecoveryContext,
-        internal val storeToken: Any,
+        internal val storeToken: Any
     ) : RecoveryInspection
 
     data class NotRestorable(
         val rejection: RunPlacementRecoveryRejection,
-        val reason: PlacementReasonCode = PlacementReasonCode.PLACEMENT_NOT_RESTORABLE,
+        val reason: PlacementReasonCode = PlacementReasonCode.PLACEMENT_NOT_RESTORABLE
     ) : RecoveryInspection
 }
 
 sealed interface BindAndReserveResult {
     data class Bound(val permit: ActiveRunPlacementPermit) : BindAndReserveResult
-    data class Rejected(val reason: PlacementReasonCode = PlacementReasonCode.PLACEMENT_NOT_RESTORABLE) :
-        BindAndReserveResult
+    data class Rejected(val reason: PlacementReasonCode = PlacementReasonCode.PLACEMENT_NOT_RESTORABLE) : BindAndReserveResult
 }
 
 sealed interface ClaimInvocationResult {
     data class Started(val invocation: ModelRuntimeInvocation) : ClaimInvocationResult
-    data class Rejected(val reason: PlacementReasonCode = PlacementReasonCode.PLACEMENT_NOT_RESTORABLE) :
-        ClaimInvocationResult
+    data class Rejected(val reason: PlacementReasonCode = PlacementReasonCode.PLACEMENT_NOT_RESTORABLE) : ClaimInvocationResult
 }
 
 sealed interface TerminalizeRunResult {
     data class Terminalized(
         val placement: RunPlacement?,
-        val stopHandle: RuntimeStopHandle? = null,
+        val stopHandle: RuntimeStopHandle? = null
     ) : TerminalizeRunResult
 
     object Rejected : TerminalizeRunResult
@@ -203,7 +200,7 @@ data class ShadowPlacementTrace(
     val complexity: RequestComplexity,
     val resourceBand: StableResourceBand,
     val localState: CandidateState,
-    val remoteState: CandidateState,
+    val remoteState: CandidateState
 ) {
     companion object {
         fun from(decision: PlacementDecision): ShadowPlacementTrace = ShadowPlacementTrace(
@@ -214,7 +211,7 @@ data class ShadowPlacementTrace(
             complexity = decision.diagnostics.complexity,
             resourceBand = decision.diagnostics.resourceBand,
             localState = decision.diagnostics.localState,
-            remoteState = decision.diagnostics.remoteState,
+            remoteState = decision.diagnostics.remoteState
         )
     }
 }
@@ -224,24 +221,23 @@ fun RunPlacement.toRunDataDestination(): RunDataDestination = when (this) {
     RunPlacement.Remote -> RunDataDestination.Remote
 }
 
-internal fun RunPlacementBinding.toEntity(): AgentRunPlacementBindingEntity =
-    AgentRunPlacementBindingEntity(
-        runId = runId,
-        schemaVersion = schemaVersion,
-        policyVersion = policyVersion,
-        preference = preference.name,
-        placement = placement.name,
-        primaryReason = primaryReason.name,
-        complexity = complexity.name,
-        resourceBand = resourceBand.name,
-        localState = localState.name,
-        remoteState = remoteState.name,
-        remoteProfileRevision = remoteProfileRevision,
-        bootCount = bootCount,
-        boundAtElapsedRealtimeMillis = boundAtElapsedRealtimeMillis,
-        dispatchState = dispatchState.name,
-        attempt = attempt,
-    )
+internal fun RunPlacementBinding.toEntity(): AgentRunPlacementBindingEntity = AgentRunPlacementBindingEntity(
+    runId = runId,
+    schemaVersion = schemaVersion,
+    policyVersion = policyVersion,
+    preference = preference.name,
+    placement = placement.name,
+    primaryReason = primaryReason.name,
+    complexity = complexity.name,
+    resourceBand = resourceBand.name,
+    localState = localState.name,
+    remoteState = remoteState.name,
+    remoteProfileRevision = remoteProfileRevision,
+    bootCount = bootCount,
+    boundAtElapsedRealtimeMillis = boundAtElapsedRealtimeMillis,
+    dispatchState = dispatchState.name,
+    attempt = attempt
+)
 
 internal fun AgentRunPlacementBindingEntity.toDomainOrNull(): RunPlacementBinding? = runCatching {
     RunPlacementBinding(
@@ -259,7 +255,7 @@ internal fun AgentRunPlacementBindingEntity.toDomainOrNull(): RunPlacementBindin
         bootCount = bootCount,
         boundAtElapsedRealtimeMillis = boundAtElapsedRealtimeMillis,
         dispatchState = ModelDispatchState.valueOf(dispatchState),
-        attempt = attempt,
+        attempt = attempt
     )
 }.getOrNull()
 

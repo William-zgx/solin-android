@@ -3,11 +3,11 @@ package com.bytedance.zgx.solin.orchestration
 import com.bytedance.zgx.solin.common.keysSet
 import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
-import com.bytedance.zgx.solin.data.RunPlacementRecoverySnapshotEntity
 import com.bytedance.zgx.solin.data.RunPlacementBindingDao
+import com.bytedance.zgx.solin.data.RunPlacementRecoverySnapshotEntity
 import com.bytedance.zgx.solin.tool.ToolRegistry
-import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import org.json.JSONObject
 
 interface RunPlacementBindingStore {
     fun createCriticalRun(run: AgentRun): Boolean
@@ -15,7 +15,7 @@ interface RunPlacementBindingStore {
     fun terminalizeRun(
         runId: String,
         state: AgentRunState,
-        updatedAtMillis: Long,
+        updatedAtMillis: Long
     ): TerminalizeRunResult
 
     fun bindAndReserve(binding: RunPlacementBinding): BindAndReserveResult
@@ -25,14 +25,14 @@ interface RunPlacementBindingStore {
 
     fun inspectForRecovery(
         runId: String,
-        context: RunPlacementRecoveryContext,
+        context: RunPlacementRecoveryContext
     ): RecoveryInspection
 
     fun activate(candidate: RecoveryInspection.ContinuationCandidate): ActiveRunPlacementPermit?
 
     fun claimForDispatch(
         permit: ActiveRunPlacementPermit,
-        receipt: RunDataReceipt,
+        receipt: RunDataReceipt
     ): ClaimInvocationResult
 
     /**
@@ -43,7 +43,7 @@ interface RunPlacementBindingStore {
     fun <T> startInvocation(
         permit: ActiveRunPlacementPermit,
         invocation: ModelRuntimeInvocation,
-        start: () -> RunningModelRuntimeCall<T>,
+        start: () -> RunningModelRuntimeCall<T>
     ): RunningModelRuntimeCall<T>?
 
     fun finishInvocation(invocation: ModelRuntimeInvocation): Boolean
@@ -54,7 +54,7 @@ class RoomRunPlacementBindingStore(
     private val currentRecoveryContext: () -> RunPlacementRecoveryContext,
     private val traceClockMillis: () -> Long = { System.currentTimeMillis() },
     /** Supplies the restored-popup policy for [pendingUnverifiedExternalOutcomeOrNull]. */
-    private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val toolRegistry: ToolRegistry = ToolRegistry()
 ) : RunPlacementBindingStore {
     private val storeToken = Any()
     private val activeBindings = ConcurrentHashMap<String, ActiveRunPlacementPermit>()
@@ -68,15 +68,15 @@ class RoomRunPlacementBindingStore(
                 state = run.state.name,
                 createdAtMillis = run.createdAtMillis,
                 updatedAtMillis = run.updatedAtMillis,
-                sessionId = run.sessionId,
-            ),
+                sessionId = run.sessionId
+            )
         )
     }.isSuccess
 
     override fun terminalizeRun(
         runId: String,
         state: AgentRunState,
-        updatedAtMillis: Long,
+        updatedAtMillis: Long
     ): TerminalizeRunResult {
         if (!state.isTerminal()) return TerminalizeRunResult.Rejected
         val lock = lifecycleLock(runId)
@@ -118,13 +118,13 @@ class RoomRunPlacementBindingStore(
         runId: String,
         state: AgentRunState,
         updatedAtMillis: Long,
-        permit: ActiveRunPlacementPermit?,
+        permit: ActiveRunPlacementPermit?
     ): TerminalizeOutcome {
         val result = runCatching {
             dao.terminalizeTransaction(
                 runId = runId,
                 state = state.name,
-                updatedAtMillis = updatedAtMillis,
+                updatedAtMillis = updatedAtMillis
             )
         }.getOrNull() ?: return TerminalizeOutcome(TerminalizeRunResult.Rejected, stopHandle = null)
         val stopHandle = permit?.entry?.runtimeEntry
@@ -151,8 +151,8 @@ class RoomRunPlacementBindingStore(
                 placementStep = AgentStep.PlacementSelected(binding).toTraceEntity(
                     runId = binding.runId,
                     position = 0,
-                    createdAtMillis = traceClockMillis(),
-                ),
+                    createdAtMillis = traceClockMillis()
+                )
             )
         }.getOrNull()?.toDomainOrNull() ?: return BindAndReserveResult.Rejected()
         if (persisted != binding) return BindAndReserveResult.Rejected()
@@ -170,17 +170,16 @@ class RoomRunPlacementBindingStore(
         }
     }
 
-    override fun activeBinding(runId: String): ActiveRunPlacementPermit? =
-        activeBindings[runId]
+    override fun activeBinding(runId: String): ActiveRunPlacementPermit? = activeBindings[runId]
 
     override fun inspectForRecovery(
         runId: String,
-        context: RunPlacementRecoveryContext,
+        context: RunPlacementRecoveryContext
     ): RecoveryInspection {
         val snapshot = runCatching { dao.recoverySnapshot(runId) }.getOrNull()
             ?: return when {
                 runCatching { dao.binding(runId) }.getOrNull() == null -> notRestorable(
-                    RunPlacementRecoveryRejection.MissingBinding,
+                    RunPlacementRecoveryRejection.MissingBinding
                 )
                 else -> notRestorable(RunPlacementRecoveryRejection.MissingRun)
             }
@@ -212,13 +211,13 @@ class RoomRunPlacementBindingStore(
         }
         when (binding.dispatchState) {
             ModelDispatchState.Pending -> return notRestorable(
-                RunPlacementRecoveryRejection.PendingNeverStarted,
+                RunPlacementRecoveryRejection.PendingNeverStarted
             )
             ModelDispatchState.Started -> return notRestorable(
-                RunPlacementRecoveryRejection.StartedNeverReplayed,
+                RunPlacementRecoveryRejection.StartedNeverReplayed
             )
             ModelDispatchState.Terminal -> return notRestorable(
-                RunPlacementRecoveryRejection.DispatchStateNotIdle,
+                RunPlacementRecoveryRejection.DispatchStateNotIdle
             )
             ModelDispatchState.Idle -> Unit
         }
@@ -250,7 +249,7 @@ class RoomRunPlacementBindingStore(
 
     override fun claimForDispatch(
         permit: ActiveRunPlacementPermit,
-        receipt: RunDataReceipt,
+        receipt: RunDataReceipt
     ): ClaimInvocationResult {
         if (!owns(permit)) return ClaimInvocationResult.Rejected()
         return synchronized(permit.entry) {
@@ -260,7 +259,7 @@ class RoomRunPlacementBindingStore(
 
     private fun claimForDispatchLocked(
         permit: ActiveRunPlacementPermit,
-        receipt: RunDataReceipt,
+        receipt: RunDataReceipt
     ): ClaimInvocationResult {
         val current = permit.binding
         if (receipt.destination != current.placement.toRunDataDestination()) {
@@ -278,7 +277,7 @@ class RoomRunPlacementBindingStore(
             runId = current.runId,
             placement = current.placement,
             attempt = current.attempt + 1,
-            remoteProfileRevision = current.remoteProfileRevision,
+            remoteProfileRevision = current.remoteProfileRevision
         )
         val persisted = runCatching {
             dao.claimAndRecordTransaction(
@@ -288,13 +287,13 @@ class RoomRunPlacementBindingStore(
                 receiptStep = AgentStep.RunDataReceiptRecorded(receipt).toTraceEntity(
                     runId = current.runId,
                     position = 0,
-                    createdAtMillis = traceClockMillis(),
+                    createdAtMillis = traceClockMillis()
                 ),
                 invocationStep = AgentStep.ModelRuntimeInvocationStarted(invocation).toTraceEntity(
                     runId = current.runId,
                     position = 0,
-                    createdAtMillis = traceClockMillis(),
-                ),
+                    createdAtMillis = traceClockMillis()
+                )
             )
         }.getOrNull()?.toDomainOrNull() ?: return ClaimInvocationResult.Rejected()
         if (
@@ -312,7 +311,7 @@ class RoomRunPlacementBindingStore(
     override fun <T> startInvocation(
         permit: ActiveRunPlacementPermit,
         invocation: ModelRuntimeInvocation,
-        start: () -> RunningModelRuntimeCall<T>,
+        start: () -> RunningModelRuntimeCall<T>
     ): RunningModelRuntimeCall<T>? {
         if (!owns(permit)) return null
         return synchronized(permit.entry) {
@@ -347,7 +346,7 @@ class RoomRunPlacementBindingStore(
 
     private fun finishInvocationLocked(
         permit: ActiveRunPlacementPermit,
-        invocation: ModelRuntimeInvocation,
+        invocation: ModelRuntimeInvocation
     ): Boolean {
         val current = permit.binding
         if (
@@ -375,7 +374,7 @@ class RoomRunPlacementBindingStore(
             dao.compareAndSetIdle(
                 runId = invocation.runId,
                 placement = invocation.placement.name,
-                attempt = invocation.attempt,
+                attempt = invocation.attempt
             ) == 1
         }.getOrDefault(false)
         val persisted = runCatching { dao.binding(invocation.runId) }.getOrNull()?.toDomainOrNull()
@@ -397,8 +396,7 @@ class RoomRunPlacementBindingStore(
         return false
     }
 
-    private fun owns(permit: ActiveRunPlacementPermit): Boolean =
-        permit.activationToken === storeToken && activeBindings[permit.binding.runId] === permit
+    private fun owns(permit: ActiveRunPlacementPermit): Boolean = permit.activationToken === storeToken && activeBindings[permit.binding.runId] === permit
 
     private fun lifecycleLock(runId: String): Any = lifecycleLocks.computeIfAbsent(runId) { Any() }
 
@@ -414,7 +412,7 @@ class RoomRunPlacementBindingStore(
     }.getOrDefault(false)
 
     private fun RunPlacementBinding.hasCurrentDispatchSnapshot(
-        context: RunPlacementRecoveryContext,
+        context: RunPlacementRecoveryContext
     ): Boolean = runCatching {
         val snapshot = dao.recoverySnapshot(runId) ?: return@runCatching false
         val persisted = snapshot.binding.toDomainOrNull() ?: return@runCatching false
@@ -434,19 +432,16 @@ class RoomRunPlacementBindingStore(
 private data class TerminalizeOutcome(
     val result: TerminalizeRunResult,
     /** A running invocation's stop handle captured under the entry lock, for the caller to stop. */
-    val stopHandle: RuntimeStopHandle?,
+    val stopHandle: RuntimeStopHandle?
 )
 
-private fun RunPlacementBinding.isInitialCanonicalBinding(): Boolean =
-    schemaVersion == RUN_PLACEMENT_BINDING_SCHEMA_VERSION &&
-        dispatchState == ModelDispatchState.Pending &&
-        attempt == 0
+private fun RunPlacementBinding.isInitialCanonicalBinding(): Boolean = schemaVersion == RUN_PLACEMENT_BINDING_SCHEMA_VERSION &&
+    dispatchState == ModelDispatchState.Pending &&
+    attempt == 0
 
-private fun AgentRunState.isRestorablePlacementContinuationState(): Boolean =
-    this in setOf(AgentRunState.AwaitingUserConfirmation, AgentRunState.AwaitingExternalOutcome)
+private fun AgentRunState.isRestorablePlacementContinuationState(): Boolean = this in setOf(AgentRunState.AwaitingUserConfirmation, AgentRunState.AwaitingExternalOutcome)
 
-private fun notRestorable(rejection: RunPlacementRecoveryRejection): RecoveryInspection.NotRestorable =
-    RecoveryInspection.NotRestorable(rejection)
+private fun notRestorable(rejection: RunPlacementRecoveryRejection): RecoveryInspection.NotRestorable = RecoveryInspection.NotRestorable(rejection)
 
 private fun List<AgentStepEntity>.haveConsistentPlacementTrace(binding: RunPlacementBinding): Boolean {
     val placements = filter { it.type == "PlacementSelected" }
@@ -465,7 +460,7 @@ private fun List<AgentStepEntity>.haveConsistentPlacementTrace(binding: RunPlace
 
 private fun RunPlacementRecoverySnapshotEntity.hasRestorablePlacementContinuationEvidence(
     runState: AgentRunState,
-    toolRegistry: ToolRegistry,
+    toolRegistry: ToolRegistry
 ): Boolean = when (runState) {
     AgentRunState.AwaitingUserConfirmation -> hasPendingConfirmationEvidence()
     // Two layers, both required: the strict trace-shape check below (exact key sets, the launch must
@@ -547,16 +542,15 @@ private fun AgentStepEntity.matchesReceipt(binding: RunPlacementBinding): Boolea
         json.getString("destination") == binding.placement.toRunDataDestination().name
 }.getOrDefault(false)
 
-private fun AgentStepEntity.matchesInvocation(binding: RunPlacementBinding, expectedAttempt: Int): Boolean =
-    runCatching {
-        val json = JSONObject(json)
-        json.keysSet() == MODEL_RUNTIME_INVOCATION_TRACE_KEYS &&
-            json.getInt("schemaVersion") == RUN_PLACEMENT_TRACE_SCHEMA_VERSION &&
-            json.getString("runId") == binding.runId &&
-            json.getString("placement") == binding.placement.name &&
-            json.getInt("attempt") == expectedAttempt &&
-            json.nullableString("remoteProfileRevision") == binding.remoteProfileRevision
-    }.getOrDefault(false)
+private fun AgentStepEntity.matchesInvocation(binding: RunPlacementBinding, expectedAttempt: Int): Boolean = runCatching {
+    val json = JSONObject(json)
+    json.keysSet() == MODEL_RUNTIME_INVOCATION_TRACE_KEYS &&
+        json.getInt("schemaVersion") == RUN_PLACEMENT_TRACE_SCHEMA_VERSION &&
+        json.getString("runId") == binding.runId &&
+        json.getString("placement") == binding.placement.name &&
+        json.getInt("attempt") == expectedAttempt &&
+        json.nullableString("remoteProfileRevision") == binding.remoteProfileRevision
+}.getOrDefault(false)
 
 internal val PLACEMENT_SELECTED_TRACE_KEYS = setOf(
     "type",
@@ -570,7 +564,7 @@ internal val PLACEMENT_SELECTED_TRACE_KEYS = setOf(
     "resourceBand",
     "localState",
     "remoteState",
-    "remoteProfileRevision",
+    "remoteProfileRevision"
 )
 
 internal val MODEL_RUNTIME_INVOCATION_TRACE_KEYS = setOf(
@@ -579,7 +573,7 @@ internal val MODEL_RUNTIME_INVOCATION_TRACE_KEYS = setOf(
     "runId",
     "placement",
     "attempt",
-    "remoteProfileRevision",
+    "remoteProfileRevision"
 )
 
 internal val SHADOW_PLACEMENT_TRACE_KEYS = setOf(
@@ -593,7 +587,7 @@ internal val SHADOW_PLACEMENT_TRACE_KEYS = setOf(
     "complexity",
     "resourceBand",
     "localState",
-    "remoteState",
+    "remoteState"
 )
 
 internal val RUN_DATA_RECEIPT_TRACE_KEYS = setOf(
@@ -622,7 +616,7 @@ internal val RUN_DATA_RECEIPT_TRACE_KEYS = setOf(
     "outputQualityRule",
     "outputQualityAction",
     "outputQualityStopped",
-    "outputQualityKeptPrefix",
+    "outputQualityKeptPrefix"
 )
 
 private val TOOL_REQUESTED_TRACE_KEYS = setOf(
@@ -630,7 +624,7 @@ private val TOOL_REQUESTED_TRACE_KEYS = setOf(
     "requestId",
     "toolName",
     "argumentKeys",
-    "draftTitle",
+    "draftTitle"
 )
 
 private val TOOL_OBSERVED_EXTERNAL_TRACE_KEYS = setOf(
@@ -638,10 +632,9 @@ private val TOOL_OBSERVED_EXTERNAL_TRACE_KEYS = setOf(
     "requestId",
     "status",
     "retryable",
-    "completionMetadata",
+    "completionMetadata"
 )
 
-private fun JSONObject.nullableString(key: String): String? =
-    if (isNull(key)) null else getString(key)
+private fun JSONObject.nullableString(key: String): String? = if (isNull(key)) null else getString(key)
 
 private const val REDACTED_CRITICAL_RUN_INPUT = "[redacted]"

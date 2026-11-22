@@ -109,7 +109,7 @@ class MainActivitySmokeTest {
 
         // The closed session drawer keeps its own "模型管理" row composed, so scope to the sheet.
         composeRule.onNode(
-            hasText("模型管理") and hasAnyAncestor(hasTestTag("model_manager_sheet")),
+            hasText("模型管理") and hasAnyAncestor(hasTestTag("model_manager_sheet"))
         ).assertIsDisplayed()
         composeRule.waitForText("可下载或导入本地模型离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。")
         composeRule.waitForText("当前模型")
@@ -161,7 +161,7 @@ class MainActivitySmokeTest {
 
         // The closed session drawer also composes a "隐私与权限" row; assert the sheet title only.
         composeRule.onNode(
-            hasText("隐私与权限") and hasAnyAncestor(hasTestTag("model_manager_sheet")),
+            hasText("隐私与权限") and hasAnyAncestor(hasTestTag("model_manager_sheet"))
         ).assertIsDisplayed()
         composeRule.waitForText("为什么装它")
         composeRule.waitForText("本地可用")
@@ -192,7 +192,7 @@ class MainActivitySmokeTest {
 
         // The closed session drawer also composes a "隐私与权限" row; assert the sheet title only.
         composeRule.onNode(
-            hasText("隐私与权限") and hasAnyAncestor(hasTestTag("model_manager_sheet")),
+            hasText("隐私与权限") and hasAnyAncestor(hasTestTag("model_manager_sheet"))
         ).assertIsDisplayed()
         composeRule.waitForText("能力与信任中心")
         composeRule.waitForText("远程公开证据查询")

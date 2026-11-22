@@ -25,11 +25,11 @@ class ReleaseSignedSmokeDeviceTest {
         val device = UiDevice.getInstance(instrumentation)
         assertTrue(
             "Expected $packageName to become foreground.",
-            device.wait(Until.hasObject(By.pkg(packageName).depth(0)), 15_000),
+            device.wait(Until.hasObject(By.pkg(packageName).depth(0)), 15_000)
         )
         assertTrue(
             "Expected the Solin main shell to render.",
-            device.wait(Until.hasObject(By.desc("模型管理")), 30_000),
+            device.wait(Until.hasObject(By.desc("模型管理")), 30_000)
         )
     }
 }
