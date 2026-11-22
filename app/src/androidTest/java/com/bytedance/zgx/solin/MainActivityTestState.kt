@@ -278,7 +278,7 @@ internal fun emitRouteDiagnostics(label: String, context: Context) {
             android.os.Bundle().apply {
                 putString("SolinLiveState-$label", liveRemoteUiSummary())
                 putString("SolinPlacementState-$label", placementStateSummary(context))
-            },
+            }
         )
     }
 }

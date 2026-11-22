@@ -435,7 +435,7 @@ private class LocalOpenAiServer : Closeable {
             // Method and path only (no bodies): shows whether a probe arrived but no chat POST did.
             emitRouteDiagnostics(
                 "comprehensive_awaitPost seen=${seenRequests.joinToString(",")}",
-                InstrumentationRegistry.getInstrumentation().targetContext,
+                InstrumentationRegistry.getInstrumentation().targetContext
             )
             throw error
         }
@@ -518,7 +518,7 @@ private class LocalOpenAiServer : Closeable {
                 client.getOutputStream().writeFixedResponse(
                     contentType = "application/json",
                     body = """{"object":"list","data":[{"id":"mock-model","object":"model"}]}"""
-                        .toByteArray(StandardCharsets.UTF_8),
+                        .toByteArray(StandardCharsets.UTF_8)
                 )
                 return
             }

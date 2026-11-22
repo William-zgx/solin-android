@@ -23,8 +23,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
-import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.rules.ActivityScenarioRule
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -265,9 +265,8 @@ class MainActivitySkillUiTest {
     /** Diagnostics only: the actual text of every row with [tagPrefix], so missing steps are explicit. */
     private fun ComposeTestRule.emitTaggedRowTexts(tagPrefix: String) {
         runCatching {
-            fun SemanticsNode.texts(): List<String> =
-                (config.getOrNull(SemanticsProperties.Text)?.map { it.text } ?: emptyList()) +
-                    children.flatMap { it.texts() }
+            fun SemanticsNode.texts(): List<String> = (config.getOrNull(SemanticsProperties.Text)?.map { it.text } ?: emptyList()) +
+                children.flatMap { it.texts() }
             val rows = onAllNodes(hasTestTagPrefix(tagPrefix), useUnmergedTree = true)
                 .fetchSemanticsNodes()
                 .joinToString(separator = "\n") { row ->
@@ -277,7 +276,7 @@ class MainActivitySkillUiTest {
                 .take(6_000)
             InstrumentationRegistry.getInstrumentation().sendStatus(
                 0,
-                android.os.Bundle().apply { putString("SolinRows-$tagPrefix", rows) },
+                android.os.Bundle().apply { putString("SolinRows-$tagPrefix", rows) }
             )
         }
     }
