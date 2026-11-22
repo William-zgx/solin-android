@@ -18198,3 +18198,8 @@ git diff --check
   self-test（6 tests）通过，harness + `80_mutation_test.sh` 同样 6 tests OK。完整
   `test_validation_scripts.sh` 未记为通过：默认 JDK 11 不满足要求，JDK 21 下仍因宿主缺少
   `zip` 停在 `72_android_artifact_scan.sh`，与 mutation 行为无关。Hosted CI 另行记录。
+- Hosted [#197](https://github.com/William-zgx/solin-android/actions/runs/45055505618)（`4cd94246`）：
+  **Verify 17m45s success，emulator-regression 12m35s success**。原始日志 `OK (104 tests)`，
+  脚本汇总 **104 discovered / 91 executed / 13 skipped / 0 failed**。mutation 隔离修复与
+  模型导入 suspend 切片均取得 hosted 证据；物理响应性、真实 ContentResolver 取消延迟、
+  arm64 matrix 和 release/physical 审批仍不因此转为通过。
