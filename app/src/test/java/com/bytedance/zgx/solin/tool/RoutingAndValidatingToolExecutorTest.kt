@@ -27,6 +27,7 @@ import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
 import com.bytedance.zgx.solin.device.CurrentScreenTextProvider
 import com.bytedance.zgx.solin.device.CurrentScreenTextReadResult
 import com.bytedance.zgx.solin.device.CurrentScreenTextSnapshot
+import com.bytedance.zgx.solin.device.DeviceLockState
 import com.bytedance.zgx.solin.device.ForegroundAppInfo
 import com.bytedance.zgx.solin.device.ForegroundAppProvider
 import com.bytedance.zgx.solin.device.ForegroundAppReadResult
@@ -3370,8 +3371,9 @@ class RoutingAndValidatingToolExecutorTest {
     // ---- MediaProjection OCR lock-screen gate ----
 
     private class OcrLockFixture(
-        var lock: com.bytedance.zgx.solin.device.DeviceLockState,
+        var lock: DeviceLockState,
         private val probeThrows: Boolean = false,
+        private val consented: Boolean = true,
     ) {
         var probes = 0
         var captures = 0
@@ -3397,10 +3399,11 @@ class RoutingAndValidatingToolExecutorTest {
                 cleared += requestId
             }
 
-            override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean = true
+            override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean = consented
 
             override fun captureCurrentScreenshotOcr(requestId: String, nowMillis: Long): CurrentScreenshotOcrReadResult {
                 captures++
+                if (!consented) return CurrentScreenshotOcrReadResult.MissingConsent
                 onCapture()
                 return CurrentScreenshotOcrReadResult.Available(
                     text = CANARY,
@@ -3424,12 +3427,17 @@ class RoutingAndValidatingToolExecutorTest {
             onObserve(observes)
             ScreenStateReadResult.Available(staticSnapshot("stable"))
         } as CurrentScreenControlProvider
-        val probe: () -> com.bytedance.zgx.solin.device.DeviceLockState = {
+        val probe: () -> DeviceLockState = {
             probes++
             if (probeThrows) throw IllegalStateException("keyguard unavailable")
             lock
         }
-        val executor = CurrentScreenshotOcrToolExecutor(provider, screen, { 1_000L }, probe)
+        val executor = CurrentScreenshotOcrToolExecutor(
+            provider,
+            screen,
+            clockMillis = { 1_000L },
+            deviceLockState = probe,
+        )
 
         fun assertRefusedGenerically(result: ToolResult) {
             assertEquals(ToolStatus.Failed, result.status)
@@ -3452,7 +3460,7 @@ class RoutingAndValidatingToolExecutorTest {
 
     @Test
     fun ocrRefusesInitialLockedAndUnknownBeforeAnyAccessibilityOrCapture() {
-        listOf(com.bytedance.zgx.solin.device.DeviceLockState.Locked, com.bytedance.zgx.solin.device.DeviceLockState.Unknown).forEach { state ->
+        listOf(DeviceLockState.Locked, DeviceLockState.Unknown).forEach { state ->
             val fixture = OcrLockFixture(state)
             val result = fixture.executor.execute(fixture.request)
             fixture.assertRefusedGenerically(result)
@@ -3462,8 +3470,21 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     @Test
+    fun ocrMissingConsentWhileLockedKeepsConsentRefusalWithoutProbing() {
+        val fixture = OcrLockFixture(DeviceLockState.Locked, consented = false)
+        val result = fixture.executor.execute(fixture.request)
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
+        assertFalse(result.retryable)
+        assertEquals(CurrentScreenshotOcrContract.CONSENT_REASON, result.data["specialAccess"])
+        assertEquals(0, fixture.probes)
+        assertEquals(0, fixture.observes)
+        assertTrue(fixture.cleared.isEmpty())
+    }
+
+    @Test
     fun ocrThrowingLockProbeIsUnknownAndNeverCaptures() {
-        val fixture = OcrLockFixture(com.bytedance.zgx.solin.device.DeviceLockState.Unlocked, probeThrows = true)
+        val fixture = OcrLockFixture(DeviceLockState.Unlocked, probeThrows = true)
         val result = fixture.executor.execute(fixture.request)
         fixture.assertRefusedGenerically(result)
         assertEquals(0, fixture.captures)
@@ -3472,8 +3493,8 @@ class RoutingAndValidatingToolExecutorTest {
 
     @Test
     fun ocrDroppedWhenDeviceLocksOrBecomesUnknownDuringCapture() {
-        listOf(com.bytedance.zgx.solin.device.DeviceLockState.Locked, com.bytedance.zgx.solin.device.DeviceLockState.Unknown).forEach { state ->
-            val fixture = OcrLockFixture(com.bytedance.zgx.solin.device.DeviceLockState.Unlocked)
+        listOf(DeviceLockState.Locked, DeviceLockState.Unknown).forEach { state ->
+            val fixture = OcrLockFixture(DeviceLockState.Unlocked)
             fixture.onCapture = { fixture.lock = state }
             val result = fixture.executor.execute(fixture.request)
             fixture.assertRefusedGenerically(result)
@@ -3483,9 +3504,9 @@ class RoutingAndValidatingToolExecutorTest {
 
     @Test
     fun ocrFinalProbeCatchesLockAfterLastAccessibilityObservation() {
-        val fixture = OcrLockFixture(com.bytedance.zgx.solin.device.DeviceLockState.Unlocked)
+        val fixture = OcrLockFixture(DeviceLockState.Unlocked)
         fixture.onObserve = { count ->
-            if (count == 2) fixture.lock = com.bytedance.zgx.solin.device.DeviceLockState.Locked
+            if (count == 2) fixture.lock = DeviceLockState.Locked
         }
         val result = fixture.executor.execute(fixture.request)
         fixture.assertRefusedGenerically(result)
@@ -3495,7 +3516,7 @@ class RoutingAndValidatingToolExecutorTest {
 
     @Test
     fun ocrStableUnlockedPublishesFusedOutputWithEntryAndFinalProbes() {
-        val fixture = OcrLockFixture(com.bytedance.zgx.solin.device.DeviceLockState.Unlocked)
+        val fixture = OcrLockFixture(DeviceLockState.Unlocked)
         val result = fixture.executor.execute(fixture.request)
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals(CANARY, result.data["ocrText"])
@@ -3521,8 +3542,8 @@ class RoutingAndValidatingToolExecutorTest {
         webSearchProvider: WebSearchProvider = StaticWebSearchProvider(),
         currentScreenControlProvider: CurrentScreenControlProvider? = StaticCurrentScreenControlProvider(),
         clockMillis: () -> Long = { System.currentTimeMillis() },
-        deviceLockState: () -> com.bytedance.zgx.solin.device.DeviceLockState =
-            { com.bytedance.zgx.solin.device.DeviceLockState.Unlocked },
+        deviceLockState: () -> DeviceLockState =
+            { DeviceLockState.Unlocked },
     ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {

@@ -33,7 +33,7 @@ internal class CurrentScreenshotOcrToolExecutor(
         val hasConsent = provider?.hasOneShotConsent(request.id, nowMillis) == true
         // Threat: a locked screen mirrored through MediaProjection/Accessibility would leak
         // lock-screen content into OCR. Fail closed (Unknown counts as locked) before any read.
-        if (hasConsent && !isUnlocked()) return request.lockRefusal(provider)
+        if (hasConsent && !isUnlocked()) return request.lockRefusal()
         val screenObservationBeforeCapture = if (hasConsent) {
             currentScreenControlProvider?.observeCurrentScreen()
         } else {
@@ -68,7 +68,7 @@ internal class CurrentScreenshotOcrToolExecutor(
                     beforeCapture = screenObservationBeforeCapture,
                 )
                 // Best-effort re-check right before publication; not atomic with the OS lock.
-                if (!isUnlocked()) return request.lockRefusal(provider)
+                if (!isUnlocked()) return request.lockRefusal()
                 request.succeeded(
                     summary = if (ocrText == null) {
                         "已完成当前屏幕单次 OCR，未识别到可用文字。"
@@ -94,7 +94,7 @@ internal class CurrentScreenshotOcrToolExecutor(
         runCatching { deviceLockState() }.getOrDefault(DeviceLockState.Unknown) == DeviceLockState.Unlocked
 
     /** Generic refusal: consumes the one-shot consent and reveals neither lock state nor content. */
-    private fun ToolRequest.lockRefusal(provider: CurrentScreenshotOcrProvider?): ToolResult {
+    private fun ToolRequest.lockRefusal(): ToolResult {
         provider?.clearOneShotConsent(id)
         return failed(
             code = ToolErrorCode.ExecutionFailed,

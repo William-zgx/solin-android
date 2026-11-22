@@ -4,6 +4,7 @@ import android.content.Intent
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
+import com.bytedance.zgx.solin.device.DeviceLockState
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.background.BackgroundPhoneSession
 import com.bytedance.zgx.solin.device.background.BackgroundPhoneState
@@ -127,8 +128,8 @@ class BackgroundPhoneOcrIsolationTest {
         val executor = CurrentScreenshotOcrToolExecutor(
             provider,
             screen,
-            { 1_000L },
-            { com.bytedance.zgx.solin.device.DeviceLockState.Unlocked },
+            clockMillis = { 1_000L },
+            deviceLockState = { DeviceLockState.Unlocked },
         )
     }
 }

@@ -8,6 +8,7 @@ import com.bytedance.zgx.solin.device.CalendarAvailabilityWindow
 import com.bytedance.zgx.solin.device.ContactSummaryProvider
 import com.bytedance.zgx.solin.device.ContactSummaryReadResult
 import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
+import com.bytedance.zgx.solin.device.DeviceLockState
 import com.bytedance.zgx.solin.device.ForegroundAppInfo
 import com.bytedance.zgx.solin.device.ForegroundAppProvider
 import com.bytedance.zgx.solin.device.ForegroundAppReadResult
@@ -156,7 +157,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     /** A lock-refused OCR capture must not seed a grounding hint for a later tap. */
     @Test
     fun lockRefusedOcrDoesNotSeedGroundingHintForLaterTap() {
-        listOf(com.bytedance.zgx.solin.device.DeviceLockState.Locked, com.bytedance.zgx.solin.device.DeviceLockState.Unknown).forEach { state ->
+        listOf(DeviceLockState.Locked, DeviceLockState.Unknown).forEach { state ->
             val provider = RecordingControlProvider(
                 observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
             )
@@ -323,8 +324,8 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
     private fun routingExecutorWithOcrGrounding(
         provider: CurrentScreenControlProvider,
         ocrText: String = GROUNDED_TARGET,
-        lockState: () -> com.bytedance.zgx.solin.device.DeviceLockState =
-            { com.bytedance.zgx.solin.device.DeviceLockState.Unlocked },
+        lockState: () -> DeviceLockState =
+            { DeviceLockState.Unlocked },
     ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
