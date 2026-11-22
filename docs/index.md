@@ -22,11 +22,13 @@ for the coding-agent protocol.
 
 Implementation and repository links were refreshed on 2026-11-22. The
 [current scoped-target and KVM-smoke verification](validation_report.md#2026-11-22--scoped-target-adoption-and-kvm-emulator-smoke)
-at `2922ea3e` passed locally on the integrated tree. The earlier
+now includes hosted run [#191](https://github.com/William-zgx/solin-android/actions/runs/45028843774)
+at `aa8b6ef0`: Verify and emulator-regression both passed, with 91 emulator tests executed and
+13 assumption-skipped. The earlier local evidence at `2922ea3e` and the
 [snapshot-ref/background](validation_report.md#2026-11-22--snapshot-scoped-refs-and-background-evidence)
 and [deterministic boundary](validation_report.md#2026-11-21--deterministic-boundaries-and-input-lifecycle)
-entries retain their original evidence scope. Hosted CI must be checked on the pushed commit; the
-arm64 API-matrix runner and physical-device acceptance remain separate pending resources.
+entries retain their original evidence scope. The arm64 API-matrix runner and physical-device
+acceptance remain separate pending resources.
 
 Keep **implementation**, **validation**, and **release approval** distinct.
 A green CI job does not turn a skipped device check into a pass, validate every

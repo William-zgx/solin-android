@@ -18111,3 +18111,8 @@ git diff --check
   `:app:compileDebugAndroidTestKotlin` 与 integrated-main Spotless、隐私扫描通过。完整
   `:app:testDebugUnitTest` 为 **FROM-CACHE / SUCCESS**（本提交只改 androidTest，JVM 输入未变），
   不把它写成重新执行了全部 JVM 测试。下一次 hosted run 才能判定完整 workflow 是否全绿。
+- Hosted [#191](https://github.com/William-zgx/solin-android/actions/runs/45028843774)（`aa8b6ef0`）：
+  **Verify 7m21s success，emulator-regression 14m1s success**，完整 push workflow 首次真实跑绿。
+  原始 instrumentation 日志为 `OK (104 tests)`，脚本进一步汇总 **discovered=104 / executed=91 /
+  skipped=13 / failures=0**；13 项 assumption skip 不算实际设备通过。设备 smoke 使用 API 36
+  x86_64（可含 ARM translation），不填 arm64 release API matrix 或物理真机证据槽。
