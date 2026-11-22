@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
 internal class VoiceRecognitionCoordinator(
     private val activity: ComponentActivity,
     private val viewModel: () -> SolinViewModel,
-    private val isViewModelReady: () -> Boolean,
+    private val isViewModelReady: () -> Boolean
 ) : DefaultLifecycleObserver {
     private var speechRecognizer: SpeechRecognizer? = null
     private var speechRecognizerRoute: VoiceRecognizerRoute? = null
@@ -51,10 +51,10 @@ internal class VoiceRecognitionCoordinator(
             override fun transcript(transcript: String) = viewModel().acceptVoiceTranscript(transcript)
             override fun unavailable(message: String) = viewModel().reportVoiceInputUnavailable(message)
         },
-        cancelRecognizer = { speechRecognizer?.cancel() },
+        cancelRecognizer = { speechRecognizer?.cancel() }
     )
     private val audioPermissionLauncher = activity.registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
+        ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
             start()
@@ -80,7 +80,7 @@ internal class VoiceRecognitionCoordinator(
         val route = selectVoiceRecognizerRoute(
             sdkInt = Build.VERSION.SDK_INT,
             onDeviceRecognitionAvailable = isOnDeviceRecognitionAvailable(),
-            systemRecognitionAvailable = SpeechRecognizer.isRecognitionAvailable(activity),
+            systemRecognitionAvailable = SpeechRecognizer.isRecognitionAvailable(activity)
         )
         if (route == VoiceRecognizerRoute.Unavailable) {
             viewModel().reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
@@ -104,7 +104,7 @@ internal class VoiceRecognitionCoordinator(
         }
         session.start(
             installListener = { generation -> recognizer.setRecognitionListener(recognitionListener(generation)) },
-            startListening = { recognizer.startListening(intent) },
+            startListening = { recognizer.startListening(intent) }
         )
     }
 
@@ -117,9 +117,8 @@ internal class VoiceRecognitionCoordinator(
         session.cancel()
     }
 
-    private fun isOnDeviceRecognitionAvailable(): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(activity) }.getOrDefault(false)
+    private fun isOnDeviceRecognitionAvailable(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(activity) }.getOrDefault(false)
 
     private fun recognizerFor(route: VoiceRecognizerRoute): SpeechRecognizer? {
         speechRecognizer?.takeIf { speechRecognizerRoute == route }?.let { return it }
@@ -171,39 +170,38 @@ internal class VoiceRecognitionCoordinator(
                 speechRecognizer = null
                 speechRecognizerRoute = null
             },
-            canReport = isViewModelReady,
+            canReport = isViewModelReady
         )
     }
 
-    private fun recognitionListener(generation: Long): RecognitionListener =
-        object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                if (session.isActive(generation)) viewModel().startVoiceInputCapture()
-            }
-
-            override fun onBeginningOfSpeech() = Unit
-
-            override fun onRmsChanged(rmsdB: Float) {
-                if (session.isActive(generation)) viewModel().updateVoiceInputLevel(rmsDb = rmsdB)
-            }
-
-            override fun onBufferReceived(buffer: ByteArray?) = Unit
-
-            override fun onEndOfSpeech() {
-                if (session.isActive(generation)) viewModel().finishVoiceInputCapture()
-            }
-
-            override fun onError(error: Int) = session.onError(generation, error.voiceInputErrorMessage())
-
-            override fun onResults(results: Bundle?) = session.onResults(generation, results?.recognizedSpeechText())
-
-            override fun onPartialResults(partialResults: Bundle?) {
-                if (!session.isActive(generation)) return
-                partialResults?.recognizedSpeechText()?.let(viewModel()::updateVoiceInputPartialTranscript)
-            }
-
-            override fun onEvent(eventType: Int, params: Bundle?) = Unit
+    private fun recognitionListener(generation: Long): RecognitionListener = object : RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {
+            if (session.isActive(generation)) viewModel().startVoiceInputCapture()
         }
+
+        override fun onBeginningOfSpeech() = Unit
+
+        override fun onRmsChanged(rmsdB: Float) {
+            if (session.isActive(generation)) viewModel().updateVoiceInputLevel(rmsDb = rmsdB)
+        }
+
+        override fun onBufferReceived(buffer: ByteArray?) = Unit
+
+        override fun onEndOfSpeech() {
+            if (session.isActive(generation)) viewModel().finishVoiceInputCapture()
+        }
+
+        override fun onError(error: Int) = session.onError(generation, error.voiceInputErrorMessage())
+
+        override fun onResults(results: Bundle?) = session.onResults(generation, results?.recognizedSpeechText())
+
+        override fun onPartialResults(partialResults: Bundle?) {
+            if (!session.isActive(generation)) return
+            partialResults?.recognizedSpeechText()?.let(viewModel()::updateVoiceInputPartialTranscript)
+        }
+
+        override fun onEvent(eventType: Int, params: Bundle?) = Unit
+    }
 }
 
 /** Capture state sink; the coordinator forwards it to [SolinViewModel]. */
@@ -232,7 +230,7 @@ internal class VoiceRecognitionSession(
     private val scope: CoroutineScope,
     private val sink: VoiceCaptureSink,
     private val cancelRecognizer: () -> Unit,
-    private val deadlineMs: Long = VOICE_RECOGNITION_DEADLINE_MS,
+    private val deadlineMs: Long = VOICE_RECOGNITION_DEADLINE_MS
 ) {
     private val gate = VoiceInputSessionGate()
     private var watchdog: Job? = null
@@ -326,7 +324,7 @@ internal enum class VoiceRecognizerRoute(val mayUseOnlineService: Boolean) {
      */
     SystemPreferOffline(mayUseOnlineService = true),
 
-    Unavailable(mayUseOnlineService = false),
+    Unavailable(mayUseOnlineService = false)
 }
 
 internal const val VOICE_INPUT_ONLINE_RECOGNITION_NOTE =
@@ -336,25 +334,23 @@ internal const val VOICE_INPUT_ONLINE_RECOGNITION_NOTE =
 internal fun selectVoiceRecognizerRoute(
     sdkInt: Int,
     onDeviceRecognitionAvailable: Boolean,
-    systemRecognitionAvailable: Boolean,
-): VoiceRecognizerRoute =
-    when {
-        sdkInt >= Build.VERSION_CODES.S && onDeviceRecognitionAvailable -> VoiceRecognizerRoute.OnDevice
-        systemRecognitionAvailable -> VoiceRecognizerRoute.SystemPreferOffline
-        else -> VoiceRecognizerRoute.Unavailable
-    }
+    systemRecognitionAvailable: Boolean
+): VoiceRecognizerRoute = when {
+    sdkInt >= Build.VERSION_CODES.S && onDeviceRecognitionAvailable -> VoiceRecognizerRoute.OnDevice
+    systemRecognitionAvailable -> VoiceRecognizerRoute.SystemPreferOffline
+    else -> VoiceRecognizerRoute.Unavailable
+}
 
 /**
  * Recognizer intent extras. `EXTRA_PREFER_OFFLINE` is always requested; it is harmless for the
  * on-device recognizer and steers the system recognizer away from its online service.
  */
-internal fun voiceRecognitionIntentExtras(): Map<String, Any> =
-    linkedMapOf(
-        RecognizerIntent.EXTRA_LANGUAGE_MODEL to RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-        RecognizerIntent.EXTRA_PARTIAL_RESULTS to true,
-        RecognizerIntent.EXTRA_MAX_RESULTS to 1,
-        RecognizerIntent.EXTRA_PREFER_OFFLINE to true,
-    )
+internal fun voiceRecognitionIntentExtras(): Map<String, Any> = linkedMapOf(
+    RecognizerIntent.EXTRA_LANGUAGE_MODEL to RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+    RecognizerIntent.EXTRA_PARTIAL_RESULTS to true,
+    RecognizerIntent.EXTRA_MAX_RESULTS to 1,
+    RecognizerIntent.EXTRA_PREFER_OFFLINE to true
+)
 
 /** Process-wide so a configuration change does not re-ask; cleared only by process death. */
 @Volatile
@@ -380,29 +376,26 @@ internal class VoiceInputSessionGate {
         }
     }
 
-    fun isActive(sessionId: Long): Boolean =
-        sessionId != 0L && sessionId == activeSessionId
+    fun isActive(sessionId: Long): Boolean = sessionId != 0L && sessionId == activeSessionId
 }
 
-private fun Bundle.recognizedSpeechText(): String? =
-    getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        ?.firstOrNull()
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
+private fun Bundle.recognizedSpeechText(): String? = getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+    ?.firstOrNull()
+    ?.trim()
+    ?.takeIf { it.isNotBlank() }
 
-private fun Int.voiceInputErrorMessage(): String =
-    when (this) {
-        SpeechRecognizer.ERROR_NO_MATCH -> "未识别到语音"
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听到声音"
-        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "未授权麦克风权限"
-        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "语音识别服务忙碌"
-        SpeechRecognizer.ERROR_NETWORK,
-        SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-        -> "语音识别网络不可用"
+private fun Int.voiceInputErrorMessage(): String = when (this) {
+    SpeechRecognizer.ERROR_NO_MATCH -> "未识别到语音"
+    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听到声音"
+    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "未授权麦克风权限"
+    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "语音识别服务忙碌"
+    SpeechRecognizer.ERROR_NETWORK,
+    SpeechRecognizer.ERROR_NETWORK_TIMEOUT
+    -> "语音识别网络不可用"
 
-        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
-        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
-        -> "本机语音识别暂不支持当前语言"
+    SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
+    SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+    -> "本机语音识别暂不支持当前语言"
 
-        else -> "语音输入不可用"
-    }
+    else -> "语音输入不可用"
+}

@@ -26,20 +26,27 @@ class VoiceRecognitionCoordinatorTest {
         val session = VoiceRecognitionSession(
             scope = scope.backgroundScope,
             sink = object : VoiceCaptureSink {
-                override fun captureStarted() { events += "started" }
-                override fun captureFinished() { events += "finished" }
-                override fun transcript(transcript: String) { events += "transcript" }
-                override fun unavailable(message: String) { events += "unavailable:$message" }
+                override fun captureStarted() {
+                    events += "started"
+                }
+                override fun captureFinished() {
+                    events += "finished"
+                }
+                override fun transcript(transcript: String) {
+                    events += "transcript"
+                }
+                override fun unavailable(message: String) {
+                    events += "unavailable:$message"
+                }
             },
             cancelRecognizer = { cancelCalls++ },
-            deadlineMs = DEADLINE,
+            deadlineMs = DEADLINE
         )
 
-        fun begin() =
-            session.start(
-                installListener = { generation = it },
-                startListening = { startCalls++ },
-            )
+        fun begin() = session.start(
+            installListener = { generation = it },
+            startListening = { startCalls++ }
+        )
 
         fun terminalCount() = events.count { it.startsWith("unavailable") || it == "transcript" }
     }
