@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.ParcelFileDescriptor
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -13,11 +14,9 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
-import androidx.compose.ui.test.printToLog
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -232,10 +231,22 @@ class MainActivityRuntimePermissionUiTest {
                 onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
             }
         } catch (error: Throwable) {
-            // Diagnostics only: one bounded dump of the unmerged root, then the original failure.
-            runCatching {
-                onRoot(useUnmergedTree = true).printToLog("SolinUiDump-$tag", maxDepth = 40)
-            }
+            // Keep the route evidence in instrumentation.txt even if logcat's ring buffer rotates.
+            val dump = runCatching {
+                onAllNodes(SemanticsMatcher("all nodes") { true }, useUnmergedTree = true)
+                    .fetchSemanticsNodes()
+                    .joinToString(separator = "\n") { node ->
+                        "#${node.id} ${node.boundsInRoot} ${node.config}"
+                    }
+                    .let { text ->
+                        if (text.length > MAX_FAILURE_DUMP_CHARS) {
+                            text.take(MAX_FAILURE_DUMP_CHARS) + "\n...[truncated]"
+                        } else {
+                            text
+                        }
+                    }
+            }.getOrElse { "semantics dump failed: ${it.javaClass.simpleName}" }
+            error.addSuppressed(AssertionError("SolinUiDump-$tag\n$dump"))
             throw error
         }
     }
@@ -324,4 +335,8 @@ class MainActivityRuntimePermissionUiTest {
         device.hasObject(By.pkg("com.google.android.permissioncontroller")) ||
         device.hasObject(By.pkg("com.miui.securitycenter")) ||
         device.hasObject(By.pkg("com.lbe.security.miui"))
+
+    private companion object {
+        const val MAX_FAILURE_DUMP_CHARS = 24_000
+    }
 }

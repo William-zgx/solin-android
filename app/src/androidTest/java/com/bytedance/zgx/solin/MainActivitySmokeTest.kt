@@ -19,24 +19,41 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
+import org.junit.rules.RuleChain
 
 class MainActivitySmokeTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
 
     init {
+        // First test and cross-class state; the outer after rule handles prior Activity teardown.
         resetMainActivityPersistentState(
             context = targetContext,
             inferenceMode = InferenceMode.Local
         )
     }
 
-    @get:Rule
-    val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
+    private val resetAfterScenario = object : ExternalResource() {
+        override fun after() {
+            // Let the previous Activity reach onCleared before replacing shared persistence.
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            resetMainActivityPersistentState(
+                context = targetContext,
+                inferenceMode = InferenceMode.Local
+            )
+        }
+    }
+
+    private val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeTestRule(
             ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext))
         ) { rule -> activityFromScenarioRule(rule) }
+
+    @get:Rule
+    val ruleChain: RuleChain = RuleChain.outerRule(resetAfterScenario).around(composeRule)
 
     @Test
     fun chatShellShowsModelManager() {

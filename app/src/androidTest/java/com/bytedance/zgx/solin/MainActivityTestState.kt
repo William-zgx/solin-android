@@ -52,7 +52,12 @@ internal fun resetMainActivityPersistentState(
     (context.applicationContext as? SolinApplication)?.clearContainersForInstrumentation()
     val settingsStore = PreferenceSettingsStore(context)
     settingsStore.saveInferenceMode(inferenceMode)
-    settingsStore.saveRemoteConfig(remoteModelConfig)
+    if (remoteModelConfig.isConfigured) {
+        // Persist revision and integrity together; direct prefs writes leave Remote placement unconfigured.
+        RemoteModelRepository(context.applicationContext).saveConfig(remoteModelConfig).getOrThrow()
+    } else {
+        settingsStore.saveRemoteConfig(remoteModelConfig)
+    }
     settingsStore.saveActiveSessionId("")
     // Clear model selection so later UI tests do not inherit a half-loaded local path
     // (skip-startup instrumentation would leave isReady=false and change empty-state copy).
