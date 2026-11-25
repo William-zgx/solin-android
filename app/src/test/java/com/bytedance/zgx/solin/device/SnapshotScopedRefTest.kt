@@ -4,10 +4,15 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.CurrentScreenOcrGroundingCache
 import com.bytedance.zgx.solin.tool.DeviceControlToolExecutor
 import com.bytedance.zgx.solin.tool.OcrGroundingCurrentScreenControlProvider
+import com.bytedance.zgx.solin.tool.ToolExecutor
+import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
+import com.bytedance.zgx.solin.tool.ValidatingToolExecutor
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -71,6 +76,14 @@ class SnapshotScopedRefTest {
         assertEquals(UiActionFailureKind.RefNotInSnapshot, failure { validate("screen_1700_f00dbeef/n9_abcd1234") })
         assertEquals(UiActionFailureKind.PackageChanged, failure { validate(ok, pkg = "com.other") })
         assertEquals(UiActionFailureKind.PackageChanged, failure { validate(ok, pkg = null) })
+        assertEquals(
+            UiActionFailureKind.PackageChanged,
+            failure { validate(ok, snap = snapshot.copy(packageName = null), pkg = null) }
+        )
+        assertEquals(
+            UiActionFailureKind.PackageChanged,
+            failure { validate(ok, snap = snapshot.copy(packageName = "  "), pkg = "  ") }
+        )
     }
 
     @Test
@@ -81,6 +94,10 @@ class SnapshotScopedRefTest {
             failure { SnapshotRefs.requireSameBounds(node, ScreenBounds(0, 10, 100, 58)) }
         )
         assertEquals(UiActionFailureKind.ElementMoved, failure { SnapshotRefs.requireSameBounds(node, null) })
+        assertEquals(
+            UiActionFailureKind.ElementMoved,
+            failure { SnapshotRefs.requireSameBounds(node.copy(bounds = null), ScreenBounds(0, 0, 100, 48)) }
+        )
     }
 
     @Test
@@ -120,6 +137,25 @@ class SnapshotScopedRefTest {
         val valid = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, "screen_1700_f00dbeef/n0_abcd1234_f00dbeef")
         assertNull(valid.failureKind)
         assertEquals(node.id, valid.selectedNodeId)
+
+        // Non-semantic kinds (e.g. ResultItem) must also resolve directly for valid scoped refs.
+        val resultItem = UiTargetResolver.explain(snapshot, UiTargetKind.ResultItem, "screen_1700_f00dbeef/n0_abcd1234_f00dbeef")
+        assertNull(resultItem.failureKind)
+        assertEquals(node.id, resultItem.selectedNodeId)
+
+        // ScreenObservation overload must also fail closed on stale/missing scoped refs instead of text ranking.
+        val observation = snapshot.toScreenObservation()
+        assertEquals(
+            UiActionFailureKind.RefRetired,
+            UiTargetResolver.explain(observation, UiTargetKind.SearchEntry, "screen_9/n0_abcd1234_f00dbeef").failureKind
+        )
+        assertEquals(
+            UiActionFailureKind.RefNotInSnapshot,
+            UiTargetResolver.explain(observation, UiTargetKind.SearchEntry, "${snapshot.id}/n9_deadbeef").failureKind
+        )
+        val obsValid = UiTargetResolver.explain(observation, UiTargetKind.ResultItem, "${snapshot.id}/${node.id}")
+        assertNull(obsValid.failureKind)
+        assertEquals(node.id, obsValid.selectedNodeId)
     }
 
     @Test
@@ -131,9 +167,14 @@ class SnapshotScopedRefTest {
         // The published observation, not the fresh evidence `before`, is what scoped refs validate against.
         assertTrue(service.contains("runCatching { operation(SnapshotRefRegistry.publishedSnapshot) }"))
         assertTrue(!service.contains("SnapshotRefRegistry.publish("))
-        assertEquals(2, Regex("SnapshotRefRegistry.clear\\(\\)").findAll(service).count())
-        val ocr = File("src/main/java/com/bytedance/zgx/solin/tool/OcrGroundingCurrentScreenControlProvider.kt").readText()
-        assertEquals(1, Regex("SnapshotRefRegistry.publish\\(").findAll(ocr).count())
+        // Cleared in onServiceConnected, onUnbind, and onDestroy.
+        assertEquals(3, Regex("SnapshotRefRegistry.clear\\(\\)").findAll(service).count())
+        val ocrProvider = File("src/main/java/com/bytedance/zgx/solin/tool/OcrGroundingCurrentScreenControlProvider.kt").readText()
+        assertEquals(0, Regex("SnapshotRefRegistry.publish\\(").findAll(ocrProvider).count())
+        val deviceExecutor = File("src/main/java/com/bytedance/zgx/solin/tool/DeviceControlToolExecutor.kt").readText()
+        assertTrue(deviceExecutor.contains("SnapshotRefRegistry.publish("))
+        val screenshotOcrExecutor = File("src/main/java/com/bytedance/zgx/solin/tool/CurrentScreenshotOcrToolExecutor.kt").readText()
+        assertTrue(screenshotOcrExecutor.contains("SnapshotRefRegistry.publish("))
         assertTrue(service.contains("findTargetCandidate(target, snapshot = published)"))
         assertEquals(2, Regex("if \\(scopedRef\\) null else tapOcrGroundingHint").findAll(service).count())
         assertTrue(service.contains("!scopedRef || candidate.node.isClickable"))
@@ -145,20 +186,38 @@ class SnapshotScopedRefTest {
     }
 
     @Test
-    fun toolBoundaryAllowsEverySnapshotRefFailureKind() {
-        val root = File("src/main/java/com/bytedance/zgx/solin/tool")
-        val registry = File(root, "ToolRegistry.kt").readText()
-        val schema = File(root, "ToolSchemasUi.kt").readText()
-        listOf(
-            UiActionFailureKind.SnapshotUnknown,
-            UiActionFailureKind.RefRetired,
-            UiActionFailureKind.RefNotInSnapshot,
-            UiActionFailureKind.PackageChanged,
-            UiActionFailureKind.ElementMoved
-        ).forEach { kind ->
-            val quoted = "\"${kind.schemaValue}\""
-            assertTrue(kind.schemaValue, registry.contains(quoted))
-            assertTrue(kind.schemaValue, schema.contains(quoted))
+    fun toolBoundaryAllowsEveryUiActionFailureKind() {
+        val registry = ToolRegistry()
+        val request = ToolRequest(
+            id = "tap-failure",
+            toolName = MobileActionFunctions.UI_TAP,
+            arguments = mapOf("target" to "搜索"),
+            reason = "test"
+        )
+        UiActionFailureKind.entries.forEach { kind ->
+            val result = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Failed,
+                summary = "failed",
+                data = mapOf(
+                    "toolName" to request.toolName,
+                    "privacy" to "LocalOnly",
+                    "requiresLocalModel" to "true",
+                    "actionType" to "tap",
+                    "status" to "failed",
+                    "retryable" to "false",
+                    "summary" to "failed",
+                    "failureKind" to kind.schemaValue
+                )
+            )
+            val sanitized = ValidatingToolExecutor(
+                delegate = object : ToolExecutor {
+                    override fun execute(request: ToolRequest): ToolResult = result
+                },
+                registry = registry
+            ).execute(request)
+            assertNull("schema validation rejected ${kind.schemaValue}: ${sanitized.error}", sanitized.error)
+            assertEquals(kind.schemaValue, sanitized.data["failureKind"])
         }
     }
 
@@ -190,19 +249,103 @@ class SnapshotScopedRefTest {
     @Test
     fun wrappedTapValidationReadDoesNotReplacePublishedObservation() {
         SnapshotRefRegistry.clear()
-        val delegate = FakeProvider(snapshot)
-        val provider = OcrGroundingCurrentScreenControlProvider(delegate, CurrentScreenOcrGroundingCache { 0L })
-        provider.observeCurrentScreen()
-        assertEquals(snapshot.id, SnapshotRefRegistry.publishedSnapshot?.id)
-        // The tap path's internal validation read sees a fresh, differently-salted snapshot.
-        delegate.next = snapshot.copy(id = "screen_1701_deadbeef")
-        provider.tap("搜索")
-        assertEquals(snapshot.id, SnapshotRefRegistry.publishedSnapshot?.id)
-        // A later model observation does publish the new one.
-        provider.observeCurrentScreen()
-        assertEquals("screen_1701_deadbeef", SnapshotRefRegistry.publishedSnapshot?.id)
-        SnapshotRefRegistry.clear()
+        try {
+            val delegate = FakeProvider(snapshot)
+            val provider = OcrGroundingCurrentScreenControlProvider(delegate, CurrentScreenOcrGroundingCache { 0L })
+            val executor = DeviceControlToolExecutor(provider)
+            val observe = ToolRequest(
+                id = "obs-1",
+                toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                reason = "test"
+            )
+            assertEquals(ToolStatus.Succeeded, executor.execute(observe).status)
+            assertEquals(snapshot.id, SnapshotRefRegistry.publishedSnapshot?.id)
+            // The tap path's internal validation read sees a fresh, differently-salted snapshot.
+            delegate.next = snapshot.copy(id = "screen_1701_deadbeef")
+            provider.tap("搜索")
+            assertEquals(snapshot.id, SnapshotRefRegistry.publishedSnapshot?.id)
+            // Failed observe with wrong expectedPackageName must NOT retire the published observation.
+            val wrongPackageObserve = executor.execute(
+                ToolRequest(
+                    id = "obs-wrong-pkg",
+                    toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                    arguments = mapOf("expectedPackageName" to "com.example.other"),
+                    reason = "test"
+                )
+            )
+            assertEquals(ToolStatus.Failed, wrongPackageObserve.status)
+            assertEquals(snapshot.id, SnapshotRefRegistry.publishedSnapshot?.id)
+            // A later succeeding model observation does publish the new one.
+            assertEquals(ToolStatus.Succeeded, executor.execute(observe.copy(id = "obs-2")).status)
+            assertEquals("screen_1701_deadbeef", SnapshotRefRegistry.publishedSnapshot?.id)
+        } finally {
+            SnapshotRefRegistry.clear()
+        }
         assertNull(SnapshotRefRegistry.publishedSnapshot)
+    }
+
+    @Test
+    fun dangerousPreflightBlocksScopedRefAgainstPublishedSnapshot() {
+        SnapshotRefRegistry.clear()
+        try {
+            val payNode = node.copy(id = "n2_deadbeef_f00dbeef", text = "立即支付", editable = false)
+            val snap = snapshot.copy(nodes = listOf(node, payNode))
+            SnapshotRefRegistry.publish(snap)
+            var tapped = false
+            val provider = object : CurrentScreenControlProvider by FakeProvider(snap) {
+                override fun tap(target: String, timeoutMillis: Long): UiActionReadResult {
+                    tapped = true
+                    return UiActionReadResult.Failed("should not reach tap")
+                }
+            }
+            val result = DeviceControlToolExecutor(provider).execute(
+                ToolRequest(
+                    id = "tap-pay",
+                    toolName = MobileActionFunctions.UI_TAP,
+                    arguments = mapOf("target" to "${snap.id}/${payNode.id}"),
+                    reason = "test"
+                )
+            )
+            assertEquals(ToolStatus.Failed, result.status)
+            assertEquals(UiActionFailureKind.DangerousAction.schemaValue, result.data["failureKind"])
+            assertFalse("dangerous scoped tap must be refused before provider.tap", tapped)
+        } finally {
+            SnapshotRefRegistry.clear()
+        }
+    }
+
+    @Test
+    fun scopedTypeTextFailsClosedBeforePreflightSideEffects() {
+        var observeCalls = 0
+        var typeCalls = 0
+        val provider = object : CurrentScreenControlProvider by FakeProvider(snapshot) {
+            override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
+                observeCalls++
+                return ScreenStateReadResult.Available(snapshot)
+            }
+
+            override fun typeText(
+                text: String,
+                target: String?,
+                timeoutMillis: Long,
+                allowClipboardPasteFallback: Boolean
+            ): UiActionReadResult {
+                typeCalls++
+                return UiActionReadResult.Failed("should not reach typeText")
+            }
+        }
+        val result = DeviceControlToolExecutor(provider).execute(
+            ToolRequest(
+                id = "type-scoped",
+                toolName = MobileActionFunctions.UI_TYPE_TEXT,
+                arguments = mapOf("target" to "${snapshot.id}/${node.id}", "text" to "耳机"),
+                reason = "test"
+            )
+        )
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(UiActionFailureKind.SnapshotUnknown.schemaValue, result.data["failureKind"])
+        assertEquals(0, observeCalls)
+        assertEquals(0, typeCalls)
     }
 
     @Test

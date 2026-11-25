@@ -219,6 +219,19 @@ class EgressGateTest {
         assertTrue(typed("10086 查询话费", "给10086发短信说查询话费").isEmpty())
     }
 
+    @Test
+    fun asciiCaseFoldingIsLocaleInvariantUnderTurkishLocale() {
+        val previous = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"))
+        try {
+            assertTrue(typed("IMAGE", "input image").isEmpty())
+            assertTrue(policy.containsSensitivePersonalOrSecretContent("HIV testing near me"))
+            assertTrue(policy.containsSensitivePersonalOrSecretContent("API_KEY=superSecretValue123"))
+        } finally {
+            java.util.Locale.setDefault(previous)
+        }
+    }
+
     private fun spec(toolName: String): ToolSpec = requireNotNull(defaultBuiltInToolRegistry.specFor(toolName))
 
     private fun request(

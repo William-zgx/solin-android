@@ -123,22 +123,24 @@ internal class RoutingToolExecutor(
 
     /** Routes one request without applying validation or output bounding. */
     private fun executeRouted(request: ToolRequest): ToolResult {
-        val handler = toolHandlers[request.toolName]
-        if (handler != null) {
-            val handled = runBlocking(Dispatchers.IO) {
-                runCatching { handler.execute(request) }
-                    .getOrElse { t ->
-                        if (t is CancellationException) throw t
-                        request.localOnlyFailure(
-                            ToolErrorCode.ExecutionFailed,
-                            "Tool handler for ${request.toolName} failed: ${t.cleanMessage()}"
-                        )
-                    }
-            }
-            return handled ?: dispatchAsBuiltIn(request)
-        }
-        return dispatchAsBuiltIn(request)
+        val handler = toolHandlers[request.toolName] ?: return dispatchAsBuiltIn(request)
+        val handled = runBlocking(Dispatchers.IO) { executeHandler(request, handler) }
+        return handled ?: dispatchAsBuiltIn(request)
     }
+
+    private suspend fun executeRoutedSuspend(request: ToolRequest): ToolResult {
+        val handler = toolHandlers[request.toolName] ?: return dispatchAsBuiltIn(request)
+        return executeHandler(request, handler) ?: dispatchAsBuiltIn(request)
+    }
+
+    private suspend fun executeHandler(request: ToolRequest, handler: ToolHandler): ToolResult? = runCatching { handler.execute(request) }
+        .getOrElse { t ->
+            if (t is CancellationException) throw t
+            request.localOnlyFailure(
+                ToolErrorCode.ExecutionFailed,
+                "Tool handler for ${request.toolName} failed: ${t.cleanMessage()}"
+            )
+        }
 
     /**
      * Execute a batch of requests, partitioning into a sequential "device control" segment
@@ -201,7 +203,7 @@ internal class RoutingToolExecutor(
                     val deferreds = concurrentIndices.map { index ->
                         async(Dispatchers.IO) {
                             val request = requests[index]
-                            runCatching { executeRouted(request) }
+                            runCatching { executeRoutedSuspend(request) }
                                 .getOrElse { t -> request.batchThrowableResult(t, concurrent = true) }
                         }
                     }
@@ -222,7 +224,6 @@ internal class RoutingToolExecutor(
         val spec = toolRegistry.specFor(request.toolName) ?: return true
         if (spec.riskLevel.ordinal >= RiskLevel.HighExternalSend.ordinal) return true
         if (spec.confirmationPolicy != ConfirmationPolicy.NotRequired) return true
-        if (spec.executionMode == ToolExecutionMode.Sequential) return true
         // Only ConcurrentWhenIndependent tools may run concurrently; everything else stays sequential.
         return spec.executionMode != ToolExecutionMode.ConcurrentWhenIndependent
     }
@@ -278,10 +279,7 @@ internal class RoutingToolExecutor(
  * concurrent segment of [RoutingToolExecutor.executeBatch] and is kept as it was.
  */
 internal fun ToolRequest.batchThrowableResult(t: Throwable, concurrent: Boolean): ToolResult {
-    val data = buildMap {
-        put("toolName", toolName)
-        putAll(localOnlyData())
-    }
+    val data = localOnlyData()
     return if (t is CancellationException) {
         val where = if (concurrent) " in concurrent batch" else ""
         cancelled(

@@ -9,6 +9,7 @@ import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.rejected
+import java.util.Locale
 
 data class SafetyContext(
     val userConfirmed: Boolean
@@ -77,7 +78,7 @@ class SafetyPolicyToolExecutionAuthorizer(
 class SafetyPolicy {
     private val egressGate = EgressGate(::containsSensitivePersonalOrSecretContent)
 
-    fun containsSensitivePersonalOrSecretContent(text: String): Boolean = text.containsSensitiveNetworkSearchContent()
+    fun containsSensitivePersonalOrSecretContent(text: String): Boolean = detectSensitiveCategories(text).isNotEmpty()
 
     /**
      * Returns the distinct [SafetyCategory] values matched in [text], in declaration order.
@@ -86,7 +87,7 @@ class SafetyPolicy {
      */
     fun detectSensitiveCategories(text: String): List<SafetyCategory> {
         if (text.isBlank()) return emptyList()
-        val normalized = text.lowercase()
+        val normalized = text.lowercase(Locale.ROOT)
         val withoutIsoTimeWindows = isoDateOrDateTimePattern.replace(text, " ")
         return buildList {
             if (emailPattern.containsMatchIn(text)) add(SafetyCategory.Email)
@@ -118,7 +119,7 @@ class SafetyPolicy {
         // The English keyword patterns are lowercase-only; detectSensitiveCategories runs them on
         // the lowercased text, so snippets must too, or "My PASSWORD" would raise a category with
         // no snippet to explain it. Show the original-case span when lowercasing kept offsets.
-        val normalized = text.lowercase()
+        val normalized = text.lowercase(Locale.ROOT)
         val normalizedKeepsOffsets = normalized.length == text.length
 
         fun addMatches(pattern: Regex) {
@@ -262,12 +263,6 @@ class SafetyPolicy {
     }
 
     private fun RiskLevel.requiresHardConfirmation(): Boolean = this == RiskLevel.HighExternalSend || this == RiskLevel.CriticalDeviceOrPayment
-
-    /**
-     * Same decision as a non-empty [detectSensitiveCategories]: it evaluated exactly the same
-     * patterns on the same inputs, and blank text matches none of them.
-     */
-    private fun String.containsSensitiveNetworkSearchContent(): Boolean = detectSensitiveCategories(this).isNotEmpty()
 
     private companion object {
         /** Replaces all but the first 2 and last 2 chars of a token with asterisks. */

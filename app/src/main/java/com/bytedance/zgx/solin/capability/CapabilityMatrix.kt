@@ -8,6 +8,7 @@ import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolResultContinuationPolicy
 import com.bytedance.zgx.solin.tool.ToolSpec
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.isRemoteModelPlanningEligible
 
 enum class CapabilityOwnerAgent {
@@ -58,7 +59,7 @@ object CapabilityMatrix {
     val targetUserJob: String
         get() = "在手机上处理私人日常问答、记忆、图片/文件输入、App 打开和低风险搜索交互，同时默认让本地上下文留在本机。"
 
-    fun toolDescriptors(registry: ToolRegistry = ToolRegistry()): List<CapabilityDescriptor> = registry.specs().map { spec -> spec.toCapabilityDescriptor() }
+    fun toolDescriptors(registry: ToolRegistry = defaultBuiltInToolRegistry): List<CapabilityDescriptor> = registry.specs().map { spec -> spec.toCapabilityDescriptor() }
 
     val nextStageMvpScenarioTitles: Map<String, String> = linkedMapOf(
         "local_private_qa_and_memory" to "本地私密问答与记忆",
@@ -497,7 +498,7 @@ object CapabilityMatrix {
             )
         )
 
-    fun allDescriptors(registry: ToolRegistry = ToolRegistry()): List<CapabilityDescriptor> = productDescriptors + toolDescriptors(registry)
+    fun allDescriptors(registry: ToolRegistry = defaultBuiltInToolRegistry): List<CapabilityDescriptor> = productDescriptors + toolDescriptors(registry)
 }
 
 private fun ToolSpec.toCapabilityDescriptor(): CapabilityDescriptor {

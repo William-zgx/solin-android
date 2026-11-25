@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.tool
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.SystemSettingsTargets
+import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.hasDangerousTapTargetText
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 import org.json.JSONObject
@@ -217,8 +218,6 @@ class ToolRegistry private constructor(
                     ?.takeIf { value -> privateNonSucceededDeviceControlObservationValueAllowed(key, value) }
                     ?.let { value -> sanitizedData[key] = value }
             }
-        }
-        if (spec.capability == ToolCapability.DeviceControl) {
             data["inputVerification"]?.takeIf { it in setOf("match", "mismatch", "unknown") }
                 ?.let { sanitizedData["inputVerification"] = it }
             data["screenStability"]?.takeIf { it in setOf("stable", "timed_out", "unknown") }
@@ -232,14 +231,8 @@ class ToolRegistry private constructor(
             for (key in listOf("pagesInspected", "writesAttempted")) {
                 data[key]?.toIntOrNull()?.takeIf { it in 0..6 }?.let { sanitizedData[key] = it.toString() }
             }
-            data["stopReason"]?.takeIf {
-                it in setOf(
-                    "unknown", "timeout", "authorization_required", "read_failed",
-                    "invalid_observation", "app_changed", "write_limit", "scroll_failed", "item_limit", "no_new_content",
-                    "page_limit", "ambiguous_target", "no_change", "invalid_range", "wheel_not_unique", "wheel_unreadable",
-                    "wheel_not_converging", "input_failed", "wheel_changed", "execution_interrupted"
-                )
-            }?.let { sanitizedData["stopReason"] = it }
+            data["stopReason"]?.takeIf { it in PhoneCompositeOperations.FAILURE_STOP_REASONS }
+                ?.let { sanitizedData["stopReason"] = it }
             data["remaining"]?.takeIf { it == "observe_before_continuing" }?.let { sanitizedData["remaining"] = it }
         }
         sanitizedData["toolName"] = request.toolName
@@ -498,25 +491,7 @@ private val privateNonSucceededDeviceControlObservationKeys = setOf(
     "afterScreenObservationJson"
 )
 
-private val privateNonSucceededAllowedFailureKinds = setOf(
-    "node_not_found",
-    "page_changed",
-    "permission_missing",
-    "keyboard_obscured",
-    "timeout",
-    "app_not_foreground",
-    "search_entry_not_found",
-    "editable_not_found",
-    "submit_not_found",
-    "result_not_verified",
-    "dangerous_action",
-    "snapshot_unknown",
-    "ref_retired",
-    "ref_not_in_snapshot",
-    "package_changed",
-    "element_moved",
-    "unknown"
-)
+private val privateNonSucceededAllowedFailureKinds: Set<String> = UiActionFailureKind.entries.mapTo(mutableSetOf()) { it.schemaValue }
 
 private fun privateNonSucceededDiagnosticValueAllowed(key: String, value: String): Boolean {
     if (value.length > 64 || !value.matches(Regex("""[A-Za-z0-9_-]+"""))) return false

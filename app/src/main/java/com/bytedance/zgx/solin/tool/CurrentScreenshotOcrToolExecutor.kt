@@ -4,6 +4,8 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
 import com.bytedance.zgx.solin.device.DeviceLockState
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
+import com.bytedance.zgx.solin.device.ScreenStateSnapshot
+import com.bytedance.zgx.solin.device.SnapshotRefRegistry
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.toScreenObservationJsonString
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
@@ -42,7 +44,7 @@ internal class CurrentScreenshotOcrToolExecutor(
         } else {
             null
         }
-        return when (val result = provider?.captureCurrentScreenshotOcr(request.id, nowMillis)) {
+        return when (val result = provider?.captureCurrentScreenshotOcr(request.id, clockMillis())) {
             null ->
                 request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "当前屏幕截图 OCR 服务不可用")
 
@@ -66,12 +68,13 @@ internal class CurrentScreenshotOcrToolExecutor(
 
             is CurrentScreenshotOcrReadResult.Available -> {
                 val ocrText = result.text?.takeIf { it.isNotBlank() }
-                val screenObservationData = currentScreenControlProvider.screenObservationData(
+                val screenObservation = currentScreenControlProvider.screenObservationResult(
                     ocrBlocks = result.ocrBlocks,
                     beforeCapture = screenObservationBeforeCapture
                 )
                 // Best-effort re-check right before publication; not atomic with the OS lock.
                 if (!isUnlocked()) return request.lockRefusal()
+                screenObservation.publishedSnapshot?.let { SnapshotRefRegistry.publish(it) }
                 request.succeeded(
                     summary = if (ocrText == null) {
                         "已完成当前屏幕单次 OCR，未识别到可用文字。"
@@ -87,7 +90,7 @@ internal class CurrentScreenshotOcrToolExecutor(
                         result.ocrBlocks.takeIf { it.isNotEmpty() }
                             ?.let { mapOf("ocrBlocksJson" to it.toOcrBlocksJsonString()) }
                             .orEmpty() +
-                        screenObservationData
+                        screenObservation.data
                 )
             }
         }
@@ -106,60 +109,47 @@ internal class CurrentScreenshotOcrToolExecutor(
         )
     }
 
-    private fun CurrentScreenControlProvider?.screenObservationData(
+    private data class FusedScreenObservation(
+        val data: Map<String, String>,
+        val publishedSnapshot: ScreenStateSnapshot? = null
+    )
+
+    private fun screenObservationUnavailable(failureKind: String): FusedScreenObservation = FusedScreenObservation(
+        data = mapOf(
+            "screenObservationIncluded" to false.toString(),
+            "screenObservationFailureKind" to failureKind
+        )
+    )
+
+    private fun CurrentScreenControlProvider?.screenObservationResult(
         ocrBlocks: List<OcrTextBlock>,
         beforeCapture: ScreenStateReadResult?
-    ): Map<String, String> {
-        val provider = this ?: return mapOf(
-            "screenObservationIncluded" to false.toString(),
-            "screenObservationFailureKind" to "provider_unavailable"
-        )
-        return when (val beforeResult = beforeCapture ?: provider.observeCurrentScreen()) {
-            is ScreenStateReadResult.Available ->
-                when (val afterResult = provider.observeCurrentScreen()) {
-                    is ScreenStateReadResult.Available -> {
-                        val beforeSignature = beforeResult.snapshot.toOcrGroundingScreenSignature()
-                        val afterSignature = afterResult.snapshot.toOcrGroundingScreenSignature()
-                        if (beforeSignature != afterSignature) {
-                            mapOf(
-                                "screenObservationIncluded" to false.toString(),
-                                "screenObservationFailureKind" to "page_changed"
-                            )
-                        } else {
-                            mapOf(
-                                "screenObservationIncluded" to true.toString(),
-                                "screenObservationJson" to afterResult.snapshot.toScreenObservationJsonString(
-                                    ocrBlocks = ocrBlocks
-                                )
-                            )
-                        }
-                    }
-
-                    is ScreenStateReadResult.PermissionDenied ->
-                        mapOf(
-                            "screenObservationIncluded" to false.toString(),
-                            "screenObservationFailureKind" to UiActionFailureKind.PermissionMissing.schemaValue
-                        )
-
-                    is ScreenStateReadResult.Failed ->
-                        mapOf(
-                            "screenObservationIncluded" to false.toString(),
-                            "screenObservationFailureKind" to afterResult.failureKind.schemaValue
-                        )
-                }
-
+    ): FusedScreenObservation {
+        val provider = this ?: return screenObservationUnavailable("provider_unavailable")
+        val before = when (val beforeResult = beforeCapture ?: provider.observeCurrentScreen()) {
+            is ScreenStateReadResult.Available -> beforeResult.snapshot
             is ScreenStateReadResult.PermissionDenied ->
-                mapOf(
-                    "screenObservationIncluded" to false.toString(),
-                    "screenObservationFailureKind" to UiActionFailureKind.PermissionMissing.schemaValue
-                )
-
+                return screenObservationUnavailable(UiActionFailureKind.PermissionMissing.schemaValue)
             is ScreenStateReadResult.Failed ->
-                mapOf(
-                    "screenObservationIncluded" to false.toString(),
-                    "screenObservationFailureKind" to beforeResult.failureKind.schemaValue
-                )
+                return screenObservationUnavailable(beforeResult.failureKind.schemaValue)
         }
+        val after = when (val afterResult = provider.observeCurrentScreen()) {
+            is ScreenStateReadResult.Available -> afterResult.snapshot
+            is ScreenStateReadResult.PermissionDenied ->
+                return screenObservationUnavailable(UiActionFailureKind.PermissionMissing.schemaValue)
+            is ScreenStateReadResult.Failed ->
+                return screenObservationUnavailable(afterResult.failureKind.schemaValue)
+        }
+        if (before.toOcrGroundingScreenSignature() != after.toOcrGroundingScreenSignature()) {
+            return screenObservationUnavailable("page_changed")
+        }
+        return FusedScreenObservation(
+            data = mapOf(
+                "screenObservationIncluded" to true.toString(),
+                "screenObservationJson" to after.toScreenObservationJsonString(ocrBlocks = ocrBlocks)
+            ),
+            publishedSnapshot = after
+        )
     }
 }
 

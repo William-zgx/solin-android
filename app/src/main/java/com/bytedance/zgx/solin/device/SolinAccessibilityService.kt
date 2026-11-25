@@ -197,6 +197,7 @@ class SolinAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        SnapshotRefRegistry.clear()
         deviceControlTasks.connect(this)?.let { previous ->
             (previous as? SolinAccessibilityService)?.hideControlProgressOverlay()
         }
@@ -234,18 +235,19 @@ class SolinAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        SnapshotRefRegistry.clear()
         // Unbind can happen without onDestroy (user toggles the service off, system rebinds later), and
         // it is the last point where we still have a live context to hand the clipboard back.
         // Invalidate first so old leases cannot read or write; reconnect creates fresh ownership.
         deviceControlTasks.invalidate(this)
+        SnapshotRefRegistry.clear()
         drainPendingClipboardOnTeardown()
+        hideControlProgressOverlay()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        SnapshotRefRegistry.clear()
         deviceControlTasks.invalidate(this)
+        SnapshotRefRegistry.clear()
         drainPendingClipboardOnTeardown()
         hideControlProgressOverlay()
         // The callback thread outlives the service otherwise: it is only fed by takeScreenshot, so once
@@ -530,9 +532,9 @@ class SolinAccessibilityService : AccessibilityService() {
                 failureKind = UiActionFailureKind.PageChanged
             )
         val editableNode = root.findNodeCandidate { candidate ->
-            candidate.node.isEditable && candidate.node.isFocused
+            candidate.node.isSafeEditableForTyping() && candidate.node.isFocused
         }?.node ?: root.findNodeCandidate { candidate ->
-            candidate.node.isEditable
+            candidate.node.isSafeEditableForTyping()
         }?.node
         if (editableNode == null) {
             return@executeUiAction tapSubmitSearchOcrGrounding(root, ocrGroundingHint)
@@ -549,9 +551,9 @@ class SolinAccessibilityService : AccessibilityService() {
         }
         val refreshedRoot = if (imeAccepted) activeWindowRoot() ?: root else root
         val refreshedEditableNode = refreshedRoot.findNodeCandidate { candidate ->
-            candidate.node.isEditable && candidate.node.isFocused
+            candidate.node.isSafeEditableForTyping() && candidate.node.isFocused
         }?.node ?: refreshedRoot.findNodeCandidate { candidate ->
-            candidate.node.isEditable
+            candidate.node.isSafeEditableForTyping()
         }?.node
         if (imeAccepted && refreshedEditableNode == null) {
             return@executeUiAction UiPrimitiveResult.succeeded("已提交当前搜索输入")
@@ -709,6 +711,8 @@ class SolinAccessibilityService : AccessibilityService() {
     }
 
     private fun waitForScreen(timeoutMillis: Long): UiActionReadResult {
+        throwIfInterrupted()
+        deviceControlTasks.lockState().uiActionRefusal()?.let { return it }
         var before: ScreenStateSnapshot? = null
         var after: ScreenStateSnapshot? = null
         var sampled = false
@@ -736,6 +740,8 @@ class SolinAccessibilityService : AccessibilityService() {
                 SystemClock.uptimeMillis() - lastEvent
             },
             sample = {
+                val lockState = deviceControlTasks.lockState()
+                if (lockState != DeviceLockState.Unlocked) throw DeviceLockedException(lockState)
                 after = observeSnapshot(
                     maxTextChars = MAX_DEVICE_CONTROL_TEXT_CHARS,
                     maxNodes = MAX_DEVICE_CONTROL_NODES
@@ -747,6 +753,7 @@ class SolinAccessibilityService : AccessibilityService() {
                 after?.stabilityEvidence()
             }
         )
+        deviceControlTasks.lockState().uiActionRefusal()?.let { return it }
         return UiActionReadResult.Available(
             UiActionExecutionResult(
                 status = if (stability == UiScreenStability.Stable) UiActionStatus.Succeeded else UiActionStatus.Failed,
@@ -839,19 +846,18 @@ class SolinAccessibilityService : AccessibilityService() {
         ).snapshotOrNull()
         throwIfInterrupted()
         val primitive = runCatching { operation(SnapshotRefRegistry.publishedSnapshot) }.getOrElse { error ->
+            if (error is DeviceLockedException || error is DeviceControlTaskCancelledException) {
+                throw error
+            }
+            if (error is InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw error
+            }
             if (error is CriticalControlTapRefused) {
                 return@getOrElse UiPrimitiveResult.failed(
                     reason = CRITICAL_CONTROL_TAP_REFUSED_MESSAGE,
                     retryable = false,
                     failureKind = UiActionFailureKind.DangerousAction
-                )
-            }
-            if (error is DeviceLockedException) {
-                val refusal = error.refusal()
-                return@getOrElse UiPrimitiveResult.failed(
-                    reason = refusal.reason,
-                    retryable = false,
-                    failureKind = refusal.failureKind
                 )
             }
             if (error is SnapshotRefException) {
@@ -864,14 +870,7 @@ class SolinAccessibilityService : AccessibilityService() {
             UiPrimitiveResult.failed(
                 reason = "UI 动作执行失败",
                 retryable = false,
-                failureKind = if (
-                    error is InterruptedException ||
-                    error is DeviceControlTaskCancelledException
-                ) {
-                    UiActionFailureKind.Timeout
-                } else {
-                    UiActionFailureKind.Unknown
-                }
+                failureKind = UiActionFailureKind.Unknown
             )
         }
         sleepForUiIdle(postActionWaitMillis(timeoutMillis))
@@ -1471,16 +1470,8 @@ class SolinAccessibilityService : AccessibilityService() {
         timeoutMillis: Long
     ): EditableFocusResult {
         val normalizedTarget = target?.trim().orEmpty()
-        if (normalizedTarget.isBlank()) {
-            return root.findFocusedEditableForTyping()
-                ?.let { EditableFocusResult.Found(it) }
-                ?: EditableFocusResult.Failed(
-                    reason = "当前屏幕没有已聚焦的可输入文本框",
-                    failureKind = UiActionFailureKind.EditableNotFound
-                )
-        }
-        val kind = UiTargetResolver.kindForTarget(normalizedTarget)
-        if (kind == UiTargetKind.EditableField) {
+        val kind = if (normalizedTarget.isBlank()) null else UiTargetResolver.kindForTarget(normalizedTarget)
+        if (normalizedTarget.isBlank() || kind == UiTargetKind.EditableField) {
             return root.findFocusedEditableForTyping()
                 ?.let { EditableFocusResult.Found(it) }
                 ?: EditableFocusResult.Failed(
@@ -1556,7 +1547,7 @@ class SolinAccessibilityService : AccessibilityService() {
                     candidate.node.isEnabled &&
                         candidate.node.fingerprint() !in attemptedFingerprints &&
                         (
-                            candidate.node.isEditable ||
+                            candidate.node.isSafeEditableForTyping() ||
                                 candidate.node.clickableSelfOrAncestor() != null ||
                                 candidate.node.searchEntryFallbackTapPoint(candidate.label) != null
                             )
@@ -1567,7 +1558,7 @@ class SolinAccessibilityService : AccessibilityService() {
             matchedCandidates += 1
             val candidateFingerprint = candidate.node.fingerprint()
             attemptedFingerprints += candidateFingerprint
-            if (candidate.node.isEditable) {
+            if (candidate.node.isSafeEditableForTyping()) {
                 return EditableFocusResult.Found(candidate.node)
             }
             // A refused candidate is one search entry ruled out, not the end of the search for one.
@@ -1624,54 +1615,35 @@ class SolinAccessibilityService : AccessibilityService() {
     }
 
     companion object {
-        internal fun readCurrentScreenText(maxChars: Int): CurrentScreenTextReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return CurrentScreenTextReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return CurrentScreenTextReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在读取当前屏幕")
-            return runDeviceControlWithTimeout(
-                task = task,
-                timeoutMillis = OBSERVE_HARD_TIMEOUT_MILLIS,
-                fallback = { CurrentScreenTextReadResult.Failed("当前屏幕文本读取超时") }
-            ) {
-                service.readSnapshot(maxChars)
-            }
+        internal fun readCurrentScreenText(maxChars: Int): CurrentScreenTextReadResult = withConnectedService(
+            progressMessage = "正在读取当前屏幕",
+            timeoutMillis = OBSERVE_HARD_TIMEOUT_MILLIS,
+            disconnected = { CurrentScreenTextReadResult.PermissionDenied("未开启Solin无障碍服务") },
+            fallback = { CurrentScreenTextReadResult.Failed("当前屏幕文本读取超时") }
+        ) {
+            readSnapshot(maxChars)
         }
 
-        internal fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return ScreenStateReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return ScreenStateReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在观察当前屏幕")
-            return runDeviceControlWithTimeout(
-                task = task,
-                timeoutMillis = OBSERVE_HARD_TIMEOUT_MILLIS,
-                fallback = {
-                    ScreenStateReadResult.Failed(
-                        reason = "当前屏幕状态读取超时",
-                        failureKind = UiActionFailureKind.Timeout
-                    )
-                }
-            ) {
-                service.observeSnapshot(maxTextChars, maxNodes)
+        internal fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult = withConnectedService(
+            progressMessage = "正在观察当前屏幕",
+            timeoutMillis = OBSERVE_HARD_TIMEOUT_MILLIS,
+            disconnected = { ScreenStateReadResult.PermissionDenied("未开启Solin无障碍服务") },
+            fallback = {
+                ScreenStateReadResult.Failed(
+                    reason = "当前屏幕状态读取超时",
+                    failureKind = UiActionFailureKind.Timeout
+                )
             }
+        ) {
+            observeSnapshot(maxTextChars, maxNodes)
         }
 
         internal fun performTap(
             target: String,
             timeoutMillis: Long,
             ocrGroundingHint: UiOcrGroundingHint? = null
-        ): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在点击：$target")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.tapTarget(target, timeoutMillis, ocrGroundingHint)
-            }
+        ): UiActionReadResult = runUiAction("正在点击：$target", timeoutMillis) {
+            tapTarget(target, timeoutMillis, ocrGroundingHint)
         }
 
         /**
@@ -1684,15 +1656,8 @@ class SolinAccessibilityService : AccessibilityService() {
             normalizedX: Int,
             normalizedY: Int,
             timeoutMillis: Long
-        ): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在点击坐标：($normalizedX, $normalizedY)")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.tapByNormalizedCoords(normalizedX, normalizedY, timeoutMillis)
-            }
+        ): UiActionReadResult = runUiAction("正在点击坐标：($normalizedX, $normalizedY)", timeoutMillis) {
+            tapByNormalizedCoords(normalizedX, normalizedY, timeoutMillis)
         }
 
         internal fun performTypeText(
@@ -1701,50 +1666,29 @@ class SolinAccessibilityService : AccessibilityService() {
             timeoutMillis: Long,
             ocrGroundingHint: UiOcrGroundingHint? = null,
             allowClipboardPasteFallback: Boolean = false
-        ): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在输入文本")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.typeText(
-                    text = text,
-                    target = target,
-                    timeoutMillis = timeoutMillis,
-                    ocrGroundingHint = ocrGroundingHint,
-                    allowClipboardPasteFallback = allowClipboardPasteFallback
-                )
-            }
+        ): UiActionReadResult = runUiAction("正在输入文本", timeoutMillis) {
+            typeText(
+                text = text,
+                target = target,
+                timeoutMillis = timeoutMillis,
+                ocrGroundingHint = ocrGroundingHint,
+                allowClipboardPasteFallback = allowClipboardPasteFallback
+            )
         }
 
         internal fun performSubmitSearch(
             timeoutMillis: Long,
             ocrGroundingHint: UiOcrGroundingHint? = null
-        ): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在提交搜索")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.submitSearch(timeoutMillis, ocrGroundingHint)
-            }
+        ): UiActionReadResult = runUiAction("正在提交搜索", timeoutMillis) {
+            submitSearch(timeoutMillis, ocrGroundingHint)
         }
 
         internal fun performScroll(
             direction: UiScrollDirection,
             target: String?,
             timeoutMillis: Long
-        ): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在滚动页面")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.scrollTarget(direction, target, timeoutMillis)
-            }
+        ): UiActionReadResult = runUiAction("正在滚动页面", timeoutMillis) {
+            scrollTarget(direction, target, timeoutMillis)
         }
 
         internal fun performSwipe(
@@ -1754,22 +1698,15 @@ class SolinAccessibilityService : AccessibilityService() {
             endYNorm: Int,
             durationMillis: Long,
             timeoutMillis: Long
-        ): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在滑动屏幕")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.swipeByNormalizedCoords(
-                    startXNorm = startXNorm,
-                    startYNorm = startYNorm,
-                    endXNorm = endXNorm,
-                    endYNorm = endYNorm,
-                    durationMillis = durationMillis,
-                    timeoutMillis = timeoutMillis
-                )
-            }
+        ): UiActionReadResult = runUiAction("正在滑动屏幕", timeoutMillis) {
+            swipeByNormalizedCoords(
+                startXNorm = startXNorm,
+                startYNorm = startYNorm,
+                endXNorm = endXNorm,
+                endYNorm = endYNorm,
+                durationMillis = durationMillis,
+                timeoutMillis = timeoutMillis
+            )
         }
 
         internal fun performLongPress(
@@ -1777,53 +1714,25 @@ class SolinAccessibilityService : AccessibilityService() {
             yNorm: Int,
             holdMillis: Long,
             timeoutMillis: Long
-        ): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在长按屏幕")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.longPressByNormalizedCoords(
-                    xNorm = xNorm,
-                    yNorm = yNorm,
-                    holdMillis = holdMillis,
-                    timeoutMillis = timeoutMillis
-                )
-            }
+        ): UiActionReadResult = runUiAction("正在长按屏幕", timeoutMillis) {
+            longPressByNormalizedCoords(
+                xNorm = xNorm,
+                yNorm = yNorm,
+                holdMillis = holdMillis,
+                timeoutMillis = timeoutMillis
+            )
         }
 
-        internal fun performPressKey(key: UiSystemKey, timeoutMillis: Long): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在执行系统按键")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.pressSystemKey(key, timeoutMillis)
-            }
+        internal fun performPressKey(key: UiSystemKey, timeoutMillis: Long): UiActionReadResult = runUiAction("正在执行系统按键", timeoutMillis) {
+            pressSystemKey(key, timeoutMillis)
         }
 
-        internal fun performPressBack(timeoutMillis: Long): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在返回上一页")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.pressBack(timeoutMillis)
-            }
+        internal fun performPressBack(timeoutMillis: Long): UiActionReadResult = runUiAction("正在返回上一页", timeoutMillis) {
+            pressBack(timeoutMillis)
         }
 
-        internal fun performWait(timeoutMillis: Long): UiActionReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在等待页面稳定")
-            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
-                service.waitForScreen(timeoutMillis)
-            }
+        internal fun performWait(timeoutMillis: Long): UiActionReadResult = runUiAction("正在等待页面稳定", timeoutMillis) {
+            waitForScreen(timeoutMillis)
         }
 
         /**
@@ -1832,20 +1741,53 @@ class SolinAccessibilityService : AccessibilityService() {
          * [RawScreenshotReadResult.Failed] when the accessibility service is not connected. [requestId]
          * is a correlation/log id only — there is no per-request MediaProjection consent on this path.
          */
-        internal fun performTakeScreenshotRaw(requestId: String): RawScreenshotReadResult {
-            val task = deviceControlTasks.startTask()
-                ?: return RawScreenshotReadResult.Failed("未开启Solin无障碍服务")
-            val service = task.owner as? SolinAccessibilityService
-                ?: return RawScreenshotReadResult.Failed("未开启Solin无障碍服务")
-            showControlProgress(task, service, "正在截取当前屏幕")
+        internal fun performTakeScreenshotRaw(requestId: String): RawScreenshotReadResult = withConnectedService(
+            progressMessage = "正在截取当前屏幕",
+            timeoutMillis = TAKE_SCREENSHOT_CAPTURE_TIMEOUT_MILLIS +
+                TAKE_SCREENSHOT_MIN_INTERVAL_MILLIS +
+                UI_ACTION_TIMEOUT_SLACK_MILLIS,
+            disconnected = { RawScreenshotReadResult.Failed("未开启Solin无障碍服务") },
+            fallback = { RawScreenshotReadResult.Failed("当前屏幕截图超时") }
+        ) {
+            takeScreenshotRaw()
+        }
+
+        private fun <T> withConnectedService(
+            progressMessage: String,
+            timeoutMillis: Long,
+            disconnected: () -> T,
+            fallback: (DeviceControlTaskCoordinator.Lease) -> T,
+            operation: SolinAccessibilityService.() -> T
+        ): T {
+            val task = deviceControlTasks.startTask() ?: return disconnected()
+            val service = task.owner as? SolinAccessibilityService ?: return disconnected()
             return runDeviceControlWithTimeout(
                 task = task,
-                timeoutMillis = TAKE_SCREENSHOT_CAPTURE_TIMEOUT_MILLIS +
-                    TAKE_SCREENSHOT_MIN_INTERVAL_MILLIS +
-                    UI_ACTION_TIMEOUT_SLACK_MILLIS,
-                fallback = { RawScreenshotReadResult.Failed("当前屏幕截图超时") }
+                timeoutMillis = timeoutMillis,
+                fallback = { fallback(task) }
             ) {
-                service.takeScreenshotRaw()
+                // T11: never flash an accessibility overlay (including target text) over a locked screen.
+                if (deviceControlTasks.lockState() == DeviceLockState.Unlocked) {
+                    showControlProgress(task, service, progressMessage)
+                }
+                service.operation()
+            }
+        }
+
+        private fun runUiAction(
+            progressMessage: String,
+            timeoutMillis: Long,
+            operation: SolinAccessibilityService.() -> UiActionReadResult
+        ): UiActionReadResult = withConnectedService(
+            progressMessage = progressMessage,
+            timeoutMillis = timeoutMillis.uiActionHardTimeout(),
+            disconnected = { UiActionReadResult.PermissionDenied("未开启Solin无障碍服务") },
+            fallback = ::uiActionTimeoutResult
+        ) {
+            try {
+                operation()
+            } catch (refused: DeviceLockedException) {
+                refused.refusal()
             }
         }
 
@@ -1908,25 +1850,6 @@ class SolinAccessibilityService : AccessibilityService() {
                 fallback()
             }
         }
-
-        private fun runDeviceControlWithTimeout(
-            task: DeviceControlTaskCoordinator.Lease,
-            timeoutMillis: Long,
-            operation: () -> UiActionReadResult
-        ): UiActionReadResult = runDeviceControlWithTimeout(
-            task = task,
-            timeoutMillis = timeoutMillis,
-            fallback = {
-                uiActionTimeoutResult(task)
-            },
-            operation = {
-                try {
-                    operation()
-                } catch (refused: DeviceLockedException) {
-                    refused.refusal()
-                }
-            }
-        )
 
         private fun Long.uiActionHardTimeout(): Long = uiActionHardTimeoutMillis(this)
     }

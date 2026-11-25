@@ -128,7 +128,11 @@ class AndroidCurrentScreenshotOcrProvider(
         nowMillis: Long
     ): CurrentScreenshotOcrReadResult {
         val consent = pendingConsent.consume(requestId, nowMillis)
-            ?: return CurrentScreenshotOcrReadResult.MissingConsent
+            ?: run {
+                // Stop the foreground service started in setOneShotConsent if TTL expired before capture.
+                foregroundGate.stop(requestId)
+                return CurrentScreenshotOcrReadResult.MissingConsent
+            }
         return captureBitmap(
             requestId = requestId,
             consent = consent,

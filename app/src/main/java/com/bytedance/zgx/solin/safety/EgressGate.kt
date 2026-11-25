@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.tool.ToolPermission
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
 import java.text.Normalizer
+import java.util.Locale
 
 /** Run-only provenance for egress decisions. Trace access stays in orchestration. */
 internal data class EgressRunContext(
@@ -53,9 +54,10 @@ internal class EgressGate(
             if (ToolPermission.SendsTextToExternalApp in spec.permissions && textArguments.isNotEmpty()) {
                 val tainted = sensitiveText ||
                     context().let { runContext ->
-                        runContext.privateReadBefore && userTextPieces(runContext.userInput).let { input ->
-                            textArguments.any { text -> !isTextFromUser(input, text) }
-                        }
+                        runContext.privateReadBefore &&
+                            userTextPieces(runContext.userInput).let { input ->
+                                textArguments.any { text -> !isTextFromUser(input, text) }
+                            }
                     }
                 if (tainted) add(EgressTrigger.TextHandedToExternalApp)
             }
@@ -68,7 +70,7 @@ private class UserTextPieces(val normalized: String, val asciiTokens: Set<String
 private val asciiLetterOrDigitRun = Regex("[a-z]+|[0-9]+")
 
 private fun userTextPieces(text: String): UserTextPieces {
-    val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase()
+    val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
     return UserTextPieces(
         normalized = normalized,
         asciiTokens = asciiLetterOrDigitRun.findAll(normalized).map { it.value }.toSet(),

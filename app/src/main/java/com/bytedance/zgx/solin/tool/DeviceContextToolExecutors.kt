@@ -208,13 +208,13 @@ class RecentFilesToolExecutor(
         }
 
         val kind = request.arguments["kind"]?.trim().orEmpty().ifBlank { "all" }
-        val maxCount = request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: 5
+        val maxCount = request.boundedIntArgument("maxCount", default = 5, range = 1..50)
         return when (val result = provider.recentFiles(kind, maxCount)) {
             is RecentFileReadResult.Available ->
                 request.succeeded(
                     summary = "已读取 ${result.items.size} 个最近文件。",
                     data = request.localOnlyData() + mapOf(
-                        "kind" to kind.ifBlank { "all" },
+                        "kind" to kind,
                         "maxCount" to maxCount.toString(),
                         "mediaAccessScope" to result.mediaAccessScope,
                         "fileCount" to result.items.size.toString(),
@@ -313,35 +313,29 @@ class RecentScreenshotOcrToolExecutor(
         return when (val result = provider.extractRecentImageText(kind = config.kind, maxCount = maxCount)) {
             is RecentImageTextReadResult.Available -> {
                 val item = result.item
-                if (item == null) {
-                    request.succeeded(
-                        summary = "未能在最近 ${result.scannedCount} 张${config.sourceLabel}中识别出文字。",
-                        data = request.localOnlyData() + mapOf(
-                            "source" to config.kind,
-                            "maxCount" to maxCount.toString(),
-                            "scannedCount" to result.scannedCount.toString(),
-                            "mediaAccessScope" to result.mediaAccessScope,
-                            "ocrTextIncluded" to false.toString(),
-                            "rawPayloadIncluded" to false.toString(),
-                            "metadataPolicy" to "no_uri_path_or_pixels_persisted"
-                        )
-                    )
-                } else {
-                    request.succeeded(
-                        summary = "已从最近${config.sourceLabel}提取 ${item.text.length} 个字符的本地 OCR 摘录。",
-                        data = request.localOnlyData() + mapOf(
-                            "source" to config.kind,
-                            "maxCount" to maxCount.toString(),
-                            "scannedCount" to result.scannedCount.toString(),
-                            "mediaAccessScope" to result.mediaAccessScope,
-                            "ocrText" to item.text,
-                            "truncated" to item.truncated.toString(),
-                            "ocrTextIncluded" to true.toString(),
-                            "rawPayloadIncluded" to false.toString(),
-                            "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted"
-                        )
-                    )
-                }
+                val baseData = request.localOnlyData() + mapOf(
+                    "source" to config.kind,
+                    "maxCount" to maxCount.toString(),
+                    "scannedCount" to result.scannedCount.toString(),
+                    "mediaAccessScope" to result.mediaAccessScope,
+                    "ocrTextIncluded" to (item != null).toString(),
+                    "rawPayloadIncluded" to false.toString(),
+                    "metadataPolicy" to if (item == null) {
+                        "no_uri_path_or_pixels_persisted"
+                    } else {
+                        "ocr_text_local_only_no_uri_path_or_pixels_persisted"
+                    }
+                )
+                request.succeeded(
+                    summary = if (item == null) {
+                        "未能在最近 ${result.scannedCount} 张${config.sourceLabel}中识别出文字。"
+                    } else {
+                        "已从最近${config.sourceLabel}提取 ${item.text.length} 个字符的本地 OCR 摘录。"
+                    },
+                    data = baseData + item?.let {
+                        mapOf("ocrText" to it.text, "truncated" to it.truncated.toString())
+                    }.orEmpty()
+                )
             }
 
             is RecentImageTextReadResult.PermissionDenied ->
@@ -390,36 +384,25 @@ class CurrentScreenTextToolExecutor(
         return when (val result = provider.currentScreenText(maxChars)) {
             is CurrentScreenTextReadResult.Available -> {
                 val snapshot = result.snapshot
-                if (snapshot.text.isBlank()) {
-                    request.succeeded(
-                        summary = "当前屏幕未暴露可访问文本。",
-                        data = request.localOnlyData() + mapOf(
-                            "source" to "accessibility_active_window",
-                            "maxChars" to maxChars.toString(),
-                            "capturedAtMillis" to snapshot.capturedAtMillis.toString(),
-                            "nodeCount" to snapshot.nodeCount.toString(),
-                            "truncated" to snapshot.truncated.toString(),
-                            "screenTextIncluded" to false.toString(),
-                            "rawTreeIncluded" to false.toString(),
-                            "metadataPolicy" to CURRENT_SCREEN_TEXT_LOCAL_ONLY_POLICY
-                        ) + snapshot.packageNameData() + snapshot.structureSummaryData()
-                    )
-                } else {
-                    request.succeeded(
-                        summary = "已读取当前屏幕 ${snapshot.text.length} 个字符的可访问文本快照。",
-                        data = request.localOnlyData() + mapOf(
-                            "source" to "accessibility_active_window",
-                            "maxChars" to maxChars.toString(),
-                            "capturedAtMillis" to snapshot.capturedAtMillis.toString(),
-                            "nodeCount" to snapshot.nodeCount.toString(),
-                            "screenText" to snapshot.text,
-                            "truncated" to snapshot.truncated.toString(),
-                            "screenTextIncluded" to true.toString(),
-                            "rawTreeIncluded" to false.toString(),
-                            "metadataPolicy" to CURRENT_SCREEN_TEXT_LOCAL_ONLY_POLICY
-                        ) + snapshot.packageNameData() + snapshot.structureSummaryData()
-                    )
-                }
+                val hasText = snapshot.text.isNotBlank()
+                request.succeeded(
+                    summary = if (hasText) {
+                        "已读取当前屏幕 ${snapshot.text.length} 个字符的可访问文本快照。"
+                    } else {
+                        "当前屏幕未暴露可访问文本。"
+                    },
+                    data = request.localOnlyData() + mapOf(
+                        "source" to "accessibility_active_window",
+                        "maxChars" to maxChars.toString(),
+                        "capturedAtMillis" to snapshot.capturedAtMillis.toString(),
+                        "nodeCount" to snapshot.nodeCount.toString(),
+                        "truncated" to snapshot.truncated.toString(),
+                        "screenTextIncluded" to hasText.toString(),
+                        "rawTreeIncluded" to false.toString(),
+                        "metadataPolicy" to CURRENT_SCREEN_TEXT_LOCAL_ONLY_POLICY
+                    ) + (if (hasText) mapOf("screenText" to snapshot.text) else emptyMap()) +
+                        snapshot.packageNameData() + snapshot.structureSummaryData()
+                )
             }
 
             is CurrentScreenTextReadResult.PermissionDenied ->

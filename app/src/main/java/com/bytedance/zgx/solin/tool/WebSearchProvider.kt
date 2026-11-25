@@ -183,41 +183,36 @@ class OkHttpWebSearchProvider(
         }
     }
 
-    private fun searchGeneral(request: WebSearchRequest, retrievedAt: Instant): WebSearchReadResult {
-        if (request.freshness == WebSearchFreshness.Current) {
-            val pageSearch = searchDuckDuckGoPages(request, retrievedAt)
-            if (pageSearch is WebSearchReadResult.Available) {
-                return pageSearch
-            }
-            val instantAnswer = searchInstantAnswer(request, retrievedAt)
-            if (instantAnswer is WebSearchReadResult.Available) {
-                return instantAnswer
-            }
-            val pageReason = (pageSearch as WebSearchReadResult.Failed).reason
-            val instantReason = (instantAnswer as WebSearchReadResult.Failed).reason
-            return WebSearchReadResult.Failed(
-                if (pageReason.contains("没有找到") && instantReason.contains("没有找到")) {
-                    "没有找到可直接引用的搜索证据"
-                } else {
-                    "$pageReason；备用即时摘要搜索失败：$instantReason"
-                }
-            )
-        }
-        val instantAnswer = searchInstantAnswer(request, retrievedAt)
-        if (instantAnswer is WebSearchReadResult.Available) {
-            return instantAnswer
-        }
-        val pageSearch = searchDuckDuckGoPages(request, retrievedAt)
-        if (pageSearch is WebSearchReadResult.Available) {
-            return pageSearch
-        }
-        val instantReason = (instantAnswer as WebSearchReadResult.Failed).reason
-        val pageReason = (pageSearch as WebSearchReadResult.Failed).reason
+    private fun searchGeneral(request: WebSearchRequest, retrievedAt: Instant): WebSearchReadResult = if (request.freshness == WebSearchFreshness.Current) {
+        searchGeneralWithFallback(
+            primary = { searchDuckDuckGoPages(request, retrievedAt) },
+            fallback = { searchInstantAnswer(request, retrievedAt) },
+            fallbackLabel = "备用即时摘要搜索失败"
+        )
+    } else {
+        searchGeneralWithFallback(
+            primary = { searchInstantAnswer(request, retrievedAt) },
+            fallback = { searchDuckDuckGoPages(request, retrievedAt) },
+            fallbackLabel = "备用网页搜索失败"
+        )
+    }
+
+    private inline fun searchGeneralWithFallback(
+        primary: () -> WebSearchReadResult,
+        fallback: () -> WebSearchReadResult,
+        fallbackLabel: String
+    ): WebSearchReadResult {
+        val primaryResult = primary()
+        if (primaryResult is WebSearchReadResult.Available) return primaryResult
+        val fallbackResult = fallback()
+        if (fallbackResult is WebSearchReadResult.Available) return fallbackResult
+        val primaryReason = (primaryResult as WebSearchReadResult.Failed).reason
+        val fallbackReason = (fallbackResult as WebSearchReadResult.Failed).reason
         return WebSearchReadResult.Failed(
-            if (instantReason.contains("没有找到") && pageReason.contains("没有找到")) {
+            if (primaryReason.contains("没有找到") && fallbackReason.contains("没有找到")) {
                 "没有找到可直接引用的搜索证据"
             } else {
-                "$instantReason；备用网页搜索失败：$pageReason"
+                "$primaryReason；$fallbackLabel：$fallbackReason"
             }
         )
     }
@@ -775,17 +770,21 @@ private fun String.containsWholeYear(year: Int): Boolean = Regex("""(?<!\d)$year
 
 private fun String.containsCjk(): Boolean = any { character -> character in '\u4E00'..'\u9FFF' }
 
-private fun WebSearchRequest.evidenceJson(
+internal fun WebSearchRequest.evidenceJson(
     retrievedAt: Instant,
     sources: JSONArray,
     results: JSONArray,
     submittedQuery: String = query
 ): String {
-    fun serialize(resultCount: Int): String = JSONObject()
+    fun serialize(
+        resultCount: Int,
+        queryText: String = query,
+        submittedQueryText: String = submittedQuery
+    ): String = JSONObject()
         .put("schemaVersion", WEB_SEARCH_EVIDENCE_SCHEMA_VERSION)
         .put("kind", "web_search_evidence")
-        .put("query", query)
-        .put("submittedQuery", submittedQuery)
+        .put("query", queryText)
+        .put("submittedQuery", submittedQueryText)
         .put("searchMode", searchMode.schemaValue)
         .put("retrievedAt", retrievedAt.toString())
         .put("freshness", freshness.schemaValue)
@@ -793,14 +792,20 @@ private fun WebSearchRequest.evidenceJson(
         .put("sources", sources)
         .put("results", JSONArray((0 until resultCount).map(results::get)))
         .toString()
-    // resultsJson is declared application/json, so drop trailing results instead of cutting
-    // the serialized string, which would fail output-schema validation.
+    // resultsJson is declared application/json, so drop trailing results (and if still oversized,
+    // bound the echoed query fields) instead of cutting the serialized JSON string.
     for (count in results.length() downTo 0) {
         val json = serialize(count)
         if (json.length <= MAX_WEB_SEARCH_RESULTS_JSON_CHARS) return json
     }
-    return serialize(0).boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS)
+    return serialize(
+        resultCount = 0,
+        queryText = query.boundedText(MAX_WEB_SEARCH_FALLBACK_QUERY_CHARS),
+        submittedQueryText = submittedQuery.boundedText(MAX_WEB_SEARCH_FALLBACK_QUERY_CHARS)
+    )
 }
+
+private const val MAX_WEB_SEARCH_FALLBACK_QUERY_CHARS = 250
 
 private fun openMeteoSources(): JSONArray = JSONArray()
     .put(
@@ -866,8 +871,15 @@ internal fun ResponseBody.readBoundedText(maxBytes: Long): String {
     return buffer.readString(charset)
 }
 
-/** Truncates to [maxChars] Unicode code points, so a surrogate pair is never split. */
+/**
+ * Truncates to at most [maxChars] UTF-16 code units (matching schema `maxLength` checks) while
+ * never splitting a UTF-16 surrogate pair.
+ */
 internal fun String.boundedText(maxChars: Int): String {
-    if (codePointCount(0, length) <= maxChars) return this
-    return substring(0, offsetByCodePoints(0, maxChars)).trimEnd() + "..."
+    if (length <= maxChars) return this
+    var end = maxChars.coerceAtLeast(0)
+    if (end > 0 && Character.isHighSurrogate(this[end - 1])) {
+        end -= 1
+    }
+    return substring(0, end).trimEnd() + "..."
 }

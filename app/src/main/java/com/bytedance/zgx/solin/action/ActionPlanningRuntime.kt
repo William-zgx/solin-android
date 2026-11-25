@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.action
 
 import com.bytedance.zgx.solin.common.StrictJsonScan
+import com.bytedance.zgx.solin.common.keysSet
 import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
 import com.bytedance.zgx.solin.runtime.LocalCallMetrics
 import com.bytedance.zgx.solin.runtime.LocalEngine
@@ -368,10 +369,9 @@ private fun ToolSpec.toActionPromptLine(): String {
     val schema = runCatching { JSONObject(inputSchemaJson) }.getOrNull()
     val properties = schema?.optJSONObject("properties") ?: JSONObject()
     val requiredNames = schema?.optStringList("required").orEmpty()
-    val propertyNames = properties.keysList()
-    val primaryNames = requiredNames.ifEmpty { emptyList() }
-    val optionalNames = propertyNames.filterNot { name -> name in primaryNames }
-    val primaryShape = primaryNames.joinToString(prefix = "{", postfix = "}") { name ->
+    val propertyNames = properties.keysSet()
+    val optionalNames = propertyNames.filterNot { name -> name in requiredNames }
+    val primaryShape = requiredNames.joinToString(prefix = "{", postfix = "}") { name ->
         val property = properties.optJSONObject(name) ?: JSONObject()
         """"$name":${property.placeholderFor(name)}"""
     }
@@ -425,15 +425,6 @@ private fun JSONObject.optStringList(name: String): List<String> {
     return (0 until array.length()).mapNotNull { index ->
         array.optString(index).takeIf { value -> value.isNotBlank() }
     }
-}
-
-private fun JSONObject.keysList(): List<String> {
-    val names = mutableListOf<String>()
-    val iterator = keys()
-    while (iterator.hasNext()) {
-        names += iterator.next()
-    }
-    return names
 }
 
 private fun JSONObject.optNumberAsString(name: String): String? = opt(name)?.let { value ->

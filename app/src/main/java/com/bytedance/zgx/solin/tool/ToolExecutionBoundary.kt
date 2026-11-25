@@ -6,7 +6,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -157,8 +156,9 @@ class TimeoutToolExecutionBoundary(
 
         // Step 3: retry retryable failures.
         repeat(publicEvidenceBatchRetryAttempts) {
+            val currentById = resultsByRequestId(results, requests)
             val retryRequests = requests.filter { request ->
-                resultsByRequestId(results, requests)[request.id]?.let { result ->
+                currentById[request.id]?.let { result ->
                     result.status != ToolStatus.Succeeded && result.retryable
                 } == true
             }
@@ -177,8 +177,16 @@ class TimeoutToolExecutionBoundary(
                 }
             }
             val retryById = resultsByRequestId(retryResults, retryRequests)
-            results = requests.map { request ->
-                retryById[request.id] ?: resultsByRequestId(results, requests).getValue(request.id)
+            results = requests.mapIndexed { index, request ->
+                retryById[request.id]
+                    ?: currentById[request.id]
+                    ?: results.getOrNull(index)
+                    ?: request.failed(
+                        code = ToolErrorCode.ExecutionFailed,
+                        summary = "Tool batch result missing for ${request.toolName}",
+                        retryable = false,
+                        data = request.toolExecutionContext()
+                    )
             }
         }
 
@@ -186,27 +194,25 @@ class TimeoutToolExecutionBoundary(
     }
 
     private suspend fun executeBatchInternal(requests: List<ToolRequest>): List<ToolResult> = withTimeoutOrNull(timeoutMillis) {
-        supervisorScope {
-            runCatching {
-                withContext(dispatcher) { executor.executeBatch(requests) }
-            }.getOrElse { throwable ->
-                if (throwable is CancellationException) {
-                    if (!currentCoroutineContext().isActive) throw throwable
-                    requests.map { request ->
-                        request.cancelled(
-                            summary = "Tool batch was cancelled before completion: ${throwable.cleanMessage()}",
-                            data = request.toolExecutionContext()
-                        )
-                    }
-                } else {
-                    requests.map { request ->
-                        request.failed(
-                            code = ToolErrorCode.ExecutionFailed,
-                            summary = "Tool batch failed before completion: ${throwable.cleanMessage()}",
-                            retryable = true,
-                            data = request.toolExecutionContext()
-                        )
-                    }
+        runCatching {
+            withContext(dispatcher) { executor.executeBatch(requests) }
+        }.getOrElse { throwable ->
+            if (throwable is CancellationException) {
+                if (!currentCoroutineContext().isActive) throw throwable
+                requests.map { request ->
+                    request.cancelled(
+                        summary = "Tool batch was cancelled before completion: ${throwable.cleanMessage()}",
+                        data = request.toolExecutionContext()
+                    )
+                }
+            } else {
+                requests.map { request ->
+                    request.failed(
+                        code = ToolErrorCode.ExecutionFailed,
+                        summary = "Tool batch failed before completion: ${throwable.cleanMessage()}",
+                        retryable = true,
+                        data = request.toolExecutionContext()
+                    )
                 }
             }
         }

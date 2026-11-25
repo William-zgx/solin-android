@@ -139,7 +139,7 @@ internal fun screenNodeId(
     normalizedText: String? = node.text.normalizedNodeText(),
     normalizedContentDescription: String? = node.contentDescription.normalizedNodeText()
 ): String {
-    val base = "n${index}_${node.fingerprint(normalizedText, normalizedContentDescription).shortStableHash()}"
+    val base = "n${index}_${node.structuralFingerprint(normalizedText, normalizedContentDescription).shortStableHash()}"
     return if (salt.isNullOrBlank()) base else "${base}_$salt"
 }
 
@@ -149,13 +149,24 @@ internal fun transientNodeIdTargetMatchScore(
     normalizedTarget: String = target.normalizedLookupKey()
 ): Int? {
     val rawTarget = target.trim()
+    if (rawTarget.endsWith("::affordance") != candidateId.endsWith("::affordance")) return null
     if (rawTarget == candidateId) return 1_000
+    val candidateBase = unsaltedScreenNodeIdBase(candidateId)
+    val targetBase = unsaltedScreenNodeIdBase(rawTarget)
+    if (candidateBase != null && targetBase != null) {
+        if (candidateBase == targetBase) return 950
+        return null
+    }
     if (rawTarget.startsWith("${candidateId}_")) return 950
     if (normalizedTarget.isBlank()) return null
     val normalizedId = candidateId.normalizedLookupKey()
     if (normalizedId == normalizedTarget) return 1_000
     return null
 }
+
+private val SALTED_NODE_ID_BASE = Regex("""^(n\d+_[0-9A-Za-z]+)(?:_[0-9A-Za-z-]+)?$""")
+
+private fun unsaltedScreenNodeIdBase(nodeId: String): String? = SALTED_NODE_ID_BASE.matchEntire(nodeId)?.groupValues?.get(1)
 
 internal fun AccessibilityNodeInfo.findNodeCandidate(
     predicate: (NodeCandidate) -> Boolean
@@ -488,6 +499,20 @@ internal fun AccessibilityNodeInfo.nodeSearchLabel(
     viewIdResourceName = viewIdResourceName,
     className = className?.toString()
 )
+
+/** Bounds-free node identity used by [screenNodeId] so moved elements still reach bounds checks. */
+internal fun AccessibilityNodeInfo.structuralFingerprint(
+    normalizedText: String? = text.normalizedNodeText(),
+    normalizedContentDescription: String? = contentDescription.normalizedNodeText()
+): String = listOf(
+    className?.toString().orEmpty(),
+    viewIdResourceName.orEmpty(),
+    normalizedText.orEmpty(),
+    normalizedContentDescription.orEmpty(),
+    isClickable.toString(),
+    isEditable.toString(),
+    isScrollable.toString()
+).joinToString("|")
 
 internal fun AccessibilityNodeInfo.fingerprint(
     normalizedText: String? = text.normalizedNodeText(),

@@ -46,12 +46,6 @@ internal fun String.requestsCurrentScreenTextSummaryShare(): Boolean {
     return referencesCurrentScreen && asksForSummary && asksToShare
 }
 
-private val CURRENT_SCREEN_OBSERVATION_ZH1_REGEX =
-    Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不)\s*""")
-
-private val CURRENT_SCREEN_OBSERVATION_PLEASE_DO_REGEX =
-    Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b""")
-
 private val CURRENT_SCREEN_OBSERVATION_CURRENT_ACTIVE_REGEX =
     Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
 
@@ -60,11 +54,7 @@ private val CURRENT_SCREEN_OBSERVATION_OBSERVE_INSPECT_REGEX =
 
 internal fun String.requestsCurrentScreenObservation(): Boolean {
     val normalized = lowercase()
-    if (
-        startsWithQuestionOpener(normalized) ||
-        CURRENT_SCREEN_OBSERVATION_ZH1_REGEX.containsMatchIn(this) ||
-        CURRENT_SCREEN_OBSERVATION_PLEASE_DO_REGEX.containsMatchIn(normalized)
-    ) {
+    if (startsWithQuestionOpener(normalized) || startsWithActionNegation()) {
         return false
     }
     val referencesScreen = listOf("当前屏幕", "当前界面", "现在屏幕", "这个界面").any { it in this } ||

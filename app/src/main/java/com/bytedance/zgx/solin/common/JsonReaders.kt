@@ -60,7 +60,7 @@ internal object StrictJsonScan {
 
     /** Null when [text] is one strict JSON object with unique keys at every depth. */
     fun firstViolation(text: String): StrictJsonRejection? {
-        val cursor = Cursor(text)
+        val cursor = Cursor(text, MAX_DEPTH)
         cursor.skipWhitespace()
         if (cursor.current() != '{') return StrictJsonRejection.NotJsonObject
         return try {
@@ -72,7 +72,29 @@ internal object StrictJsonScan {
         }
     }
 
-    private class Cursor(private val text: String) {
+    /** True when [text] is one strict RFC 8259 JSON object with no trailing content. */
+    fun isStrictJsonObject(text: String, maxDepth: Int = MAX_DEPTH): Boolean = matchesStrictContainer(text, expectedOpen = '{', maxDepth = maxDepth)
+
+    /** True when [text] is one strict RFC 8259 JSON array with no trailing content. */
+    fun isStrictJsonArray(text: String, maxDepth: Int = MAX_DEPTH): Boolean = matchesStrictContainer(text, expectedOpen = '[', maxDepth = maxDepth)
+
+    private fun matchesStrictContainer(text: String, expectedOpen: Char, maxDepth: Int): Boolean {
+        val cursor = Cursor(text, maxDepth)
+        cursor.skipWhitespace()
+        if (cursor.current() != expectedOpen) return false
+        return try {
+            cursor.readValue(depth = 0)
+            cursor.skipWhitespace()
+            cursor.atEnd()
+        } catch (_: Violation) {
+            false
+        }
+    }
+
+    private class Cursor(
+        private val text: String,
+        private val maxDepth: Int
+    ) {
         private var index = 0
 
         fun atEnd(): Boolean = index >= text.length
@@ -97,7 +119,7 @@ internal object StrictJsonScan {
         }
 
         private fun readObject(depth: Int) {
-            if (depth > MAX_DEPTH) malformed()
+            if (depth > maxDepth) malformed()
             index++
             skipWhitespace()
             if (current() == '}') {
@@ -124,7 +146,7 @@ internal object StrictJsonScan {
         }
 
         private fun readArray(depth: Int) {
-            if (depth > MAX_DEPTH) malformed()
+            if (depth > maxDepth) malformed()
             index++
             skipWhitespace()
             if (current() == ']') {

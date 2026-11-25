@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 
 /**
@@ -374,23 +375,7 @@ private fun uiActionOutputSchema(extraProperties: String = ""): String = """
         "failureKind": {
           "type": "string",
           "enum": [
-            "node_not_found",
-            "page_changed",
-            "permission_missing",
-            "keyboard_obscured",
-            "timeout",
-            "app_not_foreground",
-            "search_entry_not_found",
-            "editable_not_found",
-            "submit_not_found",
-            "result_not_verified",
-            "dangerous_action",
-            "snapshot_unknown",
-            "ref_retired",
-            "ref_not_in_snapshot",
-            "package_changed",
-            "element_moved",
-            "unknown"
+            ${UiActionFailureKind.entries.joinToString(",\n            ") { "\"${it.schemaValue}\"" }}
           ]
         },
         "beforeObservationId": {"type": "string"},

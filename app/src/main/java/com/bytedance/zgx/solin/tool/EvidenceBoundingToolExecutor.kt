@@ -1,13 +1,13 @@
 package com.bytedance.zgx.solin.tool
 
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.common.StrictJsonScan
 import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.EvidenceBounds
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.evidence.HeadTailResult
 import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
 import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * Bounds tool output independently of routing and observation.
@@ -48,20 +48,29 @@ class EvidenceBoundingToolExecutor(
     private fun boundDataValue(text: String, maxChars: Int): HeadTailResult {
         if (text.length <= maxChars) return HeadTailResult(text, ref = null, truncated = false, omittedChars = 0)
         val trimmed = text.trim()
-        if (trimmed.startsWith("{") && runCatching { JSONObject(trimmed) }.isSuccess) {
+        if (StrictJsonScan.isStrictJsonObject(trimmed, maxDepth = STRICT_TOOL_JSON_MAX_DEPTH)) {
             // A generic object subset can drop contract-required keys. Keep it intact and let the
             // prompt layer apply its own presentation bounds instead of corrupting the tool result.
             return HeadTailResult(text, ref = null, truncated = false, omittedChars = 0)
         }
-        val bounded = headTail(text, maxChars)
-        val array = runCatching { JSONArray(trimmed) }.getOrNull() ?: return bounded
-        val inline = inlineJsonArrayPrefix(array, maxChars)
-        return HeadTailResult(
-            text = inline,
-            ref = bounded.ref,
-            truncated = true,
-            omittedChars = text.length - inline.length
-        )
+        if (StrictJsonScan.isStrictJsonArray(trimmed, maxDepth = STRICT_TOOL_JSON_MAX_DEPTH)) {
+            val array = runCatching { JSONArray(trimmed) }.getOrNull()
+            if (array != null) {
+                val inline = inlineJsonArrayPrefix(array, maxChars)
+                val ref = if (evidenceBlobStore is NoOpEvidenceBlobStore) {
+                    null
+                } else {
+                    evidenceBlobStore.putText(text, EvidenceSourceType.ToolResult, evidencePrivacy)
+                }
+                return HeadTailResult(
+                    text = inline,
+                    ref = ref,
+                    truncated = true,
+                    omittedChars = text.length - inline.length
+                )
+            }
+        }
+        return headTail(text, maxChars)
     }
 
     /** Retains only whole array elements, stopping before the inline budget would be exceeded. */
@@ -91,5 +100,9 @@ class EvidenceBoundingToolExecutor(
             data = result.data + truncatedData.mapValues { (_, bounded) -> bounded.text },
             overflowRefs = result.overflowRefs + newRefs
         )
+    }
+
+    private companion object {
+        const val STRICT_TOOL_JSON_MAX_DEPTH = 32
     }
 }

@@ -91,12 +91,31 @@ class WebSearchResponseLimitTest {
     }
 
     @Test
-    fun boundedTextCountsCodePointsAndDoesNotSplitSurrogatePairs() {
+    fun boundedTextBoundsUtf16LengthAndDoesNotSplitSurrogatePairs() {
         val text = "ab\uD83D\uDE00cd"
-        assertEquals("ab\uD83D\uDE00...", text.boundedText(3))
-        assertEquals("ab\uD83D\uDE00c...", text.boundedText(4))
-        assertEquals(text, text.boundedText(5))
+        assertEquals("ab...", text.boundedText(3))
+        assertEquals("ab\uD83D\uDE00...", text.boundedText(4))
+        assertEquals("ab\uD83D\uDE00c...", text.boundedText(5))
+        assertEquals(text, text.boundedText(6))
         assertEquals("abc", "abc".boundedText(3))
+
+        val emojiHeavy = "\uD83D\uDE00".repeat(1_200).boundedText(1_200)
+        assertTrue("UTF-16 length ${emojiHeavy.length} must stay within schema maxLength 1203", emojiHeavy.length <= 1_203)
+        assertFalse(Character.isHighSurrogate(emojiHeavy.removeSuffix("...").last()))
+    }
+
+    @Test
+    fun oversizedQueryFallbackEvidenceJsonStaysValidAndWithinSchemaLimit() {
+        val longQuery = "q".repeat(5_000)
+        val request = WebSearchRequest(query = longQuery)
+        val json = request.evidenceJson(
+            retrievedAt = Instant.parse("2026-07-02T10:00:00Z"),
+            sources = org.json.JSONArray(),
+            results = org.json.JSONArray()
+        )
+        assertTrue("fallback evidence JSON length ${json.length} must stay <= 4003", json.length <= 4_003)
+        val parsed = org.json.JSONObject(json)
+        assertTrue(parsed.getString("query").endsWith("..."))
     }
 
     @Test

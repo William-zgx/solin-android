@@ -223,6 +223,29 @@ class ExecutorBoundingTest {
         assertEquals(1, result.overflowRefs.size)
     }
 
+    @Test
+    fun oversizedPlainTextStartingWithBracketsOrBracesIsBoundedAsText() {
+        val bracketText = "[图片] " + "a".repeat(EvidenceBlobStore.MAX_INLINE_CHARS * 2)
+        val braceText = "{a:1} " + "b".repeat(EvidenceBlobStore.MAX_INLINE_CHARS * 2)
+        val request = ToolRequest(id = "plain-brackets", toolName = "fake_plain")
+        val delegate = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult = request.succeeded(
+                summary = "ok",
+                data = mapOf("bracket" to bracketText, "brace" to braceText)
+            )
+        }
+        val result = EvidenceBoundingToolExecutor(
+            delegate = delegate,
+            evidenceBlobStore = NoOpEvidenceBlobStore
+        ).execute(request)
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertTrue(result.data.getValue("bracket").length <= EvidenceBlobStore.MAX_INLINE_CHARS + 10)
+        assertTrue(result.data.getValue("bracket").endsWith("..."))
+        assertTrue(result.data.getValue("brace").length <= EvidenceBlobStore.MAX_INLINE_CHARS + 10)
+        assertTrue(result.data.getValue("brace").endsWith("..."))
+    }
+
     private fun buildExecutor(
         toolHandlers: Map<String, ToolHandler> = emptyMap(),
         evidenceBlobStore: EvidenceBlobStore = NoOpEvidenceBlobStore,

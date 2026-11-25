@@ -54,7 +54,7 @@ class BackgroundPhoneSession private constructor(
 
     /** Bound to an explicit caller scope, then propagated to the service worker. Never a global mode. */
     class Binding internal constructor(private val session: BackgroundPhoneSession, val initial: BackgroundPhoneState) {
-        private var expectedPackage: String? = initial.foregroundPackage
+        @Volatile private var expectedPackage: String? = initial.foregroundPackage
         init {
             requireOwnFocus(initial)
         }
@@ -106,6 +106,7 @@ class BackgroundPhoneSession private constructor(
     @Synchronized
     fun launch(packageName: String): BackgroundPhoneState {
         require(BackgroundPhoneProtocol.validPackage(packageName)) { "Invalid package name" }
+        markRunStart()
         return state(call(JSONObject().put("method", "launch").put("package", packageName)))
     }
 

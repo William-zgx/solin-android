@@ -287,6 +287,12 @@ internal class PhoneCompositeOperations(
         const val MAX_WRITES = 5
         const val MAX_TEXT = 12_000
         val TOOL_NAMES = setOf(MobileActionFunctions.UI_COLLECT, MobileActionFunctions.UI_FIND, MobileActionFunctions.UI_SET_WHEEL)
+        val FAILURE_STOP_REASONS = setOf(
+            "unknown", "timeout", "authorization_required", "read_failed",
+            "invalid_observation", "app_changed", "write_limit", "scroll_failed", "item_limit", "no_new_content",
+            "page_limit", "ambiguous_target", "no_change", "invalid_range", "wheel_not_unique", "wheel_unreadable",
+            "wheel_not_converging", "input_failed", "wheel_changed", "execution_interrupted"
+        )
         private val READ_AND_SCROLL = setOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, MobileActionFunctions.UI_SCROLL)
 
         /** The only child tools [parentToolName] may run; empty for a non-composite tool. */

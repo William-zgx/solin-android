@@ -80,12 +80,16 @@ internal object SnapshotRefs {
         if (ref.snapshotId != snapshot.id) throw SnapshotRefException(UiActionFailureKind.RefRetired)
         val node = snapshot.nodes.firstOrNull { it.id == ref.nodeId }
             ?: throw SnapshotRefException(UiActionFailureKind.RefNotInSnapshot)
-        if (snapshot.packageName != livePackage) throw SnapshotRefException(UiActionFailureKind.PackageChanged)
+        if (snapshot.packageName.isNullOrBlank() || snapshot.packageName != livePackage) {
+            throw SnapshotRefException(UiActionFailureKind.PackageChanged)
+        }
         return node
     }
 
     fun requireSameBounds(snapshotNode: ScreenNode, liveBounds: ScreenBounds?) {
-        if (snapshotNode.bounds != liveBounds) throw SnapshotRefException(UiActionFailureKind.ElementMoved)
+        if (snapshotNode.bounds == null || liveBounds == null || snapshotNode.bounds != liveBounds) {
+            throw SnapshotRefException(UiActionFailureKind.ElementMoved)
+        }
     }
 }
 
@@ -98,28 +102,19 @@ object UiTargetResolver {
         livePackage: String? = snapshot.packageName
     ): UiTargetResolutionEvidence {
         val ref = SnapshotRefs.parse(target)
-        val nodes = if (ref == null) {
-            snapshot.nodes
-        } else {
+        if (ref != null) {
             val scoped = try {
                 SnapshotRefs.validate(ref, snapshot, livePackage)
             } catch (error: SnapshotRefException) {
-                return UiTargetResolutionEvidence(
-                    kind = kind,
-                    target = target,
-                    packageName = snapshot.packageName,
-                    selectedNodeId = null,
-                    rankedCandidates = emptyList(),
-                    failureKind = error.failureKind
-                )
+                return closedScopedFailure(kind, target, snapshot.packageName, error.failureKind)
             }
-            listOf(scoped)
+            return scopedEvidence(kind, target, snapshot.packageName, GroundingNode(scoped))
         }
         return evidence(
             kind = kind,
             target = target,
             packageName = snapshot.packageName,
-            candidates = rankedCandidates(nodes.map(::GroundingNode), kind, if (ref == null) target else null, profile)
+            candidates = rankedCandidates(snapshot.nodes.map(::GroundingNode), kind, target, profile)
         )
     }
 
@@ -128,12 +123,90 @@ object UiTargetResolver {
         kind: UiTargetKind,
         target: String? = null,
         profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(observation.packageName)
-    ): UiTargetResolutionEvidence = evidence(
+    ): UiTargetResolutionEvidence {
+        val ref = SnapshotRefs.parse(target)
+        if (ref != null) {
+            if (observation.observationId.isBlank()) {
+                return closedScopedFailure(kind, target, observation.packageName, UiActionFailureKind.SnapshotUnknown)
+            }
+            if (ref.snapshotId != observation.observationId) {
+                return closedScopedFailure(kind, target, observation.packageName, UiActionFailureKind.RefRetired)
+            }
+            val scoped = observation.toGroundingNodes().firstOrNull { grounding ->
+                !grounding.node.className.startsWith("ocr.") && grounding.node.id == ref.nodeId
+            } ?: return closedScopedFailure(kind, target, observation.packageName, UiActionFailureKind.RefNotInSnapshot)
+            if (observation.packageName.isNullOrBlank()) {
+                return closedScopedFailure(kind, target, observation.packageName, UiActionFailureKind.PackageChanged)
+            }
+            return scopedEvidence(kind, target, observation.packageName, scoped)
+        }
+        return evidence(
+            kind = kind,
+            target = target,
+            packageName = observation.packageName,
+            candidates = rankedCandidates(observation.toGroundingNodes(), kind, target, profile)
+        )
+    }
+
+    private fun closedScopedFailure(
+        kind: UiTargetKind,
+        target: String?,
+        packageName: String?,
+        failureKind: UiActionFailureKind
+    ): UiTargetResolutionEvidence = UiTargetResolutionEvidence(
         kind = kind,
         target = target,
-        packageName = observation.packageName,
-        candidates = rankedCandidates(observation.toGroundingNodes(), kind, target, profile)
+        packageName = packageName,
+        selectedNodeId = null,
+        rankedCandidates = emptyList(),
+        failureKind = failureKind
     )
+
+    private fun scopedEvidence(
+        kind: UiTargetKind,
+        target: String?,
+        packageName: String?,
+        scoped: GroundingNode
+    ): UiTargetResolutionEvidence {
+        val node = scoped.node
+        if (!node.enabled) {
+            return closedScopedFailure(kind, target, packageName, kind.missingResolutionFailureKind())
+        }
+        val label = scoped.labelOverride?.takeIf { it.isNotBlank() }
+            ?: node.text.ifBlank { node.contentDescription }
+        val candidate = UiTargetEvidenceCandidate(
+            nodeId = node.id,
+            label = label,
+            bounds = node.bounds,
+            source = scoped.source,
+            fallbackType = scoped.fallbackType,
+            clickable = node.clickable,
+            editable = node.editable,
+            scrollable = node.scrollable,
+            enabled = node.enabled,
+            matchedProfileHint = null,
+            score = UiTargetScoreComponents(
+                semanticScore = 0,
+                profileHintScore = 0,
+                targetTextScore = 1_000,
+                actionabilityScore = 0,
+                positionScore = 0,
+                riskPenalty = 0,
+                noisePenalty = 0,
+                fallbackPenalty = 0,
+                finalScore = 1_000
+            ),
+            reason = "scoped_ref"
+        )
+        return UiTargetResolutionEvidence(
+            kind = kind,
+            target = target,
+            packageName = packageName,
+            selectedNodeId = node.id,
+            rankedCandidates = listOf(candidate),
+            failureKind = null
+        )
+    }
 
     private fun evidence(
         kind: UiTargetKind,

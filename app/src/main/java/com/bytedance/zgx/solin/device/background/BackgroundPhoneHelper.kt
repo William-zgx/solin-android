@@ -271,6 +271,12 @@ object BackgroundPhoneHelper {
             ) as Int
             check(result >= 0) { "launch_rejected" }
             launchedPackage = packageName
+            // Discard any frame captured from a prior app before the newly launched app renders.
+            synchronized(framesLock) {
+                latestFrame?.recycle()
+                latestFrame = null
+                latestTimestampNanos = 0L
+            }
             // A successful launch request is not a verified app outcome. Client must observe freshly.
             return state()
         }

@@ -27,7 +27,7 @@ internal val dangerousActionTextMarkers: List<String> = listOf(
     "发表",
     "授权",
     "允许",
-    "同意",
+    "同意"
 )
 
 internal val dangerousTapTargetMarkers: List<String> = dangerousActionTextMarkers + listOf(
@@ -42,7 +42,7 @@ internal val dangerousTapTargetMarkers: List<String> = dangerousActionTextMarker
     "publish",
     "buy",
     "order",
-    "confirm",
+    "confirm"
 )
 
 private val strongDangerousActionTextMarkers = listOf(
@@ -61,7 +61,7 @@ private val strongDangerousActionTextMarkers = listOf(
     "同意授权",
     "提交订单",
     "确认下单",
-    "立即购买",
+    "立即购买"
 )
 
 private val standaloneDangerousActionTextMarkers = listOf(
@@ -76,7 +76,7 @@ private val standaloneDangerousActionTextMarkers = listOf(
     "发表",
     "授权",
     "允许",
-    "同意",
+    "同意"
 )
 
 /**
@@ -99,7 +99,7 @@ private val paymentContextTextMarkers = listOf(
     "同意授权",
     "confirm payment",
     "payment password",
-    "confirm transfer",
+    "confirm transfer"
 )
 
 /** Everyday phrases that contain a marker but name no action: dates, sort tabs, sales counts, an app. */
@@ -113,8 +113,7 @@ private const val DIALOG_TEXT_MAX_CHARS = 24
 
 private val CAMEL_CASE_BOUNDARY_REGEX = Regex("([a-z])([A-Z])")
 
-private fun String?.normalizedForDangerMatch(): String =
-    benignDangerPhrases.fold(normalizedLookupKey()) { text, phrase -> text.replace(phrase, "") }
+private fun String?.normalizedForDangerMatch(): String = benignDangerPhrases.fold(normalizedLookupKey()) { text, phrase -> text.replace(phrase, "") }
 
 /**
  * Bare confirm buttons ("确定", "OK", …). Harmless on their own, but on a window that also shows a
@@ -179,8 +178,7 @@ internal fun String?.hasStrongDangerousActionText(): Boolean {
     return strongDangerousActionTextKeys.any { key -> normalized.contains(key) }
 }
 
-internal fun ScreenStateSnapshot.hasDangerousActionControl(): Boolean =
-    nodes.any { node -> node.hasDangerousActionControl() }
+internal fun ScreenStateSnapshot.hasDangerousActionControl(): Boolean = nodes.any { node -> node.hasDangerousActionControl() }
 
 /**
  * Whether tapping [target] (a node id or label) would activate a critical control. The target text
@@ -190,10 +188,28 @@ internal fun ScreenStateSnapshot.hasDangerousActionControl(): Boolean =
 internal fun ScreenStateSnapshot.tapTargetHitsDangerousControl(target: String): Boolean {
     val dangerText = nodes.windowShowsDangerText()
     if (target.isCriticalTapLabel(dangerText)) return true
+    val scopedRef = SnapshotRefs.parse(target)
+    if (scopedRef != null) {
+        val published = SnapshotRefRegistry.publishedSnapshot
+        if (published != null && published.id == scopedRef.snapshotId) {
+            val publishedDangerText = dangerText || published.nodes.windowShowsDangerText()
+            val publishedNode = published.nodes.firstOrNull { it.id == scopedRef.nodeId }
+            if (publishedNode?.hasCriticalTapLabel(publishedDangerText) == true) return true
+        }
+        val refNodeId = scopedRef.nodeId
+        return nodes.any { node ->
+            transientNodeIdTargetMatchScore(node.id, refNodeId) != null &&
+                node.hasCriticalTapLabel(dangerText)
+        }
+    }
     val key = target.normalizedLookupKey()
     if (key.isBlank()) return false
     return nodes.any { node ->
-        (node.id == target || node.tapLabels().any { label -> label.normalizedLookupKey() == key }) &&
+        (
+            node.id == target ||
+                transientNodeIdTargetMatchScore(node.id, target, key) != null ||
+                node.tapLabels().any { label -> label.normalizedLookupKey() == key }
+            ) &&
             node.hasCriticalTapLabel(dangerText)
     }
 }
@@ -239,15 +255,14 @@ internal fun List<ScreenNode>.tapAtPointHitsDangerousControl(x: Int, y: Int): Bo
  */
 internal fun List<ScreenNode>.holdsCriticalControl(
     container: ScreenBounds,
-    dangerText: Boolean = windowShowsDangerText(),
+    dangerText: Boolean = windowShowsDangerText()
 ): Boolean = any { node ->
     node.bounds?.isInside(container) == true &&
         if (node.clickable) node.hasCriticalTapLabel(dangerText) else node.hasCriticalCaption(dangerText)
 }
 
 /** Whether the node a truncated walk found under the point can be trusted to stand for the tap. */
-internal fun List<ScreenNode>.hasLabelledActionableNodeAt(x: Int, y: Int): Boolean =
-    actionableNodesAt(x, y).minByOrNull { node -> node.bounds!!.area() }?.tapLabels()?.isNotEmpty() == true
+internal fun List<ScreenNode>.hasLabelledActionableNodeAt(x: Int, y: Int): Boolean = actionableNodesAt(x, y).minByOrNull { node -> node.bounds!!.area() }?.tapLabels()?.isNotEmpty() == true
 
 /**
  * Whether what a tap at ([x], [y]) lands on can be named: the innermost actionable node under the
@@ -273,37 +288,33 @@ internal fun List<ScreenNode>.swipeStaysOnOneControl(startX: Int, startY: Int, e
 }
 
 /** Whether the window shows a payment, transfer, or authorization step ([paymentContextTextMarkers]). */
-internal fun List<ScreenNode>.windowShowsPaymentContext(): Boolean =
-    any { node ->
-        node.tapLabels().any { label -> label.length <= DIALOG_TEXT_MAX_CHARS && label.hasPaymentContextText() }
-    }
+internal fun List<ScreenNode>.windowShowsPaymentContext(): Boolean = any { node ->
+    node.tapLabels().any { label -> label.length <= DIALOG_TEXT_MAX_CHARS && label.hasPaymentContextText() }
+}
 
 private fun String.hasPaymentContextText(): Boolean {
     val normalized = normalizedForDangerMatch()
     return paymentContextTextKeys.any { key -> normalized.contains(key) }
 }
 
-private fun List<ScreenNode>.actionableNodesAt(x: Int, y: Int): List<ScreenNode> =
-    filter { node -> node.enabled && (node.clickable || node.editable) && node.bounds.covers(x, y) }
+private fun List<ScreenNode>.actionableNodesAt(x: Int, y: Int): List<ScreenNode> = filter { node -> node.enabled && (node.clickable || node.editable) && node.bounds.covers(x, y) }
 
 internal fun ScreenNode.tapLabels(): List<String> = listOf(text, contentDescription).filter { it.isNotBlank() }
 
 internal fun ScreenNode.tapLabel(): String = text.ifBlank { contentDescription }
 
 /** A control's own label: the full tap list at any length. */
-internal fun ScreenNode.hasCriticalTapLabel(windowShowsDangerText: Boolean): Boolean =
-    tapLabels().any { label -> label.isCriticalTapLabel(windowShowsDangerText) }
+internal fun ScreenNode.hasCriticalTapLabel(windowShowsDangerText: Boolean): Boolean = tapLabels().any { label -> label.isCriticalTapLabel(windowShowsDangerText) }
 
-private fun ScreenNode.hasCriticalCaption(windowShowsDangerText: Boolean): Boolean =
-    tapLabels().map { label -> label.withoutMessageTypeTag() }.any { label ->
-        label.length <= BUTTON_LABEL_MAX_CHARS &&
-            (
-                label.hasOcrDangerousActionText() ||
-                    label.isExactDangerousTapTarget() ||
-                    (label.isShortLatinCaption() && label.hasDangerousTapTargetText()) ||
-                    (windowShowsDangerText && label.isGenericConfirmLabel())
-                )
-    }
+private fun ScreenNode.hasCriticalCaption(windowShowsDangerText: Boolean): Boolean = tapLabels().map { label -> label.withoutMessageTypeTag() }.any { label ->
+    label.length <= BUTTON_LABEL_MAX_CHARS &&
+        (
+            label.hasOcrDangerousActionText() ||
+                label.isExactDangerousTapTarget() ||
+                (label.isShortLatinCaption() && label.hasDangerousTapTargetText()) ||
+                (windowShowsDangerText && label.isGenericConfirmLabel())
+            )
+}
 
 /**
  * Chat lists prefix a message preview with its type in brackets ("[转账]", "[红包]¥88", "[链接]").
@@ -319,8 +330,7 @@ private fun String.withoutMessageTypeTag(): String {
 private val MESSAGE_TYPE_TAG_REGEX = Regex("^\\s*[\\[［【][^\\]］】]{1,6}[\\]］】]")
 
 /** One or two Latin words ("Pay now", "Place order"): a button caption, not a sentence of content. */
-private fun String.isShortLatinCaption(): Boolean =
-    all { char -> char.code < CJK_RADICALS_START } && trim().split(WHITESPACE_REGEX).size <= 2
+private fun String.isShortLatinCaption(): Boolean = all { char -> char.code < CJK_RADICALS_START } && trim().split(WHITESPACE_REGEX).size <= 2
 
 private const val CJK_RADICALS_START = 0x2E80
 
@@ -343,13 +353,11 @@ private val captionActionPrefixes = listOf("去", "立即", "马上", "确认", 
 private val CAPTION_AMOUNT_REGEX = Regex("[\\d¥￥\$元]+")
 
 /** A tap label is critical on its own, or a bare confirm on a window showing critical text. */
-internal fun String?.isCriticalTapLabel(windowShowsDangerText: Boolean): Boolean =
-    hasDangerousTapTargetText() || (windowShowsDangerText && isGenericConfirmLabel())
+internal fun String?.isCriticalTapLabel(windowShowsDangerText: Boolean): Boolean = hasDangerousTapTargetText() || (windowShowsDangerText && isGenericConfirmLabel())
 
-internal fun List<ScreenNode>.windowShowsDangerText(): Boolean =
-    any { node ->
-        node.tapLabels().any { label -> label.length <= DIALOG_TEXT_MAX_CHARS && label.hasDangerousActionText() }
-    }
+internal fun List<ScreenNode>.windowShowsDangerText(): Boolean = any { node ->
+    node.tapLabels().any { label -> label.length <= DIALOG_TEXT_MAX_CHARS && label.hasDangerousActionText() }
+}
 
 /**
  * Whether a critical send / publish / pay control sits beside the focused input [input] — the
@@ -361,7 +369,7 @@ internal fun List<ScreenNode>.windowShowsDangerText(): Boolean =
  */
 internal fun List<ScreenNode>.criticalControlNearInput(
     input: ScreenBounds,
-    marginPx: Int = (input.bottom - input.top).coerceAtLeast(0),
+    marginPx: Int = (input.bottom - input.top).coerceAtLeast(0)
 ): Boolean {
     val dangerText = windowShowsDangerText()
     val left = input.left - marginPx
@@ -381,11 +389,9 @@ internal fun List<ScreenNode>.criticalControlNearInput(
     }
 }
 
-private fun ScreenBounds?.covers(x: Int, y: Int): Boolean =
-    this != null && x in left..right && y in top..bottom
+private fun ScreenBounds?.covers(x: Int, y: Int): Boolean = this != null && x in left..right && y in top..bottom
 
-private fun ScreenBounds.isInside(outer: ScreenBounds): Boolean =
-    left >= outer.left && top >= outer.top && right <= outer.right && bottom <= outer.bottom
+private fun ScreenBounds.isInside(outer: ScreenBounds): Boolean = left >= outer.left && top >= outer.top && right <= outer.right && bottom <= outer.bottom
 
 private fun ScreenBounds.area(): Long = (right - left).toLong() * (bottom - top)
 
@@ -424,7 +430,7 @@ private val blockingOverlayMarkers = listOf(
     "跳过广告",
     "跳转详情",
     "第三方应用",
-    "摇一摇",
+    "摇一摇"
 )
 
 private val overlayDismissLabels = listOf(
@@ -444,7 +450,7 @@ private val overlayDismissLabels = listOf(
     "暂不升级",
     // Ads and coupon pop-ups.
     "跳过广告",
-    "残忍拒绝",
+    "残忍拒绝"
 )
 
 /**

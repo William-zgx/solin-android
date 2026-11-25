@@ -6,7 +6,6 @@ import com.bytedance.zgx.solin.device.ScreenBounds
 import com.bytedance.zgx.solin.device.ScreenNode
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
-import com.bytedance.zgx.solin.device.SnapshotRefRegistry
 import com.bytedance.zgx.solin.device.UiActionExecutionResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.UiActionReadResult
@@ -33,11 +32,7 @@ internal class OcrGroundingCurrentScreenControlProvider(
 ) : CurrentScreenControlProvider {
     override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
         cache.clear()
-        // The model-facing observation: the only place scoped-ref snapshots are published. Internal reads
-        // (ocrGroundingValidationSnapshot) call the delegate directly and never publish.
-        return delegate.observeCurrentScreen(maxTextChars = maxTextChars, maxNodes = maxNodes).also { result ->
-            if (result is ScreenStateReadResult.Available) SnapshotRefRegistry.publish(result.snapshot)
-        }
+        return delegate.observeCurrentScreen(maxTextChars = maxTextChars, maxNodes = maxNodes)
     }
 
     override fun tap(target: String, timeoutMillis: Long): UiActionReadResult = tapWithOcrGrounding(target = target, ocrGroundingHint = null, timeoutMillis = timeoutMillis)
@@ -47,7 +42,8 @@ internal class OcrGroundingCurrentScreenControlProvider(
         ocrGroundingHint: UiOcrGroundingHint?,
         timeoutMillis: Long
     ): UiActionReadResult {
-        val validationSnapshot = ocrGroundingValidationSnapshot()
+        val validationRead = delegate.observeCurrentScreen()
+        val validationSnapshot = (validationRead as? ScreenStateReadResult.Available)?.snapshot
         val hint = ocrGroundingHint ?: cache.consumeFor(
             target,
             currentSnapshot = validationSnapshot
@@ -66,13 +62,17 @@ internal class OcrGroundingCurrentScreenControlProvider(
         timeoutMillis: Long,
         allowClipboardPasteFallback: Boolean
     ): UiActionReadResult {
-        val validationSnapshot = ocrGroundingValidationSnapshot()
+        val validationRead = delegate.observeCurrentScreen()
+        val validationSnapshot = (validationRead as? ScreenStateReadResult.Available)?.snapshot
         val hint = if (target.isNullOrBlank()) {
             cache.consumeForSearchEntry(currentSnapshot = validationSnapshot)
         } else {
             cache.consumeFor(target, currentSnapshot = validationSnapshot)
         }
         hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
+        if (target.isNullOrBlank()) {
+            validationRead.propagatedValidationRefusal()?.let { return it }
+        }
         validationSnapshot.rejectTargetlessTypingWithoutContext(target, hint)?.let { return it }
         return delegate.typeTextWithOcrGrounding(
             text = text,
@@ -89,11 +89,13 @@ internal class OcrGroundingCurrentScreenControlProvider(
         ocrGroundingHint: UiOcrGroundingHint?,
         timeoutMillis: Long
     ): UiActionReadResult {
-        val validationSnapshot = ocrGroundingValidationSnapshot()
+        val validationRead = delegate.observeCurrentScreen()
+        val validationSnapshot = (validationRead as? ScreenStateReadResult.Available)?.snapshot
         val hint = ocrGroundingHint ?: cache.consumeForSubmitSearch(
             currentSnapshot = validationSnapshot
         )
         hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
+        validationRead.propagatedValidationRefusal()?.let { return it }
         validationSnapshot.rejectSubmitWithoutSearchContext(hint)?.let { return it }
         return delegate.submitSearchWithOcrGrounding(
             ocrGroundingHint = hint,
@@ -174,9 +176,19 @@ internal class OcrGroundingCurrentScreenControlProvider(
         return delegate.pressKey(key = key, timeoutMillis = timeoutMillis)
     }
 
-    private fun ocrGroundingValidationSnapshot(): ScreenStateSnapshot? = when (val result = delegate.observeCurrentScreen()) {
-        is ScreenStateReadResult.Available -> result.snapshot
-        else -> null
+    /**
+     * Propagate hard read failures (permission revoked or lock-screen/unknown snapshot refusal)
+     * instead of turning them into retryable EditableNotFound / SubmitNotFound loops.
+     */
+    private fun ScreenStateReadResult.propagatedValidationRefusal(): UiActionReadResult? = when (this) {
+        is ScreenStateReadResult.PermissionDenied -> UiActionReadResult.PermissionDenied(reason)
+        is ScreenStateReadResult.Failed ->
+            if (failureKind == UiActionFailureKind.SnapshotUnknown) {
+                UiActionReadResult.Failed(reason = reason, retryable = false, failureKind = failureKind)
+            } else {
+                null
+            }
+        is ScreenStateReadResult.Available -> null
     }
 
     private fun ScreenStateSnapshot?.rejectSubmitWithoutSearchContext(
@@ -521,6 +533,8 @@ private fun UiOcrGroundingHint.scoreForTarget(normalizedTarget: String): Int {
     } + bounds.width().coerceAtMost(200) + bounds.height().coerceAtMost(120)
 }
 
+// Deliberately excludes generic dialog confirmation labels ("确定"/"确认") so submit_search OCR
+// grounding never taps an unrelated dialog confirm button on a screen containing search text.
 private val SUBMIT_SEARCH_OCR_HINTS = listOf(
     "提交搜索",
     "搜索",

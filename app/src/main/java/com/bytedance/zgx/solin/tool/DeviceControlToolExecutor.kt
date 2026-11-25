@@ -19,6 +19,7 @@ import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
 import com.bytedance.zgx.solin.device.SearchResultVerification
 import com.bytedance.zgx.solin.device.SnapshotRefRegistry
+import com.bytedance.zgx.solin.device.SnapshotRefs
 import com.bytedance.zgx.solin.device.UiActionExecutionResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.UiActionReadResult
@@ -96,7 +97,9 @@ class DeviceControlToolExecutor(
             )
         }
         return when (result) {
-            is ScreenStateReadResult.Available ->
+            is ScreenStateReadResult.Available -> {
+                // Model-facing observation succeeded and passed package checks: publish for scoped refs.
+                SnapshotRefRegistry.publish(result.snapshot)
                 request.succeeded(
                     summary = result.snapshot.observationSummary(),
                     data = request.deviceControlBaseData() + result.snapshot.toObservationData(
@@ -104,6 +107,7 @@ class DeviceControlToolExecutor(
                         requestedMaxNodes = maxNodes
                     )
                 )
+            }
 
             is ScreenStateReadResult.PermissionDenied ->
                 request.deviceControlPermissionDenied(result.reason)
@@ -196,7 +200,7 @@ class DeviceControlToolExecutor(
             target = target,
             dangerScope = DangerScope.Target(target),
             failClosedOnUnavailable = false,
-            dismissBlockingOverlays = true
+            dismissBlockingOverlays = SnapshotRefs.parse(target) == null
         ) {
             provider.tap(
                 target = target,
@@ -210,6 +214,20 @@ class DeviceControlToolExecutor(
         provider: CurrentScreenControlProvider
     ): ToolResult {
         val target = request.arguments["target"].orEmpty()
+        if (SnapshotRefs.parse(target) != null) {
+            return request.blockedBeforeExecution(
+                actionType = "type_text",
+                target = target,
+                summary = "输入目标不支持快照引用",
+                retryable = false,
+                summaryCode = "scoped_ref_unsupported_for_type_text",
+                failureKind = UiActionFailureKind.SnapshotUnknown,
+                beforeObservationId = "",
+                afterObservationId = "",
+                verificationSummary = "输入目标不支持快照引用",
+                blockReason = "scoped_ref_unsupported_for_type_text"
+            )
+        }
         return guardedAction(
             request,
             actionType = "type_text",
@@ -405,22 +423,50 @@ class DeviceControlToolExecutor(
         failClosedOnUnavailable: Boolean,
         dismissBlockingOverlays: Boolean
     ): ToolResult? {
-        expectedForegroundPackagePreflight(request, actionType = actionType, target = target)?.let { return it }
+        val expectedPackage = request.expectedForegroundPackageName()
+        val needsPreflightRead = expectedPackage != null || dangerScope != DangerScope.None
+        val initialRead = if (needsPreflightRead) {
+            preflightProvider?.observeCurrentScreen(
+                maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
+            )
+        } else {
+            null
+        }
+        expectedForegroundPackagePreflight(
+            request = request,
+            actionType = actionType,
+            target = target,
+            expectedPackage = expectedPackage,
+            screenRead = initialRead
+        )?.let { return it }
         dangerousUiActionPreflight(
-            request,
+            request = request,
             actionType = actionType,
             target = target,
             dangerScope = dangerScope,
-            failClosedOnUnavailable = failClosedOnUnavailable
+            failClosedOnUnavailable = failClosedOnUnavailable,
+            screenRead = initialRead
         )?.let { return it }
-        if (dismissBlockingOverlays) {
-            dismissBlockingOverlaysIfPresent()
+        if (dismissBlockingOverlays && dismissBlockingOverlaysIfPresent()) {
+            val postDismissRead = preflightProvider?.observeCurrentScreen(
+                maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
+            )
+            expectedForegroundPackagePreflight(
+                request = request,
+                actionType = actionType,
+                target = target,
+                expectedPackage = expectedPackage,
+                screenRead = postDismissRead
+            )?.let { return it }
             dangerousUiActionPreflight(
-                request,
+                request = request,
                 actionType = actionType,
                 target = target,
                 dangerScope = dangerScope,
-                failClosedOnUnavailable = failClosedOnUnavailable
+                failClosedOnUnavailable = failClosedOnUnavailable,
+                screenRead = postDismissRead
             )?.let { return it }
         }
         return null
@@ -429,17 +475,14 @@ class DeviceControlToolExecutor(
     private fun expectedForegroundPackagePreflight(
         request: ToolRequest,
         actionType: String,
-        target: String
+        target: String,
+        expectedPackage: String?,
+        screenRead: ScreenStateReadResult?
     ): ToolResult? {
-        val expectedPackage = request.expectedForegroundPackageName() ?: return null
-        return when (
-            val result = preflightProvider?.observeCurrentScreen(
-                maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
-                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
-            )
-        ) {
+        if (expectedPackage == null) return null
+        return when (screenRead) {
             is ScreenStateReadResult.Available -> {
-                val snapshot = result.snapshot
+                val snapshot = screenRead.snapshot
                 if (snapshot.packageName == expectedPackage) {
                     null
                 } else {
@@ -454,7 +497,7 @@ class DeviceControlToolExecutor(
             }
 
             is ScreenStateReadResult.PermissionDenied ->
-                request.deviceControlPermissionDenied(result.reason)
+                request.deviceControlPermissionDenied(screenRead.reason)
 
             is ScreenStateReadResult.Failed ->
                 request.foregroundPackageGateFailure(
@@ -483,7 +526,8 @@ class DeviceControlToolExecutor(
         actionType: String,
         target: String,
         dangerScope: DangerScope,
-        failClosedOnUnavailable: Boolean
+        failClosedOnUnavailable: Boolean,
+        screenRead: ScreenStateReadResult?
     ): ToolResult? {
         // Typing and scrolling never activate a control, so a pay/send button elsewhere on the
         // screen (every chat screen has "发送") must not stop them.
@@ -494,10 +538,6 @@ class DeviceControlToolExecutor(
         // and system-key presses there is NO named-target layer — this preflight is the sole guard
         // between the model and a raw-pixel/system action — so those callers pass
         // failClosedOnUnavailable=true and we BLOCK when the screen cannot be confirmed dangerous-free.
-        val screenRead = preflightProvider?.observeCurrentScreen(
-            maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
-            maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
-        )
         // A named critical target is refused whatever the read returned, so an unreadable screen
         // cannot let it through.
         if (dangerScope is DangerScope.Target && dangerScope.target.hasDangerousTapTargetText()) {
@@ -623,20 +663,22 @@ class DeviceControlToolExecutor(
      * the loop gives up after one ineffective tap rather than looping, and the real action proceeds.
      * All observation stays on the existing LocalOnly accessibility channel — no new pixel path.
      */
-    private fun dismissBlockingOverlaysIfPresent() {
-        val provider = preflightProvider ?: return
+    private fun dismissBlockingOverlaysIfPresent(): Boolean {
+        val provider = preflightProvider ?: return false
         var snapshot = (
             provider.observeCurrentScreen(
                 maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
                 maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
             ) as? ScreenStateReadResult.Available
-            )?.snapshot ?: return
+            )?.snapshot ?: return false
+        var dismissedAny = false
         repeat(SolinConstants.AgentLoop.AD_DISMISS_MAX_ROUNDS) {
-            val dismissTarget = snapshot.blockingOverlayDismissTarget() ?: return
+            val dismissTarget = snapshot.blockingOverlayDismissTarget() ?: return dismissedAny
             val label = dismissTarget.text.ifBlank { dismissTarget.contentDescription }
-            if (label.isBlank()) return
+            if (label.isBlank()) return dismissedAny
             val beforeSignature = snapshot.overlayContentSignature()
             val tapResult = provider.tap(target = label, timeoutMillis = DEFAULT_UI_ACTION_TIMEOUT_MILLIS)
+            dismissedAny = true
             val after = (tapResult as? UiActionReadResult.Available)?.result?.after
                 ?: (
                     provider.observeCurrentScreen(
@@ -652,10 +694,11 @@ class DeviceControlToolExecutor(
                 !after.hasBlockingOverlay() ||
                 after.overlayContentSignature() == beforeSignature
             ) {
-                return
+                return dismissedAny
             }
             snapshot = after
         }
+        return dismissedAny
     }
 
     /**

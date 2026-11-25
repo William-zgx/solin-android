@@ -305,6 +305,60 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         )
     }
 
+    @Test
+    fun ocrGroundingProviderPropagatesPermissionDeniedAndSnapshotUnknownOnTargetlessActions() {
+        val deniedProvider = OcrGroundingCurrentScreenControlProvider(
+            delegate = RecordingControlProvider(
+                observeResult = ScreenStateReadResult.PermissionDenied("locked")
+            ),
+            cache = CurrentScreenOcrGroundingCache { 0L }
+        )
+        assertTrue(deniedProvider.typeText(text = "耳机", target = null) is UiActionReadResult.PermissionDenied)
+        assertTrue(deniedProvider.submitSearch() is UiActionReadResult.PermissionDenied)
+
+        val unknownProvider = OcrGroundingCurrentScreenControlProvider(
+            delegate = RecordingControlProvider(
+                observeResult = ScreenStateReadResult.Failed(
+                    reason = "snapshot unavailable",
+                    failureKind = UiActionFailureKind.SnapshotUnknown
+                )
+            ),
+            cache = CurrentScreenOcrGroundingCache { 0L }
+        )
+        val typeFailure = unknownProvider.typeText(text = "耳机", target = null) as UiActionReadResult.Failed
+        assertEquals(UiActionFailureKind.SnapshotUnknown, typeFailure.failureKind)
+        val submitFailure = unknownProvider.submitSearch() as UiActionReadResult.Failed
+        assertEquals(UiActionFailureKind.SnapshotUnknown, submitFailure.failureKind)
+    }
+
+    @Test
+    fun ocrCapturePublishesSnapshotOnlyWhenUnlockedThroughCapture() {
+        com.bytedance.zgx.solin.device.SnapshotRefRegistry.clear()
+        try {
+            val provider = RecordingControlProvider(
+                observeResult = ScreenStateReadResult.Available(groundedSnapshot())
+            )
+            val unlockedResult = routingExecutorWithOcrGrounding(provider).execute(captureOcrRequest())
+            assertEquals(ToolStatus.Succeeded, unlockedResult.status)
+            assertEquals("screen-grounded", com.bytedance.zgx.solin.device.SnapshotRefRegistry.publishedSnapshot?.id)
+
+            com.bytedance.zgx.solin.device.SnapshotRefRegistry.clear()
+            val calls = AtomicInteger(0)
+            // Unlocked on entry, transitions to Locked during pre-capture observe.
+            val lockingExecutor = routingExecutorWithOcrGrounding(
+                provider = provider,
+                lockState = {
+                    if (calls.incrementAndGet() <= 1) DeviceLockState.Unlocked else DeviceLockState.Locked
+                }
+            )
+            val lockedResult = lockingExecutor.execute(captureOcrRequest())
+            assertEquals(ToolStatus.Failed, lockedResult.status)
+            assertNull(com.bytedance.zgx.solin.device.SnapshotRefRegistry.publishedSnapshot)
+        } finally {
+            com.bytedance.zgx.solin.device.SnapshotRefRegistry.clear()
+        }
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────────────
 
     private fun captureOcrRequest() = ToolRequest(

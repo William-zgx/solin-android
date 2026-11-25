@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.plan
 
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.module.SolinModule
 import com.bytedance.zgx.solin.module.SolinModuleRegistry
 import com.bytedance.zgx.solin.tool.ConfirmationPolicy
@@ -154,12 +155,7 @@ class PlanToolHandler(
             } else {
                 null
             }
-            val status = if (statusRaw != null) {
-                runCatching { PlanItemStatus.valueOf(statusRaw) }
-                    .getOrElse { PlanItemStatus.PENDING }
-            } else {
-                PlanItemStatus.PENDING
-            }
+            val status = persistedEnumOrNull<PlanItemStatus>(statusRaw) ?: PlanItemStatus.PENDING
             val note = if (obj.has("note") && !obj.isNull("note")) {
                 obj.getString("note").takeIf { it.isNotBlank() }
             } else {

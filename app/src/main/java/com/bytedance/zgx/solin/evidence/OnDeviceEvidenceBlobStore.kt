@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.evidence
 import android.content.Context
 import android.util.AtomicFile
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.common.sha256Hex
 import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.solinW
@@ -103,15 +104,11 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
     companion object {
         private const val TAG = "OnDeviceEvidenceBlob"
         private fun loge(msg: String, t: Throwable? = null) {
-            runCatching {
-                if (t == null) solinE(TAG, msg) else solinE(TAG, msg, t)
-            }.onFailure { println("E/$TAG: $msg ${t?.message}") }
+            if (t == null) solinE(TAG, msg) else solinE(TAG, msg, t)
         }
 
         private fun logw(msg: String, t: Throwable? = null) {
-            runCatching {
-                if (t == null) solinW(TAG, msg) else solinW(TAG, msg, t)
-            }.onFailure { println("W/$TAG: $msg ${t?.message}") }
+            if (t == null) solinW(TAG, msg) else solinW(TAG, msg, t)
         }
     }
 
@@ -245,8 +242,8 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
             Meta(
                 ttlUntil = map["ttlUntil"]?.toLongOrNull()?.takeIf { it > 0 },
                 mimeType = map["mimeType"]?.takeIf { it != "-" },
-                sourceType = map["sourceType"]?.let { runCatching { EvidenceSourceType.valueOf(it) }.getOrNull() },
-                privacy = map["privacy"]?.let { runCatching { MessagePrivacy.valueOf(it) }.getOrNull() }
+                sourceType = persistedEnumOrNull(map["sourceType"]),
+                privacy = persistedEnumOrNull(map["privacy"])
             )
         } catch (t: Throwable) {
             logw("readMeta failed for ${bin.name}", t)
