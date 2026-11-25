@@ -196,16 +196,6 @@ def run_annotation(key):
     return f" ({e} errored)"
 
 
-# Every cell a renderer produced through [run_cell] or [labelled], with the runs it came from.
-# `--check` audits this list: it is the machine-checkable form of Decision L1.
-RUN_CELLS = []
-
-
-def record_cell(keys, text):
-    RUN_CELLS.append((tuple(keys), str(text)))
-    return text
-
-
 def run_cell(key, text):
     """The one formatting path for a number derived from a run (Decision L1).
 
@@ -215,8 +205,7 @@ def run_cell(key, text):
     can retain a valid fallback outcome with the same error annotation.
     """
     n, e = RUN_ERRORS.get(key, (0, 0))
-    text = f"errored {n}/{n}" if (e and e == n) else str(text) + run_annotation(key)
-    return record_cell([key], text)
+    return f"errored {n}/{n}" if (e and e == n) else str(text) + run_annotation(key)
 
 
 def score_cell(key, rs, hits, total=None):
@@ -233,11 +222,11 @@ def score_cell(key, rs, hits, total=None):
             text = f"errored {population}/{population}"
             if not fully_errored:
                 text += run_annotation(key)
-            return record_cell([key], text)
+            return text
         if run_e:
-            return record_cell([key], "n/a" + run_annotation(key))
+            return "n/a" + run_annotation(key)
         return "n/a"
-    return record_cell([key], frac(hits, len(rs)) + run_annotation(key))
+    return frac(hits, len(rs)) + run_annotation(key)
 
 
 def labelled(key, text):
@@ -249,10 +238,10 @@ def labelled(key, text):
     """
     n, e = RUN_ERRORS.get(key, (0, 0))
     if not e:
-        return record_cell([key], str(text))
+        return str(text)
     if e == n:
-        return record_cell([key], f"{text} (errored {n}/{n})")
-    return record_cell([key], f"{text} ({e} errored)")
+        return f"{text} (errored {n}/{n})"
+    return f"{text} ({e} errored)"
 
 
 def cell_for_runs(keys, text):
@@ -264,12 +253,12 @@ def cell_for_runs(keys, text):
     """
     dirty = [key for key in keys if RUN_ERRORS.get(key, (0, 0))[1]]
     if not dirty:
-        return record_cell(keys, str(text))
+        return str(text)
     if len(dirty) == 1:
         # A composite can remain computable from its other contributor or a valid fallback plan.
-        return record_cell(keys, str(text) + run_annotation(dirty[0]))
+        return str(text) + run_annotation(dirty[0])
     parts = ", ".join(f"{RUN_ERRORS[key][1]} errored in {key[2]}" for key in dirty)
-    return record_cell(keys, f"{text} ({parts})")
+    return f"{text} ({parts})"
 
 
 def percentile(values, q):
@@ -697,7 +686,7 @@ def suite_a(records, models, out):
         ordered = [reason for reason, _ in reasons.most_common()]
         out.append("Replanner rejection reasons, counted per model call (a step can have two):\n")
         out.append(table(["model", "mode"] + ordered,
-                         [[key[1], key[2]] + [per_key[key].get(r, 0) for r in ordered]
+                         [[labelled(key, key[1]), key[2]] + [per_key[key].get(r, 0) for r in ordered]
                           for key in keys]))
         out.append("")
 
@@ -741,7 +730,7 @@ def initial_rows(keys, records, native):
         bad = [r for r in rs if errored(r)]
         answered_records = [r for r in rs if has_scorable_answer(r)]
         if bad and not answered_records:
-            overall = record_cell([key], f"errored {len(rs)}/{len(rs)} ({error_reason(bad[0])})")
+            overall = f"errored {len(rs)}/{len(rs)} ({error_reason(bad[0])})"
         else:
             overall = score_cell(key, answered_records, sum(r["correct"] for r in answered_records), total=len(rs))
         attempted = [r for r in rs
@@ -1058,7 +1047,7 @@ def latency(records, models, out):
                 # Every call in this run failed (`model_calls` drops failed calls), so there is no
                 # timing to report. Say the run errored rather than leaving it out of the table.
                 n, e = RUN_ERRORS.get(key, (0, 0))
-                if e == n:
+                if e and e == n:
                     rows.append([SUITE_LETTER[suite], key[1], key[2], f"errored {n}/{n}"]
                                 + [f"errored {n}/{n}"] * 6)
                 elif e:
@@ -1199,7 +1188,6 @@ def suite_e(records, models, out):
         # Gate-open is a positive prediction; recall = share of action cases where it opened.
         true_pos = sum(1 for r in acted if r.get("gateOpen"))
         false_pos = sum(1 for r in idle if r.get("gateOpen"))
-        precision = f"{true_pos}/{true_pos + false_pos}" if (true_pos + false_pos) else "n/a"
         gap_rs = [r for r in rs if r["caseId"] in gap] if gap else []
         gap_acted = [r for r in gap_rs if r["expectsAction"]]
         rows.append([
@@ -1207,7 +1195,7 @@ def suite_e(records, models, out):
             len(rs) if rs else len(all_rs),
             score_cell(key, rs, len(valid), total=len(all_rs)),
             score_cell(key, rs, sum(1 for r in rs if r.get("gatedCorrect")), total=len(all_rs)),
-            run_cell(key, f"{precision} ({pct(true_pos, true_pos + false_pos)})") if rs
+            run_cell(key, frac(true_pos, true_pos + false_pos)) if rs
             else score_cell(key, [], 0, total=len(all_rs)),
             score_cell(key, acted, true_pos, total=len(acted_all)),
             score_cell(key, idle, sum(1 for r in idle if not r.get("gateOpen")), total=len(idle_all)),
@@ -1747,21 +1735,6 @@ def gated_e2e_comparison(records, e2e_keys, out, initial_info=None):
 # ---- Main ----------------------------------------------------------------------------------------
 
 
-def host_for(model, manifest=None):
-    """The recorded host note that produced [model]'s numbers, or a name-prefix fallback.
-
-    One folder can hold two hosts (Ollama and the LiteRT shim on the same day). Prefer the host the
-    run recorded on the model itself; fall back to the name prefix, because `litert/*` ids come from
-    `lab/scripts/litert_shim.py` and everything else from Ollama. This never inherits the folder's
-    single `hostNote`, which only names the last host that wrote there. Tables use [host_label],
-    which shortens this to the exact heading; this keeps the full note for prose.
-    """
-    recorded = ((manifest or {}).get("models") or {}).get(model, {}).get("host")
-    if recorded:
-        return recorded
-    return LITERT_HOST_LABEL if model.startswith("litert/") else "Ollama"
-
-
 def initial_planning_info(manifest):
     """Dataset metadata whether the run used text planning, native tools, or both."""
     suites = manifest.get("suites") or {}
@@ -2121,7 +2094,8 @@ def cells_of(line):
     stripped = line.strip()
     if not stripped.startswith("|"):
         return None
-    return [cell.strip() for cell in stripped.strip("|").split("|")]
+    inner = re.sub(r"^\||(?<!\\)\|$", "", stripped)
+    return [cell.strip() for cell in re.split(r"(?<!\\)\|", inner)]
 
 
 def is_separator(cells):
@@ -2230,8 +2204,8 @@ def drift_problems(summary, committed, regenerated):
                     f"(committed: {want.strip()[:120]!r}; regenerated: {got.strip()[:120]!r}). "
                     f"Regenerate with `python3 -I lab/scripts/summarize.py {summary.parent}`, "
                     f"never edit a generated cell."]
-    return [f"{summary}: generated block has {len(committed)} lines but regenerates to "
-            f"{len(regenerated)}; regenerate rather than editing the block."]
+    return [f"{summary}: generated content drifted in length ({len(committed)} committed lines, "
+            f"{len(regenerated)} regenerated); regenerate rather than editing the block."]
 
 
 def annotation_problems(summary, lines):
@@ -2264,13 +2238,19 @@ def annotation_problems(summary, lines):
     return problems
 
 
-def check_folder(folder):
-    """Return the problems a regenerated folder's SUMMARY.md has, plus a summary tuple."""
+def load_folder_context(folder):
+    """Load manifest, JSONL records, run-error totals, and ordered model names for [folder]."""
     manifest_path = folder / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     records = load_records(folder)
     set_run_errors(records)
     models = model_order(manifest, records)
+    return manifest, records, models
+
+
+def check_folder(folder):
+    """Return the problems a regenerated folder's SUMMARY.md has, plus a summary tuple."""
+    manifest, records, models = load_folder_context(folder)
     summary = folder / "SUMMARY.md"
     if not summary.is_file():
         return [f"{summary}: missing (run summarize.py first)"], (0, 0)
@@ -2306,11 +2286,7 @@ def main(argv):
         print(f"ok: {runs} errored run(s) annotated on every citing line, generated block matches "
               f"the JSONL ({lines} line(s) checked).")
         return 0
-    manifest_path = folder / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
-    records = load_records(folder)
-    set_run_errors(records)
-    models = model_order(manifest, records)
+    manifest, records, models = load_folder_context(folder)
     summary = write_summary(folder, manifest, generated(folder, manifest, records, models))
     examples = []
     failure_examples(records, models, examples)

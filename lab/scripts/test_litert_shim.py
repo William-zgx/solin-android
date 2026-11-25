@@ -331,6 +331,13 @@ class CacheLifecycleTest(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertTrue(active.exists())
 
+    def test_handler_sets_socket_timeout_and_dangling_symlink_is_rejected(self):
+        self.assertEqual(30, self.shim.Handler.timeout)
+        dangling = self.root / "dangling-cache"
+        dangling.symlink_to(self.root / "does-not-exist")
+        with self.assertRaisesRegex(ValueError, "shim-owned directory"):
+            self.shim._prepare_cache(self.args(dangling))
+
 
 if __name__ == "__main__":
     unittest.main()

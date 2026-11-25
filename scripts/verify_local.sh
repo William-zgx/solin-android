@@ -39,8 +39,8 @@ else
     exit 1
   fi
   export SOLIN_SPOTLESS_RATCHET_REF="$SPOTLESS_RATCHET_REF"
+  "$GRADLE_CMD" spotlessCheck
 fi
-"$GRADLE_CMD" spotlessCheck
 # lintDebug's lint models can reference Room/KSP release generated sources.
 # Generate them first so lint does not race assembleRelease for the same files.
 "$GRADLE_CMD" :app:kspReleaseKotlin

@@ -3,8 +3,20 @@ package com.bytedance.zgx.solin
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performTextInput
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
@@ -21,7 +33,12 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
-import org.junit.rules.ExternalResource
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.rules.TestRule
+import org.junit.runner.Description
+import org.junit.runners.model.Statement
 
 internal val ReadyRemoteModelConfig = RemoteModelConfig(
     baseUrl = "http://127.0.0.1:16543/v1",
@@ -65,12 +82,8 @@ internal fun resetMainActivityPersistentState(
     (context.applicationContext as? SolinApplication)?.clearContainersForInstrumentation()
     val settingsStore = PreferenceSettingsStore(context)
     settingsStore.saveInferenceMode(inferenceMode)
-    if (remoteModelConfig.isConfigured) {
-        // Persist revision and integrity together; direct prefs writes leave Remote placement unconfigured.
-        RemoteModelRepository(context.applicationContext).saveConfig(remoteModelConfig).getOrThrow()
-    } else {
-        settingsStore.saveRemoteConfig(remoteModelConfig)
-    }
+    // Always save via RemoteModelRepository so SecretStore API key, revision, and integrity stay aligned.
+    RemoteModelRepository(context.applicationContext).saveConfig(remoteModelConfig).getOrThrow()
     settingsStore.saveActiveSessionId("")
     // Clear model selection so later UI tests do not inherit a half-loaded local path
     // (skip-startup instrumentation would leave isReady=false and change empty-state copy).
@@ -88,7 +101,7 @@ internal fun resetMainActivityFreshInstallState(context: Context) {
     (context.applicationContext as? SolinApplication)?.clearContainersForInstrumentation()
     val settingsStore = PreferenceSettingsStore(context)
     settingsStore.saveInferenceMode(InferenceMode.Local)
-    settingsStore.saveRemoteConfig(RemoteModelConfig())
+    RemoteModelRepository(context.applicationContext).saveConfig(RemoteModelConfig()).getOrThrow()
     settingsStore.saveActiveSessionId("")
     settingsStore.saveActiveInstalledModelId(null)
     settingsStore.saveSelectedModelId(DEFAULT_CHAT_MODEL_ID)
@@ -114,6 +127,7 @@ private val transientStateTables = listOf(
     "agent_skill_run_checkpoints",
     "pending_agent_confirmations",
     "agent_steps",
+    "agent_run_placement_bindings",
     "agent_runs",
     "memory_embeddings",
     "memory_records",
@@ -123,9 +137,10 @@ private val transientStateTables = listOf(
     "scheduled_tasks",
     "chat_messages",
     "chat_sessions",
-    // Model registry rows must not leak across instrumentation cases: a leftover
+    // Model registry and download rows must not leak across instrumentation cases: a leftover
     // active model path with skip-startup makes empty-state/banner copy switch to
     // the "loading local model" branch and breaks smoke/first-run assertions.
+    "download_records",
     "installed_models"
 )
 
@@ -143,6 +158,225 @@ internal fun mainActivitySkipStartupIntent(
         MainActivity.EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT,
         debugRemoteModelConfig.supportsVisionInput
     )
+}
+
+internal fun launchReadyRemoteMainActivity(
+    context: Context,
+    remoteModelConfig: RemoteModelConfig = ReadyRemoteModelConfig
+): ActivityScenario<MainActivity> {
+    resetMainActivityPersistentState(
+        context = context,
+        inferenceMode = InferenceMode.Remote,
+        remoteModelConfig = remoteModelConfig
+    )
+    return ActivityScenario.launch(
+        mainActivitySkipStartupIntent(
+            context = context,
+            debugRemoteModelConfig = remoteModelConfig
+        )
+    )
+}
+
+/**
+ * Runs [block] against [MainActivity], captures its [SolinViewModel] job before closing the scenario,
+ * and joins the cancelled scope so background IO finishes before the next test closes Room.
+ */
+internal inline fun <R> ActivityScenario<MainActivity>.useWithViewModelTeardown(
+    block: (ActivityScenario<MainActivity>) -> R
+): R {
+    var viewModelJob: Job? = null
+    var primaryFailure: Throwable? = null
+    try {
+        return block(this)
+    } catch (error: Throwable) {
+        primaryFailure = error
+        throw error
+    } finally {
+        runCatching {
+            onActivity { activity ->
+                viewModelJob = ViewModelProvider(activity)[SolinViewModel::class.java]
+                    .viewModelScope.coroutineContext[Job]
+            }
+        }
+        val closeFailure = runCatching { close() }.exceptionOrNull()
+        val joinFailure = runCatching { awaitViewModelTeardown(viewModelJob) }.exceptionOrNull()
+        val teardownFailure = combineFailures(closeFailure, joinFailure)
+        rethrowOrSuppress(primaryFailure, teardownFailure)
+    }
+}
+
+/**
+ * Coordinates [SolinViewModel] coroutine teardown around an [ActivityScenarioRule]-backed test rule:
+ * place [awaitRule] outside the Compose rule and [captureRule] inside it.
+ */
+internal class MainActivityTeardownRule(
+    private val activityProvider: () -> MainActivity?,
+    private val afterTeardown: () -> Unit = {}
+) {
+    @Volatile
+    private var viewModelJob: Job? = null
+
+    val captureRule: TestRule = TestRule { base, _ ->
+        object : Statement() {
+            override fun evaluate() {
+                try {
+                    base.evaluate()
+                } finally {
+                    captureViewModelJob()
+                }
+            }
+        }
+    }
+
+    val awaitRule: TestRule = TestRule { base, _ ->
+        object : Statement() {
+            override fun evaluate() {
+                var primaryFailure: Throwable? = null
+                try {
+                    base.evaluate()
+                } catch (error: Throwable) {
+                    primaryFailure = error
+                    throw error
+                } finally {
+                    val joinFailure = runCatching { awaitViewModelTeardown(viewModelJob) }.exceptionOrNull()
+                    viewModelJob = null
+                    val postFailure = runCatching { afterTeardown() }.exceptionOrNull()
+                    rethrowOrSuppress(primaryFailure, combineFailures(joinFailure, postFailure))
+                }
+            }
+        }
+    }
+
+    private fun captureViewModelJob() {
+        runCatching {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                val activity = activityProvider() ?: return@runOnMainSync
+                viewModelJob = ViewModelProvider(activity)[SolinViewModel::class.java]
+                    .viewModelScope.coroutineContext[Job]
+            }
+        }
+    }
+}
+
+@PublishedApi
+internal fun awaitViewModelTeardown(viewModelJob: Job?) {
+    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+    viewModelJob?.let { job ->
+        runBlocking {
+            withTimeout(10_000) {
+                job.join()
+            }
+        }
+    }
+}
+
+@PublishedApi
+internal fun combineFailures(first: Throwable?, second: Throwable?): Throwable? = when {
+    first == null -> second
+    second == null -> first
+    else -> first.apply { addSuppressed(second) }
+}
+
+@PublishedApi
+internal fun rethrowOrSuppress(primaryFailure: Throwable?, secondaryFailure: Throwable?) {
+    if (secondaryFailure == null) return
+    if (primaryFailure != null) {
+        primaryFailure.addSuppressed(secondaryFailure)
+    } else {
+        throw secondaryFailure
+    }
+}
+
+internal fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
+    waitUntil(timeoutMillis = timeoutMillis) {
+        onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+    }
+}
+
+internal fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
+    waitUntil(timeoutMillis = timeoutMillis) {
+        onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
+    }
+}
+
+internal fun ComposeTestRule.waitForText(
+    text: String,
+    timeoutMillis: Long = 10_000,
+    substring: Boolean = false
+) {
+    waitUntil(timeoutMillis = timeoutMillis) {
+        onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+    }
+}
+
+internal fun ComposeTestRule.waitForTextGone(
+    text: String,
+    timeoutMillis: Long = 10_000,
+    substring: Boolean = false
+) {
+    waitUntil(timeoutMillis = timeoutMillis) {
+        onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isEmpty()
+    }
+}
+
+internal fun ComposeTestRule.waitForAnyText(
+    texts: List<String>,
+    timeoutMillis: Long = 10_000,
+    substring: Boolean = false
+) {
+    waitUntil(timeoutMillis = timeoutMillis) {
+        texts.any { text ->
+            onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+}
+
+internal fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean = runCatching {
+    waitForTag(tag, timeoutMillis = timeoutMillis)
+    true
+}.getOrDefault(false)
+
+internal fun ComposeTestRule.assertTagAbsent(tag: String, timeoutMillis: Long = 5_000) {
+    waitForTagGone(tag, timeoutMillis = timeoutMillis)
+}
+
+internal fun ComposeTestRule.assertTextAbsent(
+    text: String,
+    timeoutMillis: Long = 5_000,
+    substring: Boolean = false
+) {
+    waitForTextGone(text, timeoutMillis = timeoutMillis, substring = substring)
+}
+
+internal fun ComposeTestRule.waitForReadyComposer(timeoutMillis: Long = 10_000) {
+    waitUntil(timeoutMillis = timeoutMillis) {
+        onAllNodesWithText("输入问题").fetchSemanticsNodes().isNotEmpty()
+    }
+    onNodeWithTag("composer_input").assertIsEnabled()
+}
+
+internal fun ComposeTestRule.confirmRemoteSendIfPresent(timeoutMillis: Long = 1_500) {
+    val needsConfirmation = waitForOptionalTag("remote_send_disclosure_sheet", timeoutMillis = timeoutMillis)
+    if (!needsConfirmation) return
+    onNodeWithTag("remote_send_confirm_button").performClick()
+    waitForTagGone("remote_send_disclosure_sheet")
+}
+
+internal fun ComposeTestRule.sendRemotePrompt(
+    prompt: String,
+    expectedBaseUrl: String = ReadyRemoteModelConfig.baseUrl,
+    confirmDisclosureTimeoutMillis: Long = 1_500
+) {
+    waitForRemoteModelReady(expectedBaseUrl)
+    waitForReadyComposer()
+    onNodeWithTag("composer_input").performTextClearance()
+    onNodeWithTag("composer_input").performTextInput(prompt)
+    onNodeWithTag("composer_send_button").performClick()
+    confirmRemoteSendIfPresent(timeoutMillis = confirmDisclosureTimeoutMillis)
+}
+
+internal fun hasTestTagPrefix(prefix: String): SemanticsMatcher = SemanticsMatcher("has test tag prefix $prefix") { node ->
+    node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
 }
 
 internal fun <A : Activity> activityFromScenarioRule(rule: ActivityScenarioRule<A>): A {
@@ -193,12 +427,31 @@ internal fun resumedMainActivityUiState(): ChatUiState? {
  * the test if one arrived, so a test that must not make a remote chat request still cannot.
  * Start it ahead of the Activity (outer rule / plain rule with an Activity launched in the body).
  */
-class LocalModelProbeServerRule : ExternalResource() {
+class LocalModelProbeServerRule : TestRule {
     private var serverSocket: ServerSocket? = null
     private var acceptThread: Thread? = null
+    private val activeClients = CopyOnWriteArrayList<Socket>()
+    private val clientThreads = CopyOnWriteArrayList<Thread>()
     private val unexpectedRequests = CopyOnWriteArrayList<String>()
 
-    override fun before() {
+    override fun apply(base: Statement, description: Description): Statement = object : Statement() {
+        override fun evaluate() {
+            start()
+            var primaryFailure: Throwable? = null
+            try {
+                base.evaluate()
+            } catch (error: Throwable) {
+                primaryFailure = error
+                throw error
+            } finally {
+                val teardownFailure = stop()
+                rethrowOrSuppress(primaryFailure, teardownFailure)
+            }
+        }
+    }
+
+    private fun start() {
+        unexpectedRequests.clear()
         val socket = ServerSocket().apply {
             reuseAddress = true
             bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), PROBE_PORT), 8)
@@ -207,18 +460,35 @@ class LocalModelProbeServerRule : ExternalResource() {
         acceptThread = thread(start = true, isDaemon = true, name = "solin-probe-server") {
             while (!socket.isClosed) {
                 val client = runCatching { socket.accept() }.getOrNull() ?: break
-                thread(start = true, isDaemon = true, name = "solin-probe-connection") { serve(client) }
+                activeClients += client
+                lateinit var worker: Thread
+                worker = thread(start = false, isDaemon = true, name = "solin-probe-connection") {
+                    try {
+                        serve(client)
+                    } finally {
+                        activeClients.remove(client)
+                        clientThreads.remove(worker)
+                    }
+                }
+                clientThreads += worker
+                worker.start()
             }
         }
     }
 
-    override fun after() {
-        serverSocket?.close()
-        acceptThread?.join(2_000)
+    private fun stop(): Throwable? {
+        runCatching { serverSocket?.close() }
+        activeClients.forEach { socket -> runCatching { socket.close() } }
+        runCatching { acceptThread?.join(2_000) }
+        clientThreads.toList().forEach { worker -> runCatching { worker.join(2_000) } }
+        activeClients.clear()
+        clientThreads.clear()
         serverSocket = null
         acceptThread = null
-        check(unexpectedRequests.isEmpty()) {
-            "Connectivity probe server received non-probe requests: $unexpectedRequests"
+        return if (unexpectedRequests.isEmpty()) {
+            null
+        } else {
+            IllegalStateException("Connectivity probe server received non-probe requests: $unexpectedRequests")
         }
     }
 

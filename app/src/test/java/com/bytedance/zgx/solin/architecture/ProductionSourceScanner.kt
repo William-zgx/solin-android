@@ -93,13 +93,14 @@ internal object ProductionSourceScanner {
         return (importStatements(lines) + qualifiedReferences).distinct()
     }
 
+    private fun codeLines(file: File): List<String> = stripCommentsAndLiterals(file.readText()).lines()
+
     /**
      * Removes comments and literal string/character content with a small Kotlin-aware lexer while
      * preserving executable `${...}` template expressions. Newlines are preserved for diagnostics,
      * and a space is inserted at removed boundaries to avoid joining tokens.
      */
-    private fun codeLines(file: File): List<String> {
-        val text = file.readText()
+    fun stripCommentsAndLiterals(text: String): String {
         val output = StringBuilder(text.length)
         var state = ScanState.CODE
         var blockCommentDepth = 0
@@ -180,6 +181,9 @@ internal object ProductionSourceScanner {
                         index++
                     }
                     char == '\n' -> {
+                        // Unterminated single-line string literal cannot span a newline; recover CODE state.
+                        state = ScanState.CODE
+                        separate()
                         output.append(char)
                         index++
                     }
@@ -192,6 +196,11 @@ internal object ProductionSourceScanner {
                         output.append('$').append('{')
                         index += 2
                     } else if (char == '"' && next == '"' && text.getOrNull(index + 2) == '"') {
+                        // In Kotlin, a raw string ending with literal `"` uses 4+ quotes (`""""`),
+                        // where the *last* three quotes close the literal.
+                        while (text.getOrNull(index + 3) == '"') {
+                            index++
+                        }
                         state = ScanState.CODE
                         separate()
                         index += 3
@@ -211,6 +220,8 @@ internal object ProductionSourceScanner {
                         index++
                     }
                     char == '\n' -> {
+                        state = ScanState.CODE
+                        separate()
                         output.append(char)
                         index++
                     }
@@ -244,7 +255,7 @@ internal object ProductionSourceScanner {
                 }
             }
         }
-        return output.toString().lines()
+        return output.toString()
     }
 
     fun lineCount(file: File): Int = file.useLines { sequence -> sequence.count() }

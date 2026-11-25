@@ -6,7 +6,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
@@ -20,8 +19,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performTextClearance
-import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -50,9 +47,15 @@ class MainActivitySkillUiTest {
             )
         ) { rule -> activityFromScenarioRule(rule) }
 
+    private val teardownRule = MainActivityTeardownRule(activityProvider = { composeRule.activity })
+
     // The probe endpoint must be up before the Activity (started by the inner rule) probes it.
     @get:Rule
-    val ruleChain: RuleChain = RuleChain.outerRule(LocalModelProbeServerRule()).around(composeRule)
+    val ruleChain: RuleChain = RuleChain
+        .outerRule(LocalModelProbeServerRule())
+        .around(teardownRule.awaitRule)
+        .around(composeRule)
+        .around(teardownRule.captureRule)
 
     @Test
     fun webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime() {
@@ -135,32 +138,7 @@ class MainActivitySkillUiTest {
     }
 
     private fun ComposeTestRule.sendPrompt(prompt: String) {
-        waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
-        waitForReadyComposer()
-        onNodeWithTag("composer_input").performTextClearance()
-        onNodeWithTag("composer_input").performTextInput(prompt)
-        onNodeWithTag("composer_send_button").performClick()
-        confirmRemoteSendIfPresent()
-    }
-
-    private fun ComposeTestRule.waitForReadyComposer(timeoutMillis: Long = 10_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText("输入问题").fetchSemanticsNodes().isNotEmpty()
-        }
-        onNodeWithTag("composer_input").assertIsEnabled()
-    }
-
-    private fun ComposeTestRule.confirmRemoteSendIfPresent() {
-        val needsConfirmation = waitForOptionalTag("remote_send_disclosure_sheet", timeoutMillis = 5_000)
-        if (!needsConfirmation) return
-        onNodeWithTag("remote_send_confirm_button").performClick()
-        waitForTagGone("remote_send_disclosure_sheet")
-    }
-
-    private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-        }
+        sendRemotePrompt(prompt, confirmDisclosureTimeoutMillis = 5_000)
     }
 
     /** App-wide destinations (privacy, background tasks) live in the session drawer. */
@@ -168,33 +146,6 @@ class MainActivitySkillUiTest {
         onNodeWithTag("top_session_button").performClick()
         waitForTag(tag)
         onNodeWithTag(tag).performClick()
-    }
-
-    private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean = runCatching {
-        waitForTag(tag, timeoutMillis = timeoutMillis)
-        true
-    }.getOrDefault(false)
-
-    private fun ComposeTestRule.assertTagAbsent(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForText(
-        text: String,
-        timeoutMillis: Long = 5_000,
-        substring: Boolean = false
-    ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
-        }
     }
 
     private fun ComposeTestRule.waitForAnyText(
@@ -280,16 +231,6 @@ class MainActivitySkillUiTest {
                 0,
                 android.os.Bundle().apply { putString("SolinRows-$tagPrefix", rows) }
             )
-        }
-    }
-
-    private fun hasTestTagPrefix(prefix: String): SemanticsMatcher = SemanticsMatcher("has test tag prefix $prefix") { node ->
-        node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
-    }
-
-    private fun ComposeTestRule.assertTextAbsent(text: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
         }
     }
 }

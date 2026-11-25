@@ -4,9 +4,6 @@ import android.app.DownloadManager
 import android.content.Context
 import android.database.Cursor
 import android.view.KeyEvent
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -29,11 +26,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import java.io.BufferedInputStream
 import java.io.Closeable
 import java.io.EOFException
+import java.io.IOException
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.net.SocketException
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CopyOnWriteArrayList
@@ -65,7 +62,7 @@ class MainActivityComprehensiveTest {
                     modelName = "mock-model",
                     supportsVisionInput = true
                 )
-            ).use {
+            ).useWithViewModelTeardown {
                 dismissFirstRunSetupIfPresent()
                 configureRemoteModel(server.baseUrl)
 
@@ -136,7 +133,7 @@ class MainActivityComprehensiveTest {
                     modelName = "mock-model",
                     supportsVisionInput = true
                 )
-            ).use {
+            ).useWithViewModelTeardown {
                 dismissFirstRunSetupIfPresent()
                 // Run configureRemoteModel even though state is pre-configured:
                 // the UI flow triggers updateRemoteModelConfig → updateRemoteReadiness
@@ -276,10 +273,6 @@ class MainActivityComprehensiveTest {
         closeSheet("session_manager_title")
     }
 
-    private fun hasTestTagPrefix(prefix: String): SemanticsMatcher = SemanticsMatcher("has test tag prefix $prefix") { node ->
-        node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
-    }
-
     private fun exerciseModelManagerControlsAndCustomDownload(server: LocalOpenAiServer) {
         composeRule.onNodeWithTag("top_model_button").performClick()
         composeRule.waitForTag("model_manager_sheet")
@@ -365,18 +358,6 @@ class MainActivityComprehensiveTest {
         }
     }
 
-    private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
     private fun ComposeTestRule.waitForText(
         text: String,
         timeoutMillis: Long = 10_000,
@@ -392,33 +373,6 @@ class MainActivityComprehensiveTest {
         }
     }
 
-    private fun ComposeTestRule.waitForAnyText(
-        texts: List<String>,
-        timeoutMillis: Long = 10_000,
-        substring: Boolean = false
-    ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            texts.any { text ->
-                onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
-            }
-        }
-    }
-
-    private fun ComposeTestRule.waitForTextGone(
-        text: String,
-        timeoutMillis: Long = 10_000,
-        substring: Boolean = false
-    ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean = runCatching {
-        waitForTag(tag, timeoutMillis = timeoutMillis)
-        true
-    }.getOrDefault(false)
-
     private fun ComposeTestRule.replaceTaggedText(tag: String, text: String) {
         onNodeWithTag(tag).performScrollTo()
         onNodeWithTag(tag).performTextReplacement(text)
@@ -433,18 +387,27 @@ private class LocalOpenAiServer : Closeable {
     private val requests = LinkedBlockingQueue<RequestRecord>()
     private val seenRequests = CopyOnWriteArrayList<String>()
     private val downloadRequests = LinkedBlockingQueue<RequestRecord>()
+    private val activeClients = CopyOnWriteArrayList<Socket>()
+    private val clientThreads = CopyOnWriteArrayList<Thread>()
     private val worker = thread(start = true, isDaemon = true, name = "solin-test-server") {
         while (!serverSocket.isClosed) {
             val socket = runCatching { serverSocket.accept() }.getOrNull() ?: break
-            thread(start = true, isDaemon = true, name = "solin-test-connection") {
+            activeClients += socket
+            lateinit var connectionThread: Thread
+            connectionThread = thread(start = false, isDaemon = true, name = "solin-test-connection") {
                 try {
                     handle(socket)
-                } catch (_: SocketException) {
-                    // A cancelled or disconnected client is not a server failure: it ends only this
-                    // mock connection. The request was already recorded before any response write,
-                    // and the tests' own assertions still decide pass or fail.
+                } catch (_: IOException) {
+                    // A cancelled, timed-out, or disconnected client is not a server failure: it ends
+                    // only this mock connection. The request was already recorded before any response
+                    // write, and the tests' own assertions still decide pass or fail.
+                } finally {
+                    activeClients.remove(socket)
+                    clientThreads.remove(connectionThread)
                 }
             }
+            clientThreads += connectionThread
+            connectionThread.start()
         }
     }
 
@@ -499,6 +462,7 @@ private class LocalOpenAiServer : Closeable {
 
     private fun handle(socket: Socket) {
         socket.use { client ->
+            client.soTimeout = 5_000
             val input = BufferedInputStream(client.getInputStream())
             val requestLine = input.readHttpLine() ?: return
             val parts = requestLine.split(" ")
@@ -563,8 +527,13 @@ private class LocalOpenAiServer : Closeable {
     }
 
     override fun close() {
-        serverSocket.close()
+        runCatching { serverSocket.close() }
+        activeClients.forEach { client -> runCatching { client.close() } }
         worker.interrupt()
+        runCatching { worker.join(2_000) }
+        clientThreads.toList().forEach { thread -> runCatching { thread.join(2_000) } }
+        activeClients.clear()
+        clientThreads.clear()
     }
 
     private fun BufferedInputStream.readHttpLine(): String? {

@@ -173,6 +173,25 @@ for privacy_secret_value in "$PRIVACY_SCAN_HF_TOKEN" "$PRIVACY_SCAN_BEARER" "$PR
   fi
 done
 
+expect_failure \
+  "privacy scan rejects and redacts single-file secret target" \
+  scripts/privacy_scan.sh --report "$ARTIFACT_DIR/privacy-single-file-failed.properties" "$UNSAFE_PRIVACY_DIR/secret.txt"
+assert_report_contains "$ARTIFACT_DIR/privacy-single-file-failed.properties" "reason=secret-pattern-detected"
+if grep -q "$PRIVACY_SCAN_SECRET" <<<"$LAST_OUTPUT" ||
+  grep -q "$PRIVACY_SCAN_SECRET" "$ARTIFACT_DIR/privacy-single-file-failed.properties"; then
+  fail "privacy scan single-file target must redact raw secret values on stderr and report"
+fi
+
+BUILD_PARENT_UNSAFE_DIR="$TMP_DIR/build/nested-privacy-target"
+mkdir -p "$BUILD_PARENT_UNSAFE_DIR"
+cat > "$BUILD_PARENT_UNSAFE_DIR/placement-trace.jsonl" <<'BUILD_PARENT_UNSAFE_TRACE'
+{"type":"ModelRuntimeInvocationStarted","schemaVersion":1,"runId":"run-1","placement":"Remote","prompt":"must-not-be-skipped"}
+BUILD_PARENT_UNSAFE_TRACE
+expect_failure \
+  "privacy scan does not skip explicit target located under a build/ parent path" \
+  scripts/privacy_scan.sh --report "$ARTIFACT_DIR/privacy-build-parent.properties" "$BUILD_PARENT_UNSAFE_DIR"
+assert_report_contains "$ARTIFACT_DIR/privacy-build-parent.properties" "reason=placement-trace-sensitive-field"
+
 PRIVACY_NOTICE="$TMP_DIR/privacy-notice.md"
 PRIVACY_CAPABILITY_MATRIX="$TMP_DIR/privacy-capability-matrix.json"
 PRIVACY_REVIEW_PENDING="$TMP_DIR/privacy-review-pending.json"

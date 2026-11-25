@@ -11,30 +11,19 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as createAndroidComposeTestRule
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
-import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
-import org.junit.After
 import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.ExternalResource
 import org.junit.rules.RuleChain
 
 class MainActivityLongTermMemoryUiTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
-    private var viewModelJobForTeardown: Job? = null
 
     init {
         resetMainActivityPersistentState(
@@ -49,35 +38,15 @@ class MainActivityLongTermMemoryUiTest {
             ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext, ReadyRemoteModelConfig))
         ) { rule -> activityFromScenarioRule(rule) }
 
-    private val awaitViewModelTeardown = object : ExternalResource() {
-        override fun after() {
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-            // The next test class may close Room during reset; join all cancelled child bodies first.
-            viewModelJobForTeardown?.let { job ->
-                runBlocking {
-                    withTimeout(10_000) {
-                        job.join()
-                    }
-                }
-            }
-            viewModelJobForTeardown = null
-        }
-    }
+    private val teardownRule = MainActivityTeardownRule(activityProvider = { composeRule.activity })
 
     // The probe endpoint must be up before the Activity (started by the inner rule) probes it.
     @get:Rule
     val ruleChain: RuleChain = RuleChain
         .outerRule(LocalModelProbeServerRule())
-        .around(awaitViewModelTeardown)
+        .around(teardownRule.awaitRule)
         .around(composeRule)
-
-    @After
-    fun captureViewModelForTeardown() {
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            viewModelJobForTeardown = ViewModelProvider(composeRule.activity)[SolinViewModel::class.java]
-                .viewModelScope.coroutineContext[Job]
-        }
-    }
+        .around(teardownRule.captureRule)
 
     @Test
     fun explicitPreferencesCanBeForgottenAndClearedFromLongTermMemoryPanel() {
@@ -152,34 +121,12 @@ class MainActivityLongTermMemoryUiTest {
             hasAnyAncestor(hasTestTag("model_manager_sheet"))
     )
 
-    private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
     private fun ComposeTestRule.waitForModelSheetTextGone(text: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodes(
                 hasText(text, substring = true) and
                     hasAnyAncestor(hasTestTag("model_manager_sheet"))
             ).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForText(
-        text: String,
-        timeoutMillis: Long = 10_000,
-        substring: Boolean = false
-    ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
         }
     }
 }

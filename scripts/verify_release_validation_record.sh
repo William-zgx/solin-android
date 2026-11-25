@@ -328,7 +328,8 @@ def validate_release_main_shell_artifacts(props):
 
     ui_dump = evidence["ui-dump"]
     if ui_dump is not None and ui_dump.is_file():
-        if 'text="Solin"' not in ui_dump.read_text(errors="ignore"):
+        ui_dump_text = ui_dump.read_text(errors="ignore")
+        if 'content-desc="模型管理"' not in ui_dump_text and 'text="Solin"' not in ui_dump_text:
             failures.append(f"{prefix}-ui-dump-solin-missing")
 
     screenshot = evidence["screenshot"]

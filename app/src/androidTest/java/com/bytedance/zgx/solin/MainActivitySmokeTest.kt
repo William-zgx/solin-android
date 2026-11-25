@@ -12,30 +12,19 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as createAndroidComposeTestRule
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
-import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
-import org.junit.After
 import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.ExternalResource
 import org.junit.rules.RuleChain
 
 class MainActivitySmokeTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
-    private var viewModelJobForTeardown: Job? = null
 
     init {
         // First test and cross-class state; the outer after rule handles prior Activity teardown.
@@ -45,40 +34,26 @@ class MainActivitySmokeTest {
         )
     }
 
-    private val resetAfterScenario = object : ExternalResource() {
-        override fun after() {
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-            // AndroidX has cancelled the scope; join all child bodies before closing Room.
-            viewModelJobForTeardown?.let { job ->
-                runBlocking {
-                    withTimeout(10_000) {
-                        job.join()
-                    }
-                }
-            }
-            viewModelJobForTeardown = null
-            resetMainActivityPersistentState(
-                context = targetContext,
-                inferenceMode = InferenceMode.Local
-            )
-        }
-    }
-
     private val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeTestRule(
             ActivityScenarioRule(mainActivitySkipStartupIntent(targetContext))
         ) { rule -> activityFromScenarioRule(rule) }
 
-    @get:Rule
-    val ruleChain: RuleChain = RuleChain.outerRule(resetAfterScenario).around(composeRule)
-
-    @After
-    fun captureViewModelForTeardown() {
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            viewModelJobForTeardown = ViewModelProvider(composeRule.activity)[SolinViewModel::class.java]
-                .viewModelScope.coroutineContext[Job]
+    private val teardownRule = MainActivityTeardownRule(
+        activityProvider = { composeRule.activity },
+        afterTeardown = {
+            resetMainActivityPersistentState(
+                context = targetContext,
+                inferenceMode = InferenceMode.Local
+            )
         }
-    }
+    )
+
+    @get:Rule
+    val ruleChain: RuleChain = RuleChain
+        .outerRule(teardownRule.awaitRule)
+        .around(composeRule)
+        .around(teardownRule.captureRule)
 
     @Test
     fun chatShellShowsModelManager() {
@@ -242,36 +217,6 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("background_task_manager_title").assertIsDisplayed().assertTextEquals("后台任务")
         composeRule.onNodeWithTag("background_task_refresh_button").assertIsDisplayed()
         composeRule.onNodeWithTag("periodic_check_policy_section").assertIsDisplayed()
-    }
-
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForTag(tag: String) {
-        waitUntil(timeoutMillis = 5_000) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForText(
-        text: String,
-        substring: Boolean = false
-    ) {
-        waitUntil(timeoutMillis = 5_000) {
-            onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.assertTagAbsent(tag: String) {
-        waitUntil(timeoutMillis = 2_000) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForTagGone(
-        tag: String,
-        timeoutMillis: Long = 5_000
-    ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
     }
 
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.scrollToModelManagerText(

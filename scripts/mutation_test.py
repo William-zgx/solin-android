@@ -45,8 +45,8 @@ MUTATIONS = [
     Mutation("egress-symbol-sequence-becomes-character-set", EGRESS_GATE,
              "input.normalized.contains(symbols)", "symbols.all { input.normalized.contains(it) }"),
     Mutation("egress-symbol-nfkc-dropped", EGRESS_GATE,
-             "val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase()",
-             "val normalized = text.lowercase()"),
+             "val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)",
+             "val normalized = text.lowercase(Locale.ROOT)"),
     Mutation("egress-ascii-tokens-become-substrings", EGRESS_GATE,
              "input.asciiTokens.containsAll(typed.asciiTokens)",
              "typed.asciiTokens.all { input.normalized.contains(it) }"),
@@ -72,11 +72,12 @@ def replace_once(text, original, replacement):
 def copy_repository(repo, destination):
     def ignore(directory, names):
         relative = Path(directory).relative_to(repo)
+        excluded = {name for name in names if name.endswith(".litertlm")}
         if relative == Path("."):
-            return {".git", ".gradle", ".serena", ".claude", "build"}
-        if relative.parent == Path("."):
-            return {"build"}
-        return set()
+            return excluded | {".git", ".gradle", ".serena", ".claude", ".codex", ".idea", ".trae", ".kotlin", "build", "models"}
+        if relative.parent == Path(".") or relative.parts[0] == "modelpacks":
+            return excluded | {"build", ".cxx", ".kotlin"}
+        return excluded
     shutil.copytree(repo, destination, ignore=ignore)
 
 
@@ -101,7 +102,11 @@ def ensure_clean(run_command, repo):
 
 
 def ensure_no_active_gradle(run_command):
-    result = run_command(["pgrep", "-f", "GradleDaemon|GradleWrapperMain"], capture_output=True, text=True)
+    result = run_command(
+        ["pgrep", "-u", str(os.getuid()), "-f", "GradleDaemon|GradleWrapperMain"],
+        capture_output=True,
+        text=True,
+    )
     if result.returncode == 0:
         raise MutationError("A Gradle process is already running; stop it before mutation testing")
     if result.returncode != 1:
@@ -121,6 +126,19 @@ def test_command():
     ]
 
 
+def terminate_process_group(process):
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            break
+        try:
+            process.communicate(timeout=5)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+
+
 def run_tests(folder, popen_factory=subprocess.Popen):
     env = os.environ.copy()
     if not env.get("JAVA_HOME") or not (env.get("ANDROID_SDK_ROOT") or env.get("ANDROID_HOME")):
@@ -131,17 +149,11 @@ def run_tests(folder, popen_factory=subprocess.Popen):
         stdout, stderr = process.communicate(timeout=300)
         return subprocess.CompletedProcess(test_command(), process.returncode, stdout=stdout, stderr=stderr)
     except subprocess.TimeoutExpired as error:
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(process.pid, sig)
-            except ProcessLookupError:
-                break
-            try:
-                process.communicate(timeout=5)
-                break
-            except subprocess.TimeoutExpired:
-                continue
+        terminate_process_group(process)
         raise MutationError(f"Focused test run timed out: {error}")
+    except BaseException:
+        terminate_process_group(process)
+        raise
 
 
 def mutant_killed(result):
@@ -161,49 +173,57 @@ def write_report(path, status, **fields):
 
 
 def run_campaign(run_command=subprocess.run, repo=REPO, report_path=None, popen_factory=subprocess.Popen):
-    with campaign_lock(repo):
-        ensure_clean(run_command, repo)
-        ensure_no_active_gradle(run_command)
-        report_path = report_path or repo / "build/verification/mutation/mutation-report.json"
-        head = run_command(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True)
-        git_head = head.stdout.strip() or "unknown"
-        write_report(report_path, "running", gitHead=git_head)
-        report = {}
-        try:
-            with tempfile.TemporaryDirectory(prefix="solin-mutation-") as temporary:
-                copied = Path(temporary) / "repo"
-                copy_repository(repo, copied)
-                ensure_source_unchanged(run_command, repo)
-                baseline = run_tests(copied, popen_factory)
-                if baseline.returncode != 0:
-                    raise MutationError(f"Baseline test run failed:\n{baseline.stdout}\n{baseline.stderr}")
-                original_sources = {
-                    filename: (copied / filename).read_text()
-                    for filename in {mutation.file for mutation in MUTATIONS}
-                }
-                results = []
-                for mutation in MUTATIONS:
-                    target = copied / mutation.file
-                    target.write_text(replace_once(original_sources[mutation.file], mutation.original, mutation.replacement))
-                    try:
-                        result = run_tests(copied, popen_factory)
-                    finally:
-                        target.write_text(original_sources[mutation.file])
-                    results.append({"name": mutation.name, "killed": mutant_killed(result)})
-                report = {
-                    "baseline": "passed",
-                    "killed": sum(result["killed"] for result in results),
-                    "survived": sum(not result["killed"] for result in results),
-                    "results": results,
-                }
-                if report["survived"]:
-                    raise MutationError(f"Surviving mutants: {report['survived']} (see {report_path})")
-                write_report(report_path, "passed", gitHead=git_head, **report)
-                ensure_source_unchanged(run_command, repo)
-                return report
-        except MutationError as error:
-            write_report(report_path, "failed", gitHead=git_head, error=str(error), **report)
-            raise
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    def handle_sigterm(_signum, _frame):
+        raise KeyboardInterrupt("Mutation campaign terminated by SIGTERM")
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    try:
+        with campaign_lock(repo):
+            ensure_clean(run_command, repo)
+            ensure_no_active_gradle(run_command)
+            report_path = report_path or repo / "build/verification/mutation/mutation-report.json"
+            head = run_command(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True)
+            git_head = head.stdout.strip() or "unknown"
+            write_report(report_path, "running", gitHead=git_head)
+            report = {}
+            results = []
+            try:
+                with tempfile.TemporaryDirectory(prefix="solin-mutation-") as temporary:
+                    copied = Path(temporary) / "repo"
+                    copy_repository(repo, copied)
+                    ensure_source_unchanged(run_command, repo)
+                    baseline = run_tests(copied, popen_factory)
+                    if baseline.returncode != 0:
+                        raise MutationError(f"Baseline test run failed:\n{baseline.stdout}\n{baseline.stderr}")
+                    report["baseline"] = "passed"
+                    original_sources = {
+                        filename: (copied / filename).read_text()
+                        for filename in {mutation.file for mutation in MUTATIONS}
+                    }
+                    for mutation in MUTATIONS:
+                        target = copied / mutation.file
+                        target.write_text(replace_once(original_sources[mutation.file], mutation.original, mutation.replacement))
+                        try:
+                            result = run_tests(copied, popen_factory)
+                        finally:
+                            target.write_text(original_sources[mutation.file])
+                        results.append({"name": mutation.name, "killed": mutant_killed(result)})
+                        report = {
+                            "baseline": "passed",
+                            "killed": sum(entry["killed"] for entry in results),
+                            "survived": sum(not entry["killed"] for entry in results),
+                            "results": list(results),
+                        }
+                    if report["survived"]:
+                        raise MutationError(f"Surviving mutants: {report['survived']} (see {report_path})")
+                    write_report(report_path, "passed", gitHead=git_head, **report)
+                    ensure_source_unchanged(run_command, repo)
+                    return report
+            except BaseException as error:
+                write_report(report_path, "failed", gitHead=git_head, error=str(error) or type(error).__name__, **report)
+                raise
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 class MutationTest(unittest.TestCase):
@@ -275,12 +295,15 @@ class MutationTest(unittest.TestCase):
     def test_copy_excludes_generated_outputs_but_not_source_build_packages(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
-            generated = repo / "modelpackE2b/build/generated.bin"
+            generated = repo / "modelpacks/modelpackE2b/build/generated.bin"
             generated.parent.mkdir(parents=True)
             generated.write_text("generated")
             app_output = repo / "app/build/output.bin"
             app_output.parent.mkdir(parents=True)
             app_output.write_text("generated")
+            cxx_output = repo / "app/.cxx/cmake.bin"
+            cxx_output.parent.mkdir(parents=True)
+            cxx_output.write_text("generated")
             source = repo / "app/src/main/java/build/Source.kt"
             source.parent.mkdir(parents=True)
             source.write_text("source")
@@ -288,8 +311,9 @@ class MutationTest(unittest.TestCase):
 
             copy_repository(repo, copied)
 
-            self.assertFalse((copied / "modelpackE2b/build").exists())
+            self.assertFalse((copied / "modelpacks/modelpackE2b/build").exists())
             self.assertFalse((copied / "app/build").exists())
+            self.assertFalse((copied / "app/.cxx").exists())
             self.assertEqual("source", (copied / "app/src/main/java/build/Source.kt").read_text())
 
     @patch.dict(os.environ, {"JAVA_HOME": "/jdk", "ANDROID_SDK_ROOT": "/sdk"})

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
@@ -20,7 +19,6 @@ import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -30,6 +28,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.bytedance.zgx.solin.ui.REMOTE_ATTACHMENT_PROTECTION_NOTICE
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PRIVACY_DESCRIPTION
 import java.util.concurrent.atomic.AtomicReference
@@ -78,7 +78,7 @@ class MainActivityAdaptiveUiTest {
     fun largeFontChatShellAndModelManagerRemainReachable() {
         resetMainActivityPersistentState(targetContext, inferenceMode = InferenceMode.Local)
 
-        ActivityScenario.launch<MainActivity>(skipStartupIntent()).use { scenario ->
+        ActivityScenario.launch<MainActivity>(skipStartupIntent()).useWithViewModelTeardown { scenario ->
             val originalConfiguration = AtomicReference<Configuration>()
             try {
                 scenario.onActivity { activity ->
@@ -125,7 +125,7 @@ class MainActivityAdaptiveUiTest {
             remoteModelConfig = ReadyRemoteModelConfig
         )
 
-        ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).use {
+        ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).useWithViewModelTeardown {
             composeRule.waitForTag("app_title")
 
             composeRule.assertLabeledAction("top_model_button", "模型管理")
@@ -180,7 +180,7 @@ class MainActivityAdaptiveUiTest {
             remoteModelConfig = ReadyRemoteModelConfig
         )
 
-        ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).use { scenario ->
+        ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).useWithViewModelTeardown { scenario ->
             try {
                 composeRule.waitForTag("app_title")
                 composeRule.waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
@@ -189,6 +189,7 @@ class MainActivityAdaptiveUiTest {
                 scenario.onActivity { activity ->
                     activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                 }
+                composeRule.waitForLandscapeMainActivity()
                 composeRule.waitForReadyComposer()
 
                 composeRule.onNodeWithTag("composer_input").performTextInput("横屏确认远程发送")
@@ -229,22 +230,17 @@ class MainActivityAdaptiveUiTest {
         resources.updateConfiguration(config, resources.displayMetrics)
     }
 
-    private fun ComposeTestRule.waitForReadyComposer(timeoutMillis: Long = 10_000) {
+    private fun ComposeTestRule.waitForLandscapeMainActivity(timeoutMillis: Long = 10_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText("输入问题").fetchSemanticsNodes().isNotEmpty()
-        }
-        onNodeWithTag("composer_input").assertIsEnabled()
-    }
-
-    private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForText(text: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            var isLandscape = false
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                val resumed = ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(Stage.RESUMED)
+                    .filterIsInstance<MainActivity>()
+                    .firstOrNull()
+                isLandscape = resumed?.resources?.configuration?.orientation == Configuration.ORIENTATION_LANDSCAPE
+            }
+            isLandscape
         }
     }
 

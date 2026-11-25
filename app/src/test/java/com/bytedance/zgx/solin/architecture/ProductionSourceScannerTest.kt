@@ -24,6 +24,8 @@ class ProductionSourceScannerTest {
             "val template = \"\${com.bytedance.zgx.solin.module.BuiltInToolsModule()}\"",
             "val nestedTemplate = \"\${run { com.bytedance.zgx.solin.module.BuiltInToolProvider }}\"",
             "val tripleTemplate = \"\"\"\${androidx.compose.ui.Modifier}\"\"\"",
+            "val fourQuoteRaw = \"\"\"hello\"\"\"\"",
+            "val afterFourQuote = com.bytedance.zgx.solin.module.ModuleRegistry",
             "val trailing = 1 // com.bytedance.zgx.solin.safety.ForbiddenSafety"
         )
     ) { file ->
@@ -34,6 +36,7 @@ class ProductionSourceScannerTest {
         assertTrue("com.bytedance.zgx.solin.module.SolinModuleRegistryImpl" in references)
         assertTrue("com.bytedance.zgx.solin.module.BuiltInToolsModule" in references)
         assertTrue("com.bytedance.zgx.solin.module.BuiltInToolProvider" in references)
+        assertTrue("com.bytedance.zgx.solin.module.ModuleRegistry" in references)
         assertEquals(1, references.count { it == "android.app.Activity" })
         assertFalse(references.any { "Forbidden" in it })
         assertTrue("android.app.Activity" in ProductionSourceScanner.importStatements(file))

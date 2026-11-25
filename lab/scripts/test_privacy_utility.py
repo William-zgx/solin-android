@@ -92,6 +92,25 @@ class PrivacyUtilityTest(unittest.TestCase):
         self.assertFalse(privacy_utility.correct_answer(shaped, "p2"))
         self.assertTrue(privacy_utility.correct_answer(shaped, "p3"))
 
+    def test_rejects_bool_as_number_duplicate_ids_and_malformed_fields(self):
+        case = copy.deepcopy(self.cases[0])
+        case["structuredObservation"]["candidates"][0]["bounds"] = [True, 0, 10, 10]
+        with self.assertRaises(privacy_utility.ContractError):
+            privacy_utility.validate_case(case)
+
+        bad_request = copy.deepcopy(self.cases[0])
+        bad_request["request"] = 123
+        with self.assertRaises(privacy_utility.ContractError):
+            privacy_utility.validate_case(bad_request)
+
+        bad_answer = copy.deepcopy(self.cases[0])
+        bad_answer["answers"]["p0"] = "not-a-dict"
+        with self.assertRaises(privacy_utility.ContractError):
+            privacy_utility.validate_case(bad_answer)
+
+        with self.assertRaises(privacy_utility.ContractError):
+            privacy_utility.summarize([self.cases[0], copy.deepcopy(self.cases[0])])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,19 +3,18 @@ package com.bytedance.zgx.solin
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
-import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import com.bytedance.zgx.solin.ui.SolinScreen
+import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.resource.ThermalPressure
 import com.bytedance.zgx.solin.ui.ResourcePressureBadge
+import com.bytedance.zgx.solin.ui.SolinScreen
 import com.bytedance.zgx.solin.ui.theme.SolinTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -38,8 +37,8 @@ class SolinResourceIndicatorUiTest {
                         availableRamBytes = 640L * 1024L * 1024L,
                         lowMemory = false,
                         appCpuPercent = 82,
-                        thermalPressure = ThermalPressure.Hot,
-                    ),
+                        thermalPressure = ThermalPressure.Hot
+                    )
                 )
             }
         }
@@ -76,15 +75,15 @@ class SolinResourceIndicatorUiTest {
                         availableRamBytes = 3L * 1024L * 1024L * 1024L,
                         lowMemory = false,
                         appCpuPercent = 12,
-                        thermalPressure = ThermalPressure.Normal,
-                    ),
+                        thermalPressure = ThermalPressure.Normal
+                    )
                 )
             }
         }
 
         assertEquals(
             0,
-            composeRule.onAllNodesWithTag("resource_pressure_badge").fetchSemanticsNodes().size,
+            composeRule.onAllNodesWithTag("resource_pressure_badge").fetchSemanticsNodes().size
         )
     }
 }
@@ -92,7 +91,7 @@ class SolinResourceIndicatorUiTest {
 internal fun ComposeContentTestRule.setSolinScreenWithResourceSnapshot(
     modifier: Modifier = Modifier.fillMaxSize(),
     state: ChatUiState = ChatUiState(isReady = true),
-    snapshot: SystemResourceSnapshot = testResourceSnapshot(),
+    snapshot: SystemResourceSnapshot = testResourceSnapshot()
 ) {
     setContent {
         SolinTheme {
@@ -157,26 +156,19 @@ internal fun ComposeContentTestRule.setSolinScreenWithResourceSnapshot(
                     // empty requirement list is the accurate input: nothing is being confirmed.
                     resolveRuntimePermissionRequirements = { emptyList() },
                     resolveSpecialAccessRequirements = { emptyList() },
-                    resourceSampler = { snapshot },
+                    resourceSampler = { snapshot }
                 )
             }
         }
     }
 }
 
-internal fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
-    waitUntil(timeoutMillis = timeoutMillis) {
-        onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-    }
-}
-
-internal fun testResourceSnapshot(): SystemResourceSnapshot =
-    SystemResourceSnapshot(
-        appPssBytes = 512L * 1024L * 1024L,
-        javaHeapBytes = 128L * 1024L * 1024L,
-        nativeHeapBytes = 180L * 1024L * 1024L,
-        availableRamBytes = 640L * 1024L * 1024L,
-        lowMemory = false,
-        appCpuPercent = 82,
-        thermalPressure = ThermalPressure.Hot,
-    )
+internal fun testResourceSnapshot(): SystemResourceSnapshot = SystemResourceSnapshot(
+    appPssBytes = 512L * 1024L * 1024L,
+    javaHeapBytes = 128L * 1024L * 1024L,
+    nativeHeapBytes = 180L * 1024L * 1024L,
+    availableRamBytes = 640L * 1024L * 1024L,
+    lowMemory = false,
+    appCpuPercent = 82,
+    thermalPressure = ThermalPressure.Hot
+)

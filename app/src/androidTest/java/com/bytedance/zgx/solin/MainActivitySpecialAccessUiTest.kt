@@ -2,20 +2,14 @@ package com.bytedance.zgx.solin
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
-import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextClearance
-import androidx.compose.ui.test.performTextInput
-import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Rule
 import org.junit.Test
@@ -32,10 +26,10 @@ class MainActivitySpecialAccessUiTest {
 
     @Test
     fun currentScreenTextConfirmationShowsSpecialAccessRequirementWithoutRuntimePermission() {
-        launchReadyRemoteActivity().use {
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
             composeRule.waitForTag("app_title")
 
-            composeRule.sendPrompt("总结当前屏幕文字，最多1200字")
+            composeRule.sendRemotePrompt("总结当前屏幕文字，最多1200字")
 
             composeRule.waitForTag("special_access_requirements")
             composeRule.onNodeWithText("读取当前屏幕文本").assertIsDisplayed()
@@ -66,10 +60,10 @@ class MainActivitySpecialAccessUiTest {
 
     @Test
     fun deviceControlConfirmationShowsAccessibilityControlRequirementWithoutRuntimePermission() {
-        launchReadyRemoteActivity().use {
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
             composeRule.waitForTag("app_title")
 
-            composeRule.sendPrompt("观察当前屏幕")
+            composeRule.sendRemotePrompt("观察当前屏幕")
 
             composeRule.waitForTag("special_access_requirements")
             composeRule.onAllNodesWithText("观察当前屏幕")
@@ -102,10 +96,10 @@ class MainActivitySpecialAccessUiTest {
 
     @Test
     fun foregroundAppConfirmationShowsUsageAccessRequirementWithoutRuntimePermission() {
-        launchReadyRemoteActivity().use {
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
             composeRule.waitForTag("app_title")
 
-            composeRule.sendPrompt("当前应用是什么")
+            composeRule.sendRemotePrompt("当前应用是什么")
 
             composeRule.waitForTag("special_access_requirements")
             composeRule.onNodeWithText("查询当前前台应用").assertIsDisplayed()
@@ -131,66 +125,6 @@ class MainActivitySpecialAccessUiTest {
 
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
             composeRule.waitForTagGone("special_access_requirements")
-        }
-    }
-
-    private fun launchReadyRemoteActivity(): ActivityScenario<MainActivity> {
-        resetMainActivityPersistentState(
-            context = targetContext,
-            inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig
-        )
-        return ActivityScenario.launch(
-            mainActivitySkipStartupIntent(
-                context = targetContext,
-                debugRemoteModelConfig = ReadyRemoteModelConfig
-            )
-        )
-    }
-
-    private fun ComposeTestRule.sendPrompt(prompt: String) {
-        waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
-        waitForReadyComposer()
-        onNodeWithTag("composer_input").performTextClearance()
-        onNodeWithTag("composer_input").performTextInput(prompt)
-        onNodeWithTag("composer_send_button").performClick()
-        confirmRemoteSendIfPresent()
-    }
-
-    private fun ComposeTestRule.waitForReadyComposer(timeoutMillis: Long = 10_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText("输入问题").fetchSemanticsNodes().isNotEmpty()
-        }
-        onNodeWithTag("composer_input").assertIsEnabled()
-    }
-
-    private fun ComposeTestRule.confirmRemoteSendIfPresent() {
-        val needsConfirmation = waitForOptionalTag("remote_send_disclosure_sheet", timeoutMillis = 1_500)
-        if (!needsConfirmation) return
-        onNodeWithTag("remote_send_confirm_button").performClick()
-        waitForTagGone("remote_send_disclosure_sheet")
-    }
-
-    private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean = runCatching {
-        waitForTag(tag, timeoutMillis = timeoutMillis)
-        true
-    }.getOrDefault(false)
-
-    private fun ComposeTestRule.assertTagAbsent(tag: String) {
-        waitUntil(timeoutMillis = 5_000) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
         }
     }
 }

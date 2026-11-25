@@ -110,31 +110,35 @@ def _digest(path):
 _digest.cache = {}
 
 
-def _engine_for(model_root, name, cache_dir):
+def _engine_for_locked(model_root, name, cache_dir):
     litert = _import_litert()
+    if _loaded["name"] == name:
+        return _loaded["engine"]
+    # Unload the previous model before loading the next one.
+    _unload_engine_locked()
+    _, max_tokens = MODELS[name]
+    kwargs = {"cache_dir": cache_dir}
+    if max_tokens is not None:
+        kwargs["max_num_tokens"] = max_tokens
+    started = time.time()
+    engine = litert.Engine(_model_path(model_root, name), backend=litert.interfaces.CPU(), **kwargs)
+    print(
+        "[shim] loaded %s in %.1fs%s cache_dir=%s" % (
+            name,
+            time.time() - started,
+            "" if max_tokens is None else " max_num_tokens=%d" % max_tokens,
+            cache_dir,
+        ),
+        flush=True,
+    )
+    _loaded["engine"] = engine
+    _loaded["name"] = name
+    return engine
+
+
+def _engine_for(model_root, name, cache_dir):
     with _engine_lock:
-        if _loaded["name"] == name:
-            return _loaded["engine"]
-        # Unload the previous model before loading the next one.
-        _unload_engine_locked()
-        _, max_tokens = MODELS[name]
-        kwargs = {"cache_dir": cache_dir}
-        if max_tokens is not None:
-            kwargs["max_num_tokens"] = max_tokens
-        started = time.time()
-        engine = litert.Engine(_model_path(model_root, name), backend=litert.interfaces.CPU(), **kwargs)
-        print(
-            "[shim] loaded %s in %.1fs%s cache_dir=%s" % (
-                name,
-                time.time() - started,
-                "" if max_tokens is None else " max_num_tokens=%d" % max_tokens,
-                cache_dir,
-            ),
-            flush=True,
-        )
-        _loaded["engine"] = engine
-        _loaded["name"] = name
-        return engine
+        return _engine_for_locked(model_root, name, cache_dir)
 
 
 def _tool_classes(litert, tools_json):
@@ -248,6 +252,7 @@ class ShimHTTPServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    timeout = 30
     model_root = "."
     cache_dir = ""
     litert = None
@@ -321,26 +326,33 @@ class Handler(BaseHTTPRequestHandler):
             max_output_tokens = int(max_output_tokens)
             if max_output_tokens <= 0:
                 return self._send(400, {"error": "invalid_num_predict"})
+        top_k = options.get("top_k")
+        top_p = options.get("top_p")
+        temperature = options.get("temperature")
+        seed = options.get("seed")
         sampler = self.litert.SamplerConfig(
-            top_k=int(options.get("top_k") or 1),
-            top_p=float(options.get("top_p") or 0.1),
-            temperature=float(options.get("temperature") or 0.0),
-            seed=int(options["seed"]) if "seed" in options else None,
+            top_k=int(1 if top_k is None else top_k),
+            top_p=float(0.1 if top_p is None else top_p),
+            temperature=float(0.0 if temperature is None else temperature),
+            seed=int(seed) if seed is not None else None,
         )
-        engine = _engine_for(self.model_root, name, self.cache_dir)
         started = time.time()
         try:
-            # A fresh conversation per request with empty history, as a one-shot in the app.
-            conversation = engine.create_conversation(
-                system_message=system or None,
-                tools=_tool_classes(self.litert, body.get("tools")) or None,
-                automatic_tool_calling=False,
-                sampler_config=sampler,
-            )
-            try:
-                response, output_capped = _send_one_shot(conversation, user, max_output_tokens)
-            finally:
-                conversation.close()
+            # Hold _engine_lock across load + conversation so concurrent requests never switch or
+            # close the resident native Engine under an active turn.
+            with _engine_lock:
+                engine = _engine_for_locked(self.model_root, name, self.cache_dir)
+                # A fresh conversation per request with empty history, as a one-shot in the app.
+                conversation = engine.create_conversation(
+                    system_message=system or None,
+                    tools=_tool_classes(self.litert, body.get("tools")) or None,
+                    automatic_tool_calling=False,
+                    sampler_config=sampler,
+                )
+                try:
+                    response, output_capped = _send_one_shot(conversation, user, max_output_tokens)
+                finally:
+                    conversation.close()
         except Exception as error:
             # An overflow or an engine failure is a recorded failure, never a truncated prompt.
             text = str(error)
@@ -502,7 +514,7 @@ def _prune_scratch(root, reserve, max_dirs, max_bytes):
             stale.append((path, handle, _directory_size(path), mtime))
     try:
         kept_count = 1 + len(active)  # Reserve one slot for this run, even before its directory exists.
-        kept_bytes = reserve + sum(size for _, size in active)
+        kept_bytes = reserve + sum(max(size, reserve) for _, size in active)
         stale.sort(key=lambda item: item[3], reverse=True)
         for path, _, size, _ in stale:
             if kept_count < max_dirs and kept_bytes + size <= max_bytes:
@@ -520,11 +532,14 @@ def _prune_scratch(root, reserve, max_dirs, max_bytes):
 
 
 def _delete_unlocked(path):
+    if path.is_symlink() or not path.is_dir():
+        return
     handle = _try_lock(path)
     if handle is None:
         return
     try:
-        shutil.rmtree(path)
+        if not path.is_symlink() and not any(entry.name != ".lock" for entry in path.iterdir()):
+            shutil.rmtree(path)
     finally:
         handle.close()
 
@@ -552,18 +567,18 @@ def _prepare_cache(args):
     try:
         if args.cache_dir:
             candidate = Path(args.cache_dir).expanduser().absolute()
-            if candidate.exists() and (candidate.is_symlink() or not candidate.is_dir() or any(candidate.iterdir())):
+            if candidate.is_symlink() or (candidate.exists() and (not candidate.is_dir() or any(candidate.iterdir()))):
                 raise ValueError("--cache-dir must be an empty shim-owned directory; existing files were preserved")
             target = candidate
             _validate_cache_filesystem(candidate)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _require_free_space(target.parent, reserve, minimum_free)
-            target.mkdir(exist_ok=True)
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            _require_free_space(candidate.parent, reserve, minimum_free)
+            candidate.mkdir(exist_ok=True)
             return CacheLease(target, _lock_empty_cache(target))
 
         root = Path(args.scratch_root).expanduser().absolute()
         _validate_cache_filesystem(root)
-        if root.exists() and (root.is_symlink() or not root.is_dir()):
+        if root.is_symlink() or (root.exists() and not root.is_dir()):
             raise ValueError("scratch root must be a real directory, not a symlink or file")
         root.mkdir(parents=True, exist_ok=True)
         startup_lock = open(root / ".startup.lock", "a+b")
@@ -579,7 +594,7 @@ def _prepare_cache(args):
         # A non-shim writer won the race after our first check; do not remove its files.
         raise
     except BaseException:
-        if target is not None and target.exists():
+        if target is not None and not target.is_symlink() and target.exists():
             _delete_unlocked(target)
         raise
 
@@ -627,6 +642,10 @@ def main(argv):
     except KeyboardInterrupt:
         return 0
     finally:
+        # Ignore repeated shutdown signals during teardown so server_close() finishes joining
+        # active request handlers before unloading the engine and removing the run cache.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         try:
             if server is not None:
                 server.server_close()

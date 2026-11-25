@@ -334,7 +334,7 @@ DATE_PATTERNS = (
 )
 NUMBER_RE = re.compile(
     r"(?P<cur>[¥$€£])?\s*(?<![\d.A-Za-z_])(?P<num>\d+(?:\.\d+)?)(?!\.?\d)\s*(?P<scale>[万亿])?"
-    r"\s*(?P<unit>%|元|块|分钟|小时|秒|天|GB|MB|KB|TB|mAh|°C|℃|度|公里|km|米)?",
+    r"\s*(?P<unit>%|元|块|分钟|小时|秒|天|GHz|MHz|kHz|Hz|mAh|kW|mA|TB|GB|MB|KB|mm|cm|km|ms|fps|mL|kg|mg|°C|℃|度|公里|米|W|V|K|G|p)?(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
 SCALES = {"万": Decimal(10_000), "亿": Decimal(100_000_000)}
@@ -434,7 +434,8 @@ def answer_matches_regex(answer, pattern):
         return False
     if _matches_empty(compiled):
         return False
-    return compiled.search(_nfkc(answer)) is not None
+    match = compiled.search(_nfkc(answer))
+    return match is not None and match.start() < match.end()
 
 
 def answer_contains_all(answer, needles):

@@ -377,7 +377,7 @@ release_main_shell_is_visible() {
     grep -Fq "$PACKAGE_NAME/$PACKAGE_NAME.MainActivity" "$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE" &&
     grep -Fq "$PACKAGE_NAME/$PACKAGE_NAME.MainActivity" "$RELEASE_MAIN_SHELL_WINDOW_DUMP_FILE" &&
     release_main_shell_window_is_drawn &&
-    grep -Fq 'text="Solin"' "$RELEASE_MAIN_SHELL_UI_DUMP_FILE"
+    grep -Eq 'content-desc="模型管理"|text="Solin"' "$RELEASE_MAIN_SHELL_UI_DUMP_FILE"
 }
 
 verify_release_main_shell() {

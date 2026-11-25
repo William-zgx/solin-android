@@ -113,7 +113,7 @@ for target in "${SCAN_TARGETS[@]}"; do
     finding_rest="${finding#*:}"
     finding_line="${finding_rest%%:*}"
     printf '%s:%s:secret-pattern-detected\n' "$finding_path" "$finding_line" >> "$TMP_FINDINGS"
-  done < <(grep -R -n -I -E "$PATTERN" "$target" \
+  done < <(grep -R -H -n -I -E "$PATTERN" "$target" \
     --exclude-dir=.git \
     --exclude-dir=.gradle \
     --exclude-dir=build \
@@ -168,7 +168,7 @@ trace_allowed_fields = {
     },
 }
 trace_types = set(trace_allowed_fields)
-excluded_dir_names = {".git", ".gradle", "build", ".idea", ".trae", "test", "androidTest"}
+excluded_dir_names = {".git", ".gradle", "build", ".idea", ".trae", ".claude", ".codex", "test", "androidTest"}
 forbidden_exact_keys = {
     "prompt",
     "rawprompt",
@@ -222,12 +222,8 @@ def sensitive_key(value):
     )
 
 
-def should_skip(path):
-    parts = set(path.parts)
-    if parts & excluded_dir_names:
-        return True
-    joined = "/".join(path.parts)
-    return "/app/build/" in f"/{joined}/" or "/app/src/test/" in f"/{joined}/" or "/app/src/androidTest/" in f"/{joined}/"
+def should_skip(relative_path):
+    return bool(set(relative_path.parts) & excluded_dir_names)
 
 
 def iter_files(target):
@@ -240,11 +236,11 @@ def iter_files(target):
         root_path = Path(root)
         dir_names[:] = [
             name for name in dir_names
-            if not should_skip(root_path / name)
+            if not should_skip((root_path / name).relative_to(target))
         ]
         for name in file_names:
             path = root_path / name
-            if not should_skip(path):
+            if not should_skip(path.relative_to(target)):
                 yield path
 
 

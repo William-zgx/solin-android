@@ -56,6 +56,10 @@ class GroundingTest(unittest.TestCase):
     def test_a_full_width_list_comma_is_not_a_thousands_separator(self):
         self.assertEqual({("num", "129"), ("num", "199")}, runner.answer_facts("价格 129，199"))
 
+    def test_letter_units_and_leading_digit_identifiers_are_distinguished(self):
+        self.assertEqual({("num", "65"), ("num", "5"), ("num", "60")}, runner.answer_facts("功率 65W，5GHz，60Hz"))
+        self.assertEqual(set(), runner.answer_facts("订单 123456abcdef 和 1299_order"))
+
     def test_min_items_and_missing_facts_fail_the_check(self):
         report = {"state": "Completed", "answer": "「甲」", "answerSource": "transcript"}
         failures, grounding = runner.evaluate({"answerGrounded": {"minItems": 2}}, report, None, ["甲"])
@@ -73,6 +77,7 @@ class AnswerCheckTest(unittest.TestCase):
         self.assertTrue(runner.answer_matches_regex("结果是 ５６,０８８", "56,?088"))
         self.assertTrue(runner.answer_matches_regex("结果是 56088", "56,?088"))
         self.assertFalse(runner.answer_matches_regex("结果是 56,880", "56,?088"))
+        self.assertFalse(runner.answer_matches_regex("结果是 5", "(?=5)"))
 
     def test_contains_all_ignores_whitespace_and_case(self):
         self.assertTrue(runner.answer_contains_all("歌手是 周 杰伦，ABC", ["周杰伦", "abc"]))

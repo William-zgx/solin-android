@@ -32,9 +32,20 @@ def require(condition, message):
 def load_cases(path):
     with Path(path).open(encoding="utf-8") as handle:
         cases = [json.loads(line) for line in handle if line.strip()]
+    seen_ids = set()
     for case in cases:
         validate_case(case)
+        require(case["id"] not in seen_ids, f"duplicate case id: {case['id']}")
+        seen_ids.add(case["id"])
     return cases
+
+
+def _is_non_negative_int(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_non_negative_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
 
 
 def validate_case(case):
@@ -42,10 +53,6 @@ def validate_case(case):
     require(case.get("synthetic") is True and case.get("privacy") == "synthetic",
             "unknown privacy metadata fails closed")
     require(isinstance(case.get("id"), str) and NODE_ID.fullmatch(case["id"]), "invalid case id")
-    require(isinstance(case.get("request"), str) and case["request"].strip(), "request is required")
-    capabilities = case.get("publicCapabilities")
-    require(isinstance(capabilities, list) and capabilities and all(isinstance(x, str) for x in capabilities),
-            "public capabilities are required")
     validate_public_inputs(case)
     require(isinstance(case.get("gold"), dict), "gold is required")
     require(case["gold"].get("outcome") in OUTCOMES, "invalid gold outcome")
@@ -53,14 +60,20 @@ def validate_case(case):
     answers = case.get("answers")
     require(isinstance(answers, dict) and set(answers) == set(TIERS), "all four saved answers are required")
     for tier, answer in answers.items():
+        require(isinstance(answer, dict), f"{tier} answer must be an object")
         require(answer.get("outcome") in OUTCOMES, f"invalid {tier} outcome")
         require(isinstance(answer.get("action"), dict), f"{tier} action is required")
-        require(isinstance(answer.get("cloudCalls"), int) and answer["cloudCalls"] >= 0, "invalid cloudCalls")
-        require(answer.get("costPerCall", 0) >= 0, "invalid costPerCall")
+        require(_is_non_negative_int(answer.get("cloudCalls")), "invalid cloudCalls")
+        require(_is_non_negative_number(answer.get("costPerCall", 0)), "invalid costPerCall")
 
 
 def validate_public_inputs(case):
-    require(all(capability in CAPABILITIES for capability in case["publicCapabilities"]),
+    require(isinstance(case, dict), "case must be an object")
+    require(isinstance(case.get("request"), str) and case["request"].strip(), "request is required")
+    capabilities = case.get("publicCapabilities")
+    require(isinstance(capabilities, list) and capabilities and all(isinstance(x, str) for x in capabilities),
+            "public capabilities are required")
+    require(all(capability in CAPABILITIES for capability in capabilities),
             "unknown public capability")
     validate_observation(case.get("structuredObservation"))
 
@@ -82,7 +95,7 @@ def validate_observation(observation):
         require(candidate.get("role") in {"button", "field", "result"}, "invalid candidate role")
         bounds = candidate.get("bounds")
         require(isinstance(bounds, list) and len(bounds) == 4 and
-                all(isinstance(value, int) and value >= 0 for value in bounds), "invalid bounds")
+                all(_is_non_negative_int(value) for value in bounds), "invalid bounds")
     branches = observation.get("branchOutcomes", {})
     require(isinstance(branches, dict), "branchOutcomes must be an object")
     for node, outcome in branches.items():
@@ -140,13 +153,21 @@ def correct_answer(case, tier):
 
 
 def summarize(cases):
+    seen_ids = set()
+    for case in cases:
+        validate_case(case)
+        if case["id"] in seen_ids:
+            raise ContractError(f"duplicate case id: {case['id']}")
+        seen_ids.add(case["id"])
     baseline = {case["id"]: correct_answer(case, "p0") for case in cases}
     result = {"schema": "SolinPrivacyUtilityReport/v1", "status": "synthetic-contract-only",
               "modelEvidence": False, "caseCount": len(cases), "tiers": {}}
     for tier in TIERS:
-        fixed, broken, branch_failures = [], [], 0
+        correct_count, fixed, broken, branch_failures = 0, [], [], 0
         for case in cases:
             correct = correct_answer(case, tier)
+            if correct:
+                correct_count += 1
             if correct and not baseline[case["id"]]:
                 fixed.append(case["id"])
             if not correct and baseline[case["id"]]:
@@ -155,7 +176,7 @@ def summarize(cases):
                 branch_failures += 1
         answers = [case["answers"][tier] for case in cases]
         result["tiers"][tier] = {
-            "correct": sum(correct_answer(case, tier) for case in cases),
+            "correct": correct_count,
             "fixed": len(fixed),
             "broken": len(broken),
             "fixedCaseIds": fixed,
@@ -176,7 +197,9 @@ def main(argv=None):
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     if args.self_test:
-        unittest.main(argv=[sys.argv[0]], exit=True)
+        suite = unittest.defaultTestLoader.discover(str(Path(__file__).resolve().parent), pattern="test_privacy_utility.py")
+        outcome = unittest.TextTestRunner(verbosity=1).run(suite)
+        sys.exit(0 if outcome.wasSuccessful() and outcome.testsRun > 0 else 1)
     if not args.check:
         parser.error("choose --check or --self-test")
     report = summarize(load_cases(args.dataset))

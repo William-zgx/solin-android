@@ -190,24 +190,16 @@ class PackageBoundaryArchitectureTest {
 
     @Test
     fun productionRoutingExecutorsKeepEvidenceBoundingDecorator() {
-        val mainRoot = ProductionSourceScanner.solinPackageRoot()
-        val debugRoot = File(
-            ProductionSourceScanner.mainJavaRoot(),
-            "../../debug/java/com/bytedance/zgx/solin"
-        )
-        val violations = listOf(mainRoot, debugRoot).flatMap { root ->
-            root.walkTopDown()
-                .filter { it.isFile && it.extension == "kt" && it.name != "ToolExecutor.kt" }
-                .mapNotNull { file ->
-                    val source = file.readText()
-                    if ("RoutingToolExecutor(" in source && "EvidenceBoundingToolExecutor(" !in source) {
-                        file.path
-                    } else {
-                        null
-                    }
+        val violations = ProductionSourceScanner.productionSourceFiles()
+            .filter { (_, file) -> file.name != "ToolExecutor.kt" }
+            .mapNotNull { (relativePath, file) ->
+                val source = ProductionSourceScanner.stripCommentsAndLiterals(file.readText())
+                if ("RoutingToolExecutor(" in source && "EvidenceBoundingToolExecutor(" !in source) {
+                    relativePath
+                } else {
+                    null
                 }
-                .toList()
-        }
+            }
 
         assertTrue(
             "Every main/debug RoutingToolExecutor needs an EvidenceBoundingToolExecutor decorator: $violations",

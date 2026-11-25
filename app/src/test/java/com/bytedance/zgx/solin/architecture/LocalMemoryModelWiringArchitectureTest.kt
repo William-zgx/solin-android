@@ -58,7 +58,9 @@ class LocalMemoryModelWiringArchitectureTest {
             "import com.bytedance.zgx.solin.memory.LocalMemoryModel as Local\nclass Http : Local { }" to "implemented",
             "typealias Local = com.bytedance.zgx.solin.memory.LocalMemoryModel\nclass Http : Local { }" to "implemented",
             "val c = DefaultContextCompactor(CompactionConfig(), model)" to "constructed",
+            "val c = DefaultContextCompactor(if (a < b) cfg1 else cfg2, model)" to "constructed",
             "val c = DefaultContextCompactor(config = cfg, summaryModel = m)" to "constructed",
+            "val s = \"\${LocalMemoryModel { _, _ -> null }}\"" to "implemented",
             "val e = LocalModelMemoryFactExtractor(model, config)" to "constructed"
         )
         planted.forEach { (text, marker) ->
@@ -106,7 +108,7 @@ class LocalMemoryModelWiringArchitectureTest {
 /** One rule hit as `path:line rule`; a construction rule contains the word "constructed". */
 internal fun wiringViolations(path: String, source: String, allowlist: Set<String>): List<String> {
     val fileName = path.substringAfterLast('/')
-    val stripped = stripCommentsAndLiterals(source)
+    val stripped = ProductionSourceScanner.stripCommentsAndLiterals(source)
     val found = mutableListOf<String>()
     fun report(index: Int, rule: String) {
         found += "$path:${lineOf(stripped, index)} $rule"
@@ -121,7 +123,7 @@ internal fun wiringViolations(path: String, source: String, allowlist: Set<Strin
             pattern.findAll(stripped).forEach { report(it.range.first, "LocalMemoryModel implemented outside the allowlist") }
         }
     } else {
-        IMPORT_LINE.findAll(source).forEach { match ->
+        IMPORT_LINE.findAll(stripped).forEach { match ->
             val name = match.groupValues[1]
             if (name.startsWith("okhttp3.") || name == "okhttp3" || REMOTE_RUNTIME_IMPORT.matches(name)) {
                 report(match.range.first, "allowlisted adapter imports a remote runtime: $name")
@@ -191,8 +193,8 @@ private fun hasTopLevelComma(arguments: String): Boolean {
     var depth = 0
     for (char in trimmed) {
         when (char) {
-            '(', '[', '{', '<' -> depth++
-            ')', ']', '}', '>' -> depth--
+            '(', '[', '{' -> depth++
+            ')', ']', '}' -> depth--
             ',' -> if (depth == 0) return true
         }
     }
@@ -200,57 +202,3 @@ private fun hasTopLevelComma(arguments: String): Boolean {
 }
 
 private fun lineOf(text: String, index: Int): Int = text.substring(0, index).count { it == '\n' } + 1
-
-/**
- * [source] with line and block comments, string literals (including raw strings) and character
- * literals replaced by spaces. Newlines are kept, so line numbers still match the original.
- */
-internal fun stripCommentsAndLiterals(source: String): String {
-    val out = StringBuilder(source.length)
-    fun blank(from: Int, to: Int) {
-        for (index in from until to) out.append(if (source[index] == '\n') '\n' else ' ')
-    }
-    var index = 0
-    while (index < source.length) {
-        when {
-            source.startsWith("//", index) -> {
-                val end = source.indexOf('\n', index).let { if (it < 0) source.length else it }
-                blank(index, end)
-                index = end
-            }
-            source.startsWith("/*", index) -> {
-                val end = source.indexOf("*/", index + 2).let { if (it < 0) source.length else it + 2 }
-                blank(index, end)
-                index = end
-            }
-            source.startsWith("\"\"\"", index) -> {
-                val end = source.indexOf("\"\"\"", index + 3).let { if (it < 0) source.length else it + 3 }
-                blank(index, end)
-                index = end
-            }
-            source[index] == '"' -> {
-                var end = index + 1
-                while (end < source.length && source[end] != '"' && source[end] != '\n') {
-                    end += if (source[end] == '\\') 2 else 1
-                }
-                end = minOf(end + 1, source.length)
-                blank(index, end)
-                index = end
-            }
-            source[index] == '\'' -> {
-                var end = index + 1
-                while (end < source.length && source[end] != '\'' && source[end] != '\n') {
-                    end += if (source[end] == '\\') 2 else 1
-                }
-                end = minOf(end + 1, source.length)
-                blank(index, end)
-                index = end
-            }
-            else -> {
-                out.append(source[index])
-                index++
-            }
-        }
-    }
-    return out.toString()
-}

@@ -7,18 +7,13 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextClearance
-import androidx.compose.ui.test.performTextInput
-import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -43,12 +38,12 @@ class MainActivityRuntimePermissionUiTest {
 
     @Test
     fun contactLookupConfirmationShowsRuntimePermissionRequirementWithoutSpecialAccess() {
-        launchReadyRemoteActivity().use {
-            composeRule.waitForTag("app_title")
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
+            composeRule.waitForRequiredTag("app_title")
 
-            composeRule.sendPrompt("查联系人 Alice")
+            composeRule.sendRemotePrompt("查联系人 Alice")
 
-            composeRule.waitForTag("runtime_permission_requirements", timeoutMillis = 10_000)
+            composeRule.waitForRequiredTag("runtime_permission_requirements", timeoutMillis = 10_000)
             composeRule.onNodeWithText("查询联系人").assertIsDisplayed()
             composeRule.onNodeWithText("将按“Alice”查询联系人。").assertIsDisplayed()
             composeRule.onNodeWithTag("runtime_permission_requirements")
@@ -68,12 +63,12 @@ class MainActivityRuntimePermissionUiTest {
     fun contactLookupConfirmThenDenyPermissionShowsDeniedStateAndNoToolResult() {
         resetPermission(Manifest.permission.READ_CONTACTS)
 
-        launchReadyRemoteActivity().use {
-            composeRule.waitForTag("app_title")
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
+            composeRule.waitForRequiredTag("app_title")
 
-            composeRule.sendPrompt("查联系人 Alice")
+            composeRule.sendRemotePrompt("查联系人 Alice")
 
-            composeRule.waitForTag("runtime_permission_requirements", timeoutMillis = 10_000)
+            composeRule.waitForRequiredTag("runtime_permission_requirements", timeoutMillis = 10_000)
             composeRule.onNodeWithText("联系人权限：用于只读查询联系人摘要。")
                 .assertIsDisplayed()
             composeRule.onNodeWithTag("action_confirm_button").performClick()
@@ -85,18 +80,18 @@ class MainActivityRuntimePermissionUiTest {
             composeRule.onNodeWithTag("app_status_text")
                 .assertTextContains("权限被拒，工具未执行")
             assertPermissionDenied(Manifest.permission.READ_CONTACTS)
-            composeRule.assertTextAbsent("工具执行结果")
+            composeRule.assertTextAbsent("工具执行结果", substring = true)
         }
     }
 
     @Test
     fun calendarAvailabilityConfirmationShowsRuntimePermissionRequirementWithoutSpecialAccess() {
-        launchReadyRemoteActivity().use {
-            composeRule.waitForTag("app_title")
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
+            composeRule.waitForRequiredTag("app_title")
 
-            composeRule.sendPrompt("查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z")
+            composeRule.sendRemotePrompt("查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z")
 
-            composeRule.waitForTag("runtime_permission_requirements", timeoutMillis = 10_000)
+            composeRule.waitForRequiredTag("runtime_permission_requirements", timeoutMillis = 10_000)
             composeRule.onNodeWithText("查询日历忙闲").assertIsDisplayed()
             composeRule.onNodeWithTag("runtime_permission_requirements")
                 .assertIsDisplayed()
@@ -113,12 +108,12 @@ class MainActivityRuntimePermissionUiTest {
 
     @Test
     fun recentScreenshotOcrConfirmationShowsImageReadRationaleAndCancelsCleanly() {
-        launchReadyRemoteActivity().use {
-            composeRule.waitForTag("app_title")
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
+            composeRule.waitForRequiredTag("app_title")
 
-            composeRule.sendPrompt("识别最近 1 张截图文字")
+            composeRule.sendRemotePrompt("识别最近 1 张截图文字")
 
-            composeRule.waitForTag("runtime_permission_requirements")
+            composeRule.waitForRequiredTag("runtime_permission_requirements")
             composeRule.onNodeWithText("读取最近截图 OCR").assertIsDisplayed()
             composeRule.onNodeWithTag("runtime_permission_requirements")
                 .assertIsDisplayed()
@@ -130,18 +125,18 @@ class MainActivityRuntimePermissionUiTest {
 
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
             composeRule.waitForTagGone("runtime_permission_requirements")
-            composeRule.assertTextAbsent("工具执行结果")
+            composeRule.assertTextAbsent("工具执行结果", substring = true)
         }
     }
 
     @Test
     fun recentImageOcrConfirmationShowsBoundedImageReadRationaleAndCancelsCleanly() {
-        launchReadyRemoteActivity().use {
-            composeRule.waitForTag("app_title")
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
+            composeRule.waitForRequiredTag("app_title")
 
-            composeRule.sendPrompt("识别最近图片文字")
+            composeRule.sendRemotePrompt("识别最近图片文字")
 
-            composeRule.waitForTag("runtime_permission_requirements")
+            composeRule.waitForRequiredTag("runtime_permission_requirements")
             composeRule.onNodeWithText("读取最近图片 OCR").assertIsDisplayed()
             composeRule.onNodeWithText("将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。")
                 .assertIsDisplayed()
@@ -161,19 +156,19 @@ class MainActivityRuntimePermissionUiTest {
 
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
             composeRule.waitForTagGone("runtime_permission_requirements")
-            composeRule.assertTextAbsent("读取最近图片 OCR")
-            composeRule.assertTextAbsent("工具执行结果")
+            composeRule.assertTextAbsent("读取最近图片 OCR", substring = true)
+            composeRule.assertTextAbsent("工具执行结果", substring = true)
         }
     }
 
     @Test
     fun recentImageFilesConfirmationShowsMetadataOnlyRationaleAndCancelsCleanly() {
-        launchReadyRemoteActivity().use {
-            composeRule.waitForTag("app_title")
+        launchReadyRemoteMainActivity(targetContext).useWithViewModelTeardown {
+            composeRule.waitForRequiredTag("app_title")
 
-            composeRule.sendPrompt("查询最近5个图片文件列表")
+            composeRule.sendRemotePrompt("查询最近5个图片文件列表")
 
-            composeRule.waitForTag("runtime_permission_requirements")
+            composeRule.waitForRequiredTag("runtime_permission_requirements")
             composeRule.onNodeWithText("查询最近文件").assertIsDisplayed()
             composeRule.onNodeWithText(
                 "将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。"
@@ -194,49 +189,12 @@ class MainActivityRuntimePermissionUiTest {
 
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
             composeRule.waitForTagGone("runtime_permission_requirements")
-            composeRule.assertTextAbsent("查询最近文件")
-            composeRule.assertTextAbsent("工具执行结果")
+            composeRule.assertTextAbsent("查询最近文件", substring = true)
+            composeRule.assertTextAbsent("工具执行结果", substring = true)
         }
     }
 
-    private fun launchReadyRemoteActivity(): ActivityScenario<MainActivity> {
-        resetMainActivityPersistentState(
-            context = targetContext,
-            inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig
-        )
-        return ActivityScenario.launch(
-            mainActivitySkipStartupIntent(
-                context = targetContext,
-                debugRemoteModelConfig = ReadyRemoteModelConfig
-            )
-        )
-    }
-
-    private fun ComposeTestRule.sendPrompt(prompt: String) {
-        waitForRemoteModelReady(ReadyRemoteModelConfig.baseUrl)
-        waitForReadyComposer()
-        onNodeWithTag("composer_input").performTextClearance()
-        onNodeWithTag("composer_input").performTextInput(prompt)
-        onNodeWithTag("composer_send_button").performClick()
-        confirmRemoteSendIfPresent()
-    }
-
-    private fun ComposeTestRule.waitForReadyComposer(timeoutMillis: Long = 10_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText("输入问题").fetchSemanticsNodes().isNotEmpty()
-        }
-        onNodeWithTag("composer_input").assertIsEnabled()
-    }
-
-    private fun ComposeTestRule.confirmRemoteSendIfPresent() {
-        val needsConfirmation = waitForOptionalTag("remote_send_disclosure_sheet", timeoutMillis = 1_500)
-        if (!needsConfirmation) return
-        onNodeWithTag("remote_send_confirm_button").performClick()
-        waitForTagGone("remote_send_disclosure_sheet")
-    }
-
-    private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
+    private fun ComposeTestRule.waitForRequiredTag(tag: String, timeoutMillis: Long = 5_000) {
         try {
             waitUntil(timeoutMillis = timeoutMillis) {
                 onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
@@ -281,39 +239,6 @@ class MainActivityRuntimePermissionUiTest {
         }
     }
 
-    private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForText(
-        text: String,
-        timeoutMillis: Long = 5_000,
-        substring: Boolean = false
-    ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean = runCatching {
-        waitForTag(tag, timeoutMillis = timeoutMillis)
-        true
-    }.getOrDefault(false)
-
-    private fun ComposeTestRule.assertTagAbsent(tag: String) {
-        waitUntil(timeoutMillis = 5_000) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.assertTextAbsent(text: String) {
-        waitUntil(timeoutMillis = 5_000) {
-            onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isEmpty()
-        }
-    }
-
     private fun resetPermission(permission: String) {
         assumeTrue(
             "$permission must be denied before instrumentation starts; revoke it before launching tests.",
@@ -349,9 +274,6 @@ class MainActivityRuntimePermissionUiTest {
             if (isPermissionControllerVisible()) {
                 device.pressBack()
                 device.waitForIdle()
-                return
-            }
-            if (targetContext.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
                 return
             }
             Thread.sleep(200)

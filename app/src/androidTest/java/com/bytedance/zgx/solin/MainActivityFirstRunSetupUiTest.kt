@@ -3,10 +3,7 @@ package com.bytedance.zgx.solin
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOn
-import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -28,7 +25,7 @@ class MainActivityFirstRunSetupUiTest {
 
         ActivityScenario.launch<MainActivity>(
             mainActivitySkipStartupIntent(targetContext)
-        ).use {
+        ).useWithViewModelTeardown {
             composeRule.waitForTag("app_title", timeoutMillis = 10_000)
             composeRule.onNodeWithTag("model_startup_banner")
                 .performScrollTo()
@@ -63,24 +60,6 @@ class MainActivityFirstRunSetupUiTest {
             composeRule.onNodeWithTag("home_choice_remote")
                 .performScrollTo()
                 .assertIsDisplayed()
-        }
-    }
-
-    private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForText(text: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
         }
     }
 }
