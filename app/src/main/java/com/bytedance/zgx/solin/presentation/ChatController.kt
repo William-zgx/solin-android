@@ -21,7 +21,6 @@ import com.bytedance.zgx.solin.data.ModelRepositoryFacade
 import com.bytedance.zgx.solin.data.RemoteSendPendingStore
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
 import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
-import com.bytedance.zgx.solin.label
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
 import com.bytedance.zgx.solin.logging.solinD
@@ -485,83 +484,6 @@ class ChatController internal constructor(
                 )
                 ).copy(initialRouteCancellation = initialRouteCancellation)
         }
-        if (preparedExecution != null && useRemoteModel) {
-            val remoteDecision = ChatSendPreflight.preparedRemoteSend(
-                messagePrivacy = effectiveMessagePrivacy,
-                remoteConfig = remoteConfig,
-                remoteSendConfirmed = remoteSendConfirmed,
-                containsSensitiveContent = {
-                    remoteSendSupport.containsSensitivePersonalOrSecretContent(trimmed)
-                },
-                requiresSendDisclosure = {
-                    remoteSendSupport.shouldRequireRemoteSendDisclosure(imageAttachmentCount = imageAttachments.size)
-                }
-            )
-            when (remoteDecision) {
-                RemoteSendPreflightDecision.KeepLocalOnlyContent -> {
-                    persistLocalReply(stateBeforeSend.messages, trimmed, MessagePrivacy.LocalOnly, LOCAL_ONLY_INPUT_KEPT_LOCAL_REPLY)
-                    uiState.update {
-                        it.copy(statusText = "已保护本地内容")
-                    }
-                    return
-                }
-                RemoteSendPreflightDecision.BlockKnownConnectivityFailure -> {
-                    remoteSendSupport.recordRemoteSendAuditEvent(
-                        decision = RemoteSendDecision.Blocked,
-                        modelName = remoteConfig.normalized().modelName,
-                        prompt = trimmed,
-                        imageCount = imageAttachments.size,
-                        remoteHistoryCount = remoteHistory.size
-                    )
-                    persistLocalReply(
-                        history = stateBeforeSend.messages,
-                        userText = trimmed,
-                        userPrivacy = MessagePrivacy.RemoteEligible,
-                        reply = "远程连接状态为${remoteConfig.connectivityStatus.label}，本次没有发送。请在模型管理中测试连接或更新远程配置。"
-                    )
-                    uiState.update {
-                        it.copy(statusText = "远程连接不可用")
-                    }
-                    return
-                }
-                RemoteSendPreflightDecision.RequireSensitiveContentConsent,
-                RemoteSendPreflightDecision.RequireSendDisclosure
-                -> {
-                    // Sensitive content gets a forced disclosure with graded choices (mask & send,
-                    // send anyway with audit, or cancel); the session-suppression flag never hides it.
-                    val sensitive = remoteDecision == RemoteSendPreflightDecision.RequireSensitiveContentConsent
-                    showRemoteSendDisclosure(
-                        remoteSendSupport.buildCurrentInputDisclosure(
-                            sensitive = sensitive,
-                            prompt = trimmed,
-                            messagePrivacy = effectiveMessagePrivacy,
-                            remoteConfig = remoteConfig,
-                            remoteHistory = remoteHistory,
-                            imageAttachments = imageAttachments,
-                            stateBeforeSend = stateBeforeSend
-                        ),
-                        statusText = if (sensitive) "敏感内容待确认" else "远程发送待确认"
-                    )
-                    return
-                }
-                RemoteSendPreflightDecision.ProtectSensitiveContentWithoutRemote -> {
-                    // Remote not configured: keep the original protect-and-explain behavior since there
-                    // is no destination to send to anyway. Sensitive input is kept out of memory.
-                    persistLocalReply(
-                        history = stateBeforeSend.messages,
-                        userText = trimmed,
-                        userPrivacy = MessagePrivacy.LocalOnly,
-                        reply = "这条内容疑似包含个人信息或密钥。当前为远程模型模式，我不会把它发送到远程模型；请切换到本地模型，或删去敏感内容后再发送。",
-                        rememberUser = false
-                    )
-                    uiState.update {
-                        it.copy(statusText = "已保护敏感内容")
-                    }
-                    return
-                }
-                RemoteSendPreflightDecision.Proceed -> Unit
-            }
-        }
         if (preparedExecution == null) {
             uiState.update {
                 it.copy(
@@ -739,10 +661,11 @@ class ChatController internal constructor(
                         ) {
                             return@generation
                         }
-                        if (useRemoteModel) {
+                        val remoteRoute = if (useRemoteModel) route.forRemoteSend() else null
+                        if (remoteRoute != null) {
                             val boundaryFailure = remoteRouteBoundaryFailure(
                                 userInput = trimmed,
-                                route = route.forRemoteSend()
+                                route = remoteRoute
                             )
                             if (boundaryFailure != null) {
                                 activeModelRunId?.let { runId ->
@@ -751,7 +674,7 @@ class ChatController internal constructor(
                                 remoteSendSupport.recordRemoteSendAuditEvent(
                                     decision = RemoteSendDecision.Blocked,
                                     modelName = remoteConfig.normalized().modelName,
-                                    prompt = route.forRemoteSend().promptForModel,
+                                    prompt = remoteRoute.promptForModel,
                                     imageCount = imageAttachments.size,
                                     remoteHistoryCount = remoteHistory.size
                                 )
@@ -782,7 +705,7 @@ class ChatController internal constructor(
                         val modelCallJob = currentCoroutineContext()[Job]
                         route.runId?.let { runId -> modelCallJob?.let { job -> midRunSteering.onModelCallStarted(runId, job) } }
                         try {
-                            if (useRemoteModel) {
+                            if (remoteRoute != null) {
                                 val remoteTools = assistantOrchestrator.availableRemoteToolSpecs(agentRunOptions.remoteToolScope)
                                 route.runId?.let { runId ->
                                     assistantOrchestrator.recordRemoteToolsExposed(
@@ -795,7 +718,7 @@ class ChatController internal constructor(
                                     remoteSendSupport.recordRemoteSendAuditEvent(
                                         decision = RemoteSendDecision.Confirmed,
                                         modelName = remoteConfig.normalized().modelName,
-                                        prompt = route.forRemoteSend().promptForModel,
+                                        prompt = remoteRoute.promptForModel,
                                         imageCount = imageAttachments.size,
                                         remoteHistoryCount = remoteHistory.size
                                     )
@@ -803,7 +726,7 @@ class ChatController internal constructor(
                                 remoteHistory = generationSupport.streamRemoteTurn(
                                     turn = turn,
                                     runId = route.runId,
-                                    prompt = route.forRemoteSend().promptForModel,
+                                    prompt = remoteRoute.promptForModel,
                                     history = remoteHistory,
                                     parameters = stateBeforeSend.generationParameters,
                                     config = remoteConfig,
@@ -1019,6 +942,7 @@ class ChatController internal constructor(
             )
             return
         }
+        val normalizedRemoteConfig = remoteConfig.normalized()
         if (stateBeforeSend.inferenceMode == InferenceMode.Remote) {
             if (effectiveMessagePrivacy == MessagePrivacy.LocalOnly) {
                 assistantOrchestrator.failModelGeneration(runId, "LocalOnly input cannot use remote serving")
@@ -1026,12 +950,13 @@ class ChatController internal constructor(
                 uiState.update { it.idleWithoutPlacement(PlacementReasonCode.PRIVACY_REQUIRES_LOCAL, "已保护本地内容") }
                 return
             }
-            remoteRouteBoundaryFailure(userInput = userPrompt, route = route.forRemoteSend())?.let { boundaryFailure ->
+            val remoteRoute = route.forRemoteSend()
+            remoteRouteBoundaryFailure(userInput = userPrompt, route = remoteRoute)?.let { boundaryFailure ->
                 assistantOrchestrator.failModelGeneration(runId, boundaryFailure)
                 remoteSendSupport.recordRemoteSendAuditEvent(
                     decision = RemoteSendDecision.Blocked,
-                    modelName = remoteConfig.normalized().modelName,
-                    prompt = route.forRemoteSend().promptForModel,
+                    modelName = normalizedRemoteConfig.modelName,
+                    prompt = remoteRoute.promptForModel,
                     imageCount = imageAttachments.size,
                     remoteHistoryCount = remoteHistory.size
                 )
@@ -1040,7 +965,6 @@ class ChatController internal constructor(
                 return
             }
         }
-        val normalizedRemoteConfig = remoteConfig.normalized()
         val connectivity = remoteConnectivity(normalizedRemoteConfig)
         val privacyPlan = initialChatPrivacyPlan(
             promptPrivacy = effectiveMessagePrivacy,
@@ -1048,7 +972,7 @@ class ChatController internal constructor(
             remoteImages = imageAttachments,
             localImages = localImageAttachments,
             evidence = currentPromptEvidenceSummary
-        ).withRouteContext(route)
+        ).withRouteContext(route, userInput = userPrompt)
         val placementInputs = placementInputsFor(
             state = stateBeforeSend,
             prompt = route.promptForModel,

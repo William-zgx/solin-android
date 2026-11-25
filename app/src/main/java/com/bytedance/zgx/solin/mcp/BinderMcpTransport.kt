@@ -161,7 +161,9 @@ class BinderMcpTransport(
             }
             expectedServerUid = McpServerVerifier.serverUid(context, component) ?: return false
             val deferred = CompletableDeferred<Boolean>()
-            connectDeferred = deferred
+            synchronized(stateLock) {
+                connectDeferred = deferred
+            }
             val intent = Intent(ACTION_MCP_SERVER).setComponent(component)
             val bindOk = try {
                 bindRequested = true
@@ -172,25 +174,30 @@ class BinderMcpTransport(
             }
             if (!bindOk) {
                 // bindService may still hold a connection record after returning false.
-                runCatching { context.unbindService(conn) }
-                bindRequested = false
-                connectDeferred = null
+                resetFailedBindLocked()
                 return false
             }
             return try {
                 withTimeout(requestTimeoutMs) { deferred.await() }
             } catch (t: TimeoutCancellationException) {
                 solinW(TAG, "bind timed out for $serverId")
-                runCatching { context.unbindService(conn) }
-                bindRequested = false
-                synchronized(stateLock) {
-                    bound = false
-                    service = null
-                    replyMessenger = null
-                    connectDeferred = null
-                }
+                resetFailedBindLocked()
                 false
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                resetFailedBindLocked()
+                throw t
             }
+        }
+    }
+
+    private fun resetFailedBindLocked() {
+        runCatching { context.unbindService(conn) }
+        bindRequested = false
+        synchronized(stateLock) {
+            bound = false
+            service = null
+            replyMessenger = null
+            connectDeferred = null
         }
     }
 

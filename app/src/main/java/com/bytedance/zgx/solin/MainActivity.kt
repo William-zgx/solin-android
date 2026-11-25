@@ -423,11 +423,12 @@ class MainActivity : ComponentActivity() {
     ) != null
 
     private fun handlePickedSharedUris(uris: List<Uri>) {
-        if (uris.isEmpty()) return
+        if (uris.isEmpty() || !isAppContainerReady()) return
         lifecycleScope.launch {
             val sharedInput = withContext(Dispatchers.IO) {
                 ShareIntentReader(applicationContext).readUris(uris, mode = SHARED_INPUT_READ_MODE)
             }
+            if (!isAppContainerReady()) return@launch
             sharedInput?.let { input ->
                 viewModel.launchPersistenceWork { viewModel.stageSharedInput(input) }
             }

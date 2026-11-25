@@ -289,10 +289,11 @@ class MemoryController(
         skipModelRuntimeWork: Boolean = false
     ): MemorySuggestionResult {
         val command = "记住${fact.trim()}"
-        val persisted = memoryEnabled && runCatching {
-            val message = ChatMessage(role = MessageRole.User, text = command, privacy = MessagePrivacy.LocalOnly)
-            persistExplicitUserFactMemory(message) || persistExplicitPreferenceMemory(message)
-        }.getOrDefault(false)
+        val persisted = memoryEnabled &&
+            runCatching {
+                val message = ChatMessage(role = MessageRole.User, text = command, privacy = MessagePrivacy.LocalOnly)
+                persistExplicitUserFactMemory(message) || persistExplicitPreferenceMemory(message)
+            }.getOrDefault(false)
         val rebuildResult = rebuildMemoryIndex(
             memoryEnabled = memoryEnabled,
             skipModelRuntimeWork = skipModelRuntimeWork
@@ -411,14 +412,16 @@ class MemoryController(
     ): MemoryCommandResult {
         if (memoryEnabled) syncTaskStateMemories(memoryEnabled = true)
         val userMessage = ChatMessage(role = MessageRole.User, text = trimmed, privacy = MessagePrivacy.LocalOnly)
-        sessionStore.replaceActiveSessionMessages(sessionStore.activeMessages() + userMessage, persistNow = true)
         val outcome = act(userMessage)
         val assistantMessage = ChatMessage(
             role = MessageRole.Assistant,
             text = outcome.assistantText,
             privacy = MessagePrivacy.LocalOnly
         )
-        sessionStore.replaceActiveSessionMessages(sessionStore.activeMessages() + assistantMessage, persistNow = true)
+        sessionStore.replaceActiveSessionMessages(
+            sessionStore.activeMessages() + userMessage + assistantMessage,
+            persistNow = true
+        )
         val rebuildResult = rebuildMemoryIndex(memoryEnabled = memoryEnabled, skipModelRuntimeWork = skipModelRuntimeWork)
         return MemoryCommandResult(
             userMessage = userMessage,

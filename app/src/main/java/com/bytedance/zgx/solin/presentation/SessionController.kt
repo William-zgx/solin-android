@@ -38,9 +38,12 @@ class SessionController(
     private val loadAgentTraceRuns: () -> List<AgentTraceRunUiSummary>
 ) {
     private var sessionRestoreJob: Job? = null
+
+    @Volatile
     private var sessionRestoreGeneration: Long = 0L
 
     fun close() {
+        nextSessionRestoreGeneration()
         sessionRestoreJob?.cancel()
         sessionRestoreJob = null
     }
@@ -89,7 +92,10 @@ class SessionController(
         clearPendingRemoteChatState()
         // Every session transition is a fresh trust context, including a failed selection.
         resetRemoteSendDisclosureSuppression()
-        val messages = operation() ?: return
+        val messages = operation() ?: run {
+            uiState.update { it.copy(pendingRemoteSendDisclosure = null) }
+            return
+        }
         val activeSessionId = sessionRepository.activeSessionId
         val restoreGeneration = nextSessionRestoreGeneration()
         uiState.update {
@@ -114,7 +120,8 @@ class SessionController(
                 successPrefix = successPrefix,
                 sessionId = activeSessionId,
                 messages = messages,
-                restoreGeneration = restoreGeneration
+                restoreGeneration = restoreGeneration,
+                restoringStatus = restoringStatus
             )
         }
     }
@@ -123,7 +130,10 @@ class SessionController(
      * Rebuilds the local runtime conversation for the current active session
      * (e.g. after generation-parameter changes).
      */
-    fun recreateConversationForActiveSession(successPrefix: String) {
+    fun recreateConversationForActiveSession(
+        successPrefix: String,
+        restoringStatus: String = "正在恢复会话"
+    ) {
         val sessionId = sessionRepository.activeSessionId
         val history = sessionRepository.activeMessages()
         val restoreGeneration = nextSessionRestoreGeneration()
@@ -131,7 +141,8 @@ class SessionController(
             successPrefix = successPrefix,
             sessionId = sessionId,
             messages = history,
-            restoreGeneration = restoreGeneration
+            restoreGeneration = restoreGeneration,
+            restoringStatus = restoringStatus
         )
     }
 
@@ -139,14 +150,15 @@ class SessionController(
         successPrefix: String,
         sessionId: String,
         messages: List<ChatMessage>,
-        restoreGeneration: Long
+        restoreGeneration: Long,
+        restoringStatus: String = "正在恢复会话"
     ) {
         sessionRestoreJob?.cancel()
         uiState.update {
             if (it.activeSessionId == sessionId) {
                 it.copy(
                     isReady = false,
-                    statusText = "正在恢复会话",
+                    statusText = restoringStatus,
                     modelHealth = it.modelHealth.copy(
                         state = ModelHealthState.Loading,
                         backend = it.backend
@@ -165,6 +177,8 @@ class SessionController(
                     )
                 }
             }
+            val failure = result.exceptionOrNull()
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
             result.fold(
                 onSuccess = {
                     uiState.update { current ->

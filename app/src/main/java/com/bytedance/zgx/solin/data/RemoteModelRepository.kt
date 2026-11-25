@@ -54,27 +54,44 @@ class RemoteModelRepository(
     }
 
     override fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig> = synchronized(configLock) {
-        runCatching {
-            check(configStateValid) { "Remote config state is unavailable" }
-            val current = loadPersistedConfigLocked()
-            val requested = config.normalized()
-            require(requested.hasValidApiKey) { "Remote API key contains invalid characters" }
-            val revisionChanged = current.profileRevision.isBlank() ||
-                !requested.hasSameConnectivityTarget(current)
-            val revision = resolveRevisionLocked(current, revisionChanged)
-            val prepared = requested.copy(
-                profileRevision = revision,
-                connectivityStatus = RemoteModelConnectivityStatus.Unknown
-            ).normalized()
-            val previousIntegrity = try {
-                secretStore.loadString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256).getOrThrow()
-            } catch (readFailure: Throwable) {
-                connectivitySnapshot = null
-                throw readFailure
-            }
-            val integrity = prepared.remoteConfigIntegritySha256()
-            val apiKeySave = secretStore.saveString(PREF_REMOTE_API_KEY, prepared.apiKey)
-            val apiKeyFailure = apiKeySave.exceptionOrNull()
+        commitConfigLocked(config = config, persistApiKey = true)
+    }
+
+    override fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig> = synchronized(configLock) {
+        commitConfigLocked(config = config, persistApiKey = false)
+    }
+
+    private fun commitConfigLocked(
+        config: RemoteModelConfig,
+        persistApiKey: Boolean
+    ): Result<RemoteModelConfig> = runCatching {
+        check(configStateValid) { "Remote config state is unavailable" }
+        val current = loadPersistedConfigLocked(migrateLegacySecret = persistApiKey)
+        val requested = if (persistApiKey) {
+            config.normalized()
+        } else {
+            config.copy(apiKey = current.apiKey).normalized()
+        }
+        require(requested.hasValidApiKey) { "Remote API key contains invalid characters" }
+        if (!persistApiKey && current.apiKey.isNotEmpty() && !requested.hasSameConnectivityTarget(current)) {
+            error("Remote target cannot change without an explicit API key")
+        }
+        val revisionChanged = current.profileRevision.isBlank() ||
+            !requested.hasSameConnectivityTarget(current)
+        val revision = resolveRevisionLocked(current, revisionChanged)
+        val prepared = requested.copy(
+            profileRevision = revision,
+            connectivityStatus = RemoteModelConnectivityStatus.Unknown
+        ).normalized()
+        val previousIntegrity = try {
+            secretStore.loadString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256).getOrThrow()
+        } catch (readFailure: Throwable) {
+            connectivitySnapshot = null
+            throw readFailure
+        }
+        val integrity = prepared.remoteConfigIntegritySha256()
+        if (persistApiKey) {
+            val apiKeyFailure = secretStore.saveString(PREF_REMOTE_API_KEY, prepared.apiKey).exceptionOrNull()
             if (apiKeyFailure != null) {
                 val readback = secretStore.loadString(PREF_REMOTE_API_KEY)
                 if (readback.isFailure || readback.getOrNull() != current.apiKey) {
@@ -86,72 +103,38 @@ class RemoteModelRepository(
                 }
                 throw apiKeyFailure
             }
-            val saved = try {
-                secretStore.saveString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256, integrity).getOrThrow()
-                saveNonSecretConfigLocked(prepared)
+        }
+        val saved = try {
+            secretStore.saveString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256, integrity).getOrThrow()
+            saveNonSecretConfigLocked(prepared)
+            val effectiveApiKey = if (persistApiKey) {
                 val storedApiKey = secretStore.loadString(PREF_REMOTE_API_KEY).getOrThrow()
                 check(storedApiKey == prepared.apiKey) { "Remote API key verification failed" }
-                loadPersistedConfigWithApiKeyLocked(storedApiKey)
-            } catch (writeFailure: Throwable) {
-                val apiKeyRollback = runCatching {
-                    secretStore.saveString(PREF_REMOTE_API_KEY, current.apiKey).getOrThrow()
-                }
-                val integrityRollback = runCatching {
-                    secretStore.saveString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256, previousIntegrity).getOrThrow()
-                }
-                connectivitySnapshot = null
-                if (apiKeyRollback.isFailure || integrityRollback.isFailure) {
-                    configStateValid = false
-                }
-                apiKeyRollback.exceptionOrNull()?.let(writeFailure::addSuppressed)
-                integrityRollback.exceptionOrNull()?.let(writeFailure::addSuppressed)
-                throw writeFailure
+                storedApiKey
+            } else {
+                current.apiKey
             }
-            if (revisionChanged) connectivitySnapshot = null
-            legacyPrefs?.edit()?.remove(PREF_REMOTE_API_KEY)?.apply()
-            projectConnectivityLocked(saved)
+            loadPersistedConfigWithApiKeyLocked(effectiveApiKey)
+        } catch (writeFailure: Throwable) {
+            val apiKeyRollback = if (persistApiKey) {
+                runCatching { secretStore.saveString(PREF_REMOTE_API_KEY, current.apiKey).getOrThrow() }
+            } else {
+                Result.success(Unit)
+            }
+            val integrityRollback = runCatching {
+                secretStore.saveString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256, previousIntegrity).getOrThrow()
+            }
+            connectivitySnapshot = null
+            if (apiKeyRollback.isFailure || integrityRollback.isFailure) {
+                configStateValid = false
+            }
+            apiKeyRollback.exceptionOrNull()?.let(writeFailure::addSuppressed)
+            integrityRollback.exceptionOrNull()?.let(writeFailure::addSuppressed)
+            throw writeFailure
         }
-    }
-
-    override fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig> = synchronized(configLock) {
-        runCatching {
-            check(configStateValid) { "Remote config state is unavailable" }
-            val current = loadPersistedConfigLocked(migrateLegacySecret = false)
-            val requested = config.copy(apiKey = current.apiKey).normalized()
-            require(requested.hasValidApiKey) { "Remote API key contains invalid characters" }
-            if (current.apiKey.isNotEmpty() && !requested.hasSameConnectivityTarget(current)) {
-                error("Remote target cannot change without an explicit API key")
-            }
-            val revisionChanged = current.profileRevision.isBlank() ||
-                !requested.hasSameConnectivityTarget(current)
-            val revision = resolveRevisionLocked(current, revisionChanged)
-            val prepared = requested.copy(
-                profileRevision = revision,
-                connectivityStatus = RemoteModelConnectivityStatus.Unknown
-            ).normalized()
-            val previousIntegrity = try {
-                secretStore.loadString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256).getOrThrow()
-            } catch (readFailure: Throwable) {
-                connectivitySnapshot = null
-                throw readFailure
-            }
-            val integrity = prepared.remoteConfigIntegritySha256()
-            val saved = try {
-                secretStore.saveString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256, integrity).getOrThrow()
-                saveNonSecretConfigLocked(prepared)
-                loadPersistedConfigWithApiKeyLocked(current.apiKey)
-            } catch (writeFailure: Throwable) {
-                val integrityRollback = runCatching {
-                    secretStore.saveString(PREF_REMOTE_CONFIG_INTEGRITY_SHA256, previousIntegrity).getOrThrow()
-                }
-                connectivitySnapshot = null
-                if (integrityRollback.isFailure) configStateValid = false
-                integrityRollback.exceptionOrNull()?.let(writeFailure::addSuppressed)
-                throw writeFailure
-            }
-            if (revisionChanged) connectivitySnapshot = null
-            projectConnectivityLocked(saved)
-        }
+        if (revisionChanged) connectivitySnapshot = null
+        if (persistApiKey) legacyPrefs?.edit()?.remove(PREF_REMOTE_API_KEY)?.apply()
+        projectConnectivityLocked(saved)
     }
 
     override fun recordConnectivity(
@@ -167,7 +150,7 @@ class RemoteModelRepository(
             connectivitySnapshot = null
             return@synchronized
         }
-        if (persistedRevision.isNullOrBlank() || persistedRevision != revision) return@synchronized
+        if (persistedRevision.isBlank() || persistedRevision != revision) return@synchronized
         connectivitySnapshot = RemoteConnectivitySnapshot(
             configRevision = revision,
             status = status,

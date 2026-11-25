@@ -9,6 +9,7 @@ import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingExternalOutcomeConfirmation
 import com.bytedance.zgx.solin.SpecialAccessRequirement
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_TOOL
 import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.matchesExecution
@@ -907,8 +908,7 @@ class ToolExecutionController(
         if (continuationRequiresLocalModel) return MessagePrivacy.LocalOnly
 
         result.data["privacy"]?.let { declaredPrivacy ->
-            return runCatching { MessagePrivacy.valueOf(declaredPrivacy) }
-                .getOrDefault(MessagePrivacy.LocalOnly)
+            return persistedEnumOrNull<MessagePrivacy>(declaredPrivacy) ?: MessagePrivacy.LocalOnly
         }
 
         return privacyForPublicEvidenceToolName(result.data["toolName"] ?: fallbackToolName)

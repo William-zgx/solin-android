@@ -84,6 +84,10 @@ internal class ModelLoadController(
     private var remoteConnectivityUiJob: Job? = null
     private var downloadMonitorJob: Job? = null
     private var downloadPreflightJob: Job? = null
+    private var verifyDownloadedModelJob: Job? = null
+    private var importModelJob: Job? = null
+    private var loadModelJob: Job? = null
+    private var deleteModelJob: Job? = null
 
     /** Guards [legacyVerifyJob] and [closed] so [close] cannot miss a startup verification. */
     private val legacyVerifyLock = Any()
@@ -98,6 +102,8 @@ internal class ModelLoadController(
     private val setupDownloadQueue = ArrayDeque<ModelDownloadSource>()
     private var setupDownloadInProgress = false
 
+    private val ChatUiState.isDownloadActive: Boolean get() = isPreparingDownload || isDownloading
+
     fun close() {
         synchronized(legacyVerifyLock) {
             closed = true
@@ -106,6 +112,10 @@ internal class ModelLoadController(
         }
         downloadMonitorJob?.cancel()
         downloadPreflightJob?.cancel()
+        verifyDownloadedModelJob?.cancel()
+        importModelJob?.cancel()
+        loadModelJob?.cancel()
+        deleteModelJob?.cancel()
         remoteConnectivityUiJob?.cancel()
         bundledModelInstallJob?.cancel()
     }
@@ -132,6 +142,7 @@ internal class ModelLoadController(
             }
             val result = runCatching { bundledModelInstaller.install() }
                 .getOrElse { error ->
+                    if (error is CancellationException) throw error
                     uiState.update {
                         it.copy(statusText = "内置模型准备失败：${error.cleanMessage()}")
                     }
@@ -259,7 +270,7 @@ internal class ModelLoadController(
     }
 
     fun toggleSetupModel(modelId: String, selected: Boolean) {
-        if (uiState.value.isBusy || uiState.value.isDownloading) return
+        if (uiState.value.isBusy || uiState.value.isDownloadActive) return
         uiState.update { state ->
             state.copy(
                 setupSelectedModelIds = if (selected) {
@@ -273,7 +284,7 @@ internal class ModelLoadController(
 
     fun startSetupModelDownload() {
         val state = uiState.value
-        if (state.isBusy || state.isDownloading) return
+        if (state.isBusy || state.isDownloadActive) return
         val selectedSources = state.basicSetupModels
             .filter { it.id in state.setupSelectedModelIds && !state.isModelInstalled(it.id) }
             .flatMap { ModelDownloadSource.recommendedBundle(it) }
@@ -301,7 +312,7 @@ internal class ModelLoadController(
      * dropped if its first file cannot start, so no stale companion file is fetched later.
      */
     private fun startDownloadQueue(sources: List<ModelDownloadSource>, firstRunSetup: Boolean = false) {
-        if (uiState.value.isBusy || uiState.value.isDownloading) return
+        if (uiState.value.isBusy || uiState.value.isDownloadActive) return
         setupDownloadQueue.clear()
         sources.drop(1).forEach(setupDownloadQueue::add)
         if (firstRunSetup) setupDownloadInProgress = true
@@ -379,7 +390,7 @@ internal class ModelLoadController(
         allowMetered: Boolean = false
     ): Boolean {
         refreshDeviceStatus()
-        if (uiState.value.isBusy || uiState.value.isDownloading) return false
+        if (uiState.value.isBusy || uiState.value.isDownloadActive) return false
         if (blockDownloadForMissingHuggingFaceAuthorization(source)) return false
         if (!isArm64DeviceProvider()) {
             uiState.update { it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型") }
@@ -600,7 +611,8 @@ internal class ModelLoadController(
                 isReady = false
             )
         }
-        scope.launch(ioDispatcher) {
+        verifyDownloadedModelJob?.cancel()
+        verifyDownloadedModelJob = scope.launch(ioDispatcher) {
             if (!registerVerifiedModel(targetFile, source)) return@launch
             firstRunSetupRepository.markSetupDismissed()
             updateModelState(modelRepository.currentState())
@@ -669,7 +681,7 @@ internal class ModelLoadController(
 
     fun importModel(uri: Uri) {
         refreshDeviceStatus()
-        if (uiState.value.isBusy || uiState.value.isDownloading) return
+        if (uiState.value.isBusy || uiState.value.isDownloadActive) return
         if (!isArm64DeviceProvider()) {
             uiState.update {
                 it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
@@ -685,7 +697,7 @@ internal class ModelLoadController(
             )
         }
 
-        launchImport { onProgress -> modelRepository.importModel(uri, onProgress) }
+        importModelJob = launchImport { onProgress -> modelRepository.importModel(uri, onProgress) }
     }
 
     /**
@@ -746,7 +758,7 @@ internal class ModelLoadController(
     }
 
     fun selectBackend(choice: BackendChoice) {
-        if (uiState.value.isBusy || uiState.value.isDownloading || uiState.value.backend == choice) return
+        if (uiState.value.isBusy || uiState.value.isDownloadActive || uiState.value.backend == choice) return
         if (!backendAllowedForActiveModel(uiState.value, choice)) {
             uiState.update {
                 it.copy(statusText = "当前模型不支持 ${choice.label()}，请使用可用后端")
@@ -883,7 +895,7 @@ internal class ModelLoadController(
     }
 
     fun selectRecommendedModel(modelId: String) {
-        if (uiState.value.isBusy || uiState.value.isDownloading || uiState.value.selectedModelId == modelId) return
+        if (uiState.value.isBusy || uiState.value.isDownloadActive || uiState.value.selectedModelId == modelId) return
         val result = modelRepository.selectRecommendedModel(modelId)
         updateModelState(result.state)
         val activated = result.activatedModel
@@ -900,7 +912,7 @@ internal class ModelLoadController(
 
     fun selectInstalledModel(modelId: String) {
         if (uiState.value.isBusy ||
-            uiState.value.isDownloading ||
+            uiState.value.isDownloadActive ||
             uiState.value.activeInstalledModelId == modelId
         ) {
             return
@@ -923,7 +935,7 @@ internal class ModelLoadController(
 
     fun deleteInstalledModel(modelId: String) {
         val stateBeforeDelete = uiState.value
-        if (stateBeforeDelete.isBusy || stateBeforeDelete.isDownloading || stateBeforeDelete.isGenerating) return
+        if (stateBeforeDelete.isBusy || stateBeforeDelete.isDownloadActive || stateBeforeDelete.isGenerating) return
         val target = stateBeforeDelete.installedModels.firstOrNull { it.id == modelId } ?: return
         val wasActive = target.id == stateBeforeDelete.activeInstalledModelId
         uiState.update {
@@ -932,7 +944,7 @@ internal class ModelLoadController(
                 statusText = "正在删除 ${target.displayName}"
             )
         }
-        scope.launch(ioDispatcher) {
+        deleteModelJob = scope.launch(ioDispatcher) {
             if (wasActive) {
                 runtimeLock.withLock {
                     runtime.close()
@@ -978,7 +990,7 @@ internal class ModelLoadController(
     fun loadModel() {
         val path = uiState.value.modelPath ?: return
         // Downloading must not be replaced by a load: the in-flight file is not installed yet.
-        if (uiState.value.isBusy || uiState.value.isDownloading) return
+        if (uiState.value.isBusy || uiState.value.isDownloadActive) return
         val backendChoice = preferredBackendForActiveModel(uiState.value, uiState.value.backend)
         solinI(TAG_MODEL, "loadModel: path=$path backend=${backendChoice.name}")
         remoteModelRepository.saveMode(InferenceMode.Local)
@@ -998,9 +1010,12 @@ internal class ModelLoadController(
             )
         }
 
-        scope.launch(ioDispatcher) {
+        loadModelJob = scope.launch(ioDispatcher) {
             val verified = runCatching { modelRepository.verifyActiveModelPath(path) }
-                .getOrDefault(false)
+                .getOrElse { error ->
+                    if (error is CancellationException) throw error
+                    false
+                }
             if (!verified) {
                 uiState.update {
                     it.copy(
@@ -1041,6 +1056,8 @@ internal class ModelLoadController(
                             parameters = uiState.value.generationParameters
                         )
                     }
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
                 }
             }
             val loadStartMs = System.currentTimeMillis()
@@ -1099,6 +1116,13 @@ internal class ModelLoadController(
 
     fun updateModelState(modelState: ModelSelectionState) {
         uiState.update {
+            val keepLiveHealth = it.activeInstalledModelId != null &&
+                it.activeInstalledModelId == modelState.activeInstalledModelId &&
+                it.modelHealth.state in setOf(
+                    ModelHealthState.Loaded,
+                    ModelHealthState.Loading,
+                    ModelHealthState.FallbackActive
+                )
             it.copy(
                 modelPath = modelState.activeModelPath,
                 activeInstalledModelId = modelState.activeInstalledModelId,
@@ -1106,7 +1130,11 @@ internal class ModelLoadController(
                 selectedModelId = modelState.selectedModelId,
                 localMaxTotalTokens = modelState.localContextWindowTokens(),
                 localPreferredBackends = modelState.localPreferredBackends(),
-                modelHealth = modelState.modelHealthForCurrentSelection(it.backend),
+                modelHealth = if (keepLiveHealth) {
+                    it.modelHealth
+                } else {
+                    modelState.modelHealthForCurrentSelection(it.backend)
+                },
                 semanticMemory = semanticMemoryStatus(),
                 huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken()
             )
@@ -1124,13 +1152,15 @@ internal class ModelLoadController(
             val state = modelRepository.currentState()
             ensureActive()
             updateModelState(state)
-            val localMode = uiState.value.inferenceMode == InferenceMode.Local
+            val currentUi = uiState.value
+            val localMode = currentUi.inferenceMode == InferenceMode.Local
             val hasFailedLegacy = state.installedModels.any {
                 it.verificationStatus == ModelVerificationStatus.FailedVerification
             }
             when {
                 !localMode || skipModelRuntimeWork -> Unit
-                state.activeModelPath != null && !uiState.value.isBusy && !uiState.value.isReady -> {
+                state.activeModelPath != null && !currentUi.isBusy && !currentUi.isReady && !currentUi.isDownloadActive -> {
+                    ensureActive()
                     uiState.update { it.copy(statusText = "旧模型校验通过，正在加载") }
                     loadModel()
                 }

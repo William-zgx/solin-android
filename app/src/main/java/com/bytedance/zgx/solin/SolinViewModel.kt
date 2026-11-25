@@ -75,11 +75,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-private const val VIEW_MODEL_CLEARED_AGENT_RUN_REASON =
-    "ViewModel cleared before this Agent run completed."
+private const val VIEW_MODEL_CLEARED_AGENT_RUN_REASON = "ViewModel cleared before this Agent run completed."
 internal const val STREAMING_UI_UPDATE_INTERVAL_MILLIS = 75L
-internal const val NO_MODEL_READY_STATUS_TEXT =
-    "选择远程模型或下载本地模型后即可开始"
+internal const val NO_MODEL_READY_STATUS_TEXT = "选择远程模型或下载本地模型后即可开始"
 
 class StreamingAssistantUpdateCoalescer(
     private val publish: (String) -> Unit,
@@ -166,10 +164,12 @@ class SolinViewModel internal constructor(
 ) : ViewModel() {
     private val runtimeLock = Mutex()
     private val persistenceActionMutex = Mutex()
-    private var persistenceInitialization = CompletableDeferred<Unit>()
+
+    @Volatile private var persistenceInitialization = CompletableDeferred<Unit>()
     private val sharedIntentIngestionGate = SharedIntentIngestionGate()
     private var hasCleared = false
-    private var startupRestored = false
+
+    @Volatile private var startupRestored = false
     private var deviceContextAuthorizationSnapshot = DeviceContextAuthorizationSnapshot()
     private val backgroundTaskUseCases = BackgroundTaskUseCases(backgroundTaskScheduler)
     private val memoryController = MemoryController(
@@ -477,8 +477,8 @@ class SolinViewModel internal constructor(
                         startupStateRestorer.restoreStartupStateAfterInitialization(skipModelRuntimeWork)
                         initialization.complete(Unit)
                     }.onFailure { error ->
-                        initialization.completeExceptionally(error)
                         startupRestored = false
+                        initialization.completeExceptionally(error)
                         if (error is CancellationException) throw error
                         _uiState.update {
                             it.copy(
@@ -491,7 +491,7 @@ class SolinViewModel internal constructor(
                 return
             }
             startupStateRestorer.restoreStartupStateAfterInitialization(skipModelRuntimeWork)
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
             startupRestored = false
             throw error
         }
@@ -671,7 +671,7 @@ class SolinViewModel internal constructor(
             )
         }
         if (runtime.isLoaded) {
-            sessionController.recreateConversationForActiveSession("参数已生效")
+            sessionController.recreateConversationForActiveSession("参数已生效", "参数已更新，正在应用")
         }
     }
 

@@ -414,30 +414,31 @@ internal class ChatRemoteSendSupport(
         remoteHistory: List<ChatMessage>,
         imageAttachments: List<ChatImageAttachment>,
         stateBeforeSend: ChatUiState
-    ): PendingRemoteSendDisclosure = PendingRemoteSendDisclosure(
-        kind = kind,
-        forcedBySensitiveContent = false,
-        prompt = prompt,
-        messagePrivacy = messagePrivacy,
-        remoteHost = remoteConfig.destinationHostLabel(),
-        remoteModelName = remoteConfig.normalized().modelName.ifBlank { "未命名远程模型" },
-        remoteHistoryCount = remoteHistory.size,
-        localOnlyHistoryFilteredCount = stateBeforeSend.messages.count { message ->
+    ): PendingRemoteSendDisclosure {
+        val localOnlyHistoryCount = stateBeforeSend.messages.count { message ->
             message.privacy == MessagePrivacy.LocalOnly
-        },
-        imageAttachmentCount = imageAttachments.size,
-        protectedSourceCount = stateBeforeSend.messages.count { message ->
-            message.privacy == MessagePrivacy.LocalOnly
-        },
-        apiKeyConfigured = remoteConfig.apiKey.isNotBlank(),
-        connectivityStatus = remoteConfig.connectivityStatus,
-        imageAttachments = imageAttachments,
-        promptPreview = prompt.toRemoteSendPromptPreview(),
-        sensitiveHitCategories = outboundSafetyPolicy
-            .detectSensitiveCategories(prompt)
-            .map { it.label },
-        sensitiveHitSnippets = outboundSafetyPolicy.detectSensitiveSnippets(prompt)
-    )
+        }
+        return PendingRemoteSendDisclosure(
+            kind = kind,
+            forcedBySensitiveContent = false,
+            prompt = prompt,
+            messagePrivacy = messagePrivacy,
+            remoteHost = remoteConfig.destinationHostLabel(),
+            remoteModelName = remoteConfig.normalized().modelName.ifBlank { "未命名远程模型" },
+            remoteHistoryCount = remoteHistory.size,
+            localOnlyHistoryFilteredCount = localOnlyHistoryCount,
+            imageAttachmentCount = imageAttachments.size,
+            protectedSourceCount = localOnlyHistoryCount,
+            apiKeyConfigured = remoteConfig.apiKey.isNotBlank(),
+            connectivityStatus = remoteConfig.connectivityStatus,
+            imageAttachments = imageAttachments,
+            promptPreview = prompt.toRemoteSendPromptPreview(),
+            sensitiveHitCategories = outboundSafetyPolicy
+                .detectSensitiveCategories(prompt)
+                .map { it.label },
+            sensitiveHitSnippets = outboundSafetyPolicy.detectSensitiveSnippets(prompt)
+        )
+    }
 
     /** The current-input disclosure: the forced graded one for sensitive content, otherwise the plain one. */
     fun buildCurrentInputDisclosure(

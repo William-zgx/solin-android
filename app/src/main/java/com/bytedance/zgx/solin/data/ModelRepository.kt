@@ -401,18 +401,19 @@ class ModelRepository(
         onProgress: (TransferProgress) -> Unit
     ): String {
         currentCoroutineContext().ensureActive()
-        clearPendingDownload()
-        val displayName = resolveDisplayName(uri)
-        val sourceSize = resolveFileSize(uri)
+        val metadata = appContext.contentResolver.openableMetadata(uri)
+        val displayName = resolveDisplayName(uri, metadata?.displayName)
+        val sourceSize = metadata?.sizeBytes ?: 0L
         return importModelFileAndCommit(
             modelDir = modelDir,
             displayName = displayName,
             sourceSizeBytes = sourceSize,
             maximumBytes = CUSTOM_MODEL_MAX_BYTES,
             copyToTemp = { tempTarget, ensureActive ->
-                copyUriToFile(uri, tempTarget, CUSTOM_MODEL_MAX_BYTES, ensureActive, onProgress)
+                copyUriToFile(uri, tempTarget, CUSTOM_MODEL_MAX_BYTES, sourceSize, ensureActive, onProgress)
             }
         ) { imported ->
+            clearPendingDownload()
             registerInstalledModel(
                 path = imported.path,
                 displayName = imported.displayName,
@@ -578,10 +579,10 @@ class ModelRepository(
         uri: Uri,
         target: File,
         maximumBytes: Long,
+        total: Long,
         ensureActive: () -> Unit,
         onProgress: (TransferProgress) -> Unit
     ) {
-        val total = resolveFileSize(uri)
         if (total > maximumBytes) {
             throw ModelTransferSizeLimitExceededException(maximumBytes)
         }
@@ -605,10 +606,8 @@ class ModelRepository(
         } ?: error("无法读取模型文件")
     }
 
-    private fun resolveFileSize(uri: Uri): Long = appContext.contentResolver.openableMetadata(uri)?.sizeBytes ?: 0L
-
-    private fun resolveDisplayName(uri: Uri): String {
-        appContext.contentResolver.openableMetadata(uri)?.displayName
+    private fun resolveDisplayName(uri: Uri, metadataDisplayName: String?): String {
+        metadataDisplayName
             ?.takeIf { it.isNotBlank() }
             ?.let { return it }
         return uri.lastPathSegment

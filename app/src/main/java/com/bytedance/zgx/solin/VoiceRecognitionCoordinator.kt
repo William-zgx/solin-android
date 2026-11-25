@@ -43,6 +43,7 @@ internal class VoiceRecognitionCoordinator(
 ) : DefaultLifecycleObserver {
     private var speechRecognizer: SpeechRecognizer? = null
     private var speechRecognizerRoute: VoiceRecognizerRoute? = null
+    private var consentDialog: AlertDialog? = null
     private val session = VoiceRecognitionSession(
         scope = activity.lifecycleScope,
         sink = object : VoiceCaptureSink {
@@ -56,6 +57,7 @@ internal class VoiceRecognitionCoordinator(
     private val audioPermissionLauncher = activity.registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        if (!isViewModelReady()) return@registerForActivityResult
         if (granted) {
             start()
         } else {
@@ -68,10 +70,14 @@ internal class VoiceRecognitionCoordinator(
     }
 
     fun start() {
-        // Early UI guard: a queued click after destroy or during an active generation must not
-        // reach the permission prompt or recognizer. A new generation needs a terminal state plus
-        // another explicit user start.
-        if (activity.lifecycle.currentState == Lifecycle.State.DESTROYED || session.isActive) return
+        // Early UI guard: never start mic capture while the UI is stopped/destroyed, before the
+        // container is ready, or while a generation is already active.
+        if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) ||
+            !isViewModelReady() ||
+            session.isActive
+        ) {
+            return
+        }
         if (!activity.hasRuntimePermission(Manifest.permission.RECORD_AUDIO)) {
             viewModel().reportVoiceInputUnavailable("需要授权麦克风权限")
             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -137,33 +143,48 @@ internal class VoiceRecognitionCoordinator(
     }
 
     private fun showOnlineRecognitionConsent() {
+        dismissConsentDialog()
         runCatching {
-            AlertDialog.Builder(activity)
+            consentDialog = AlertDialog.Builder(activity)
                 .setTitle(VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE)
                 .setMessage("$VOICE_INPUT_PERMISSION_DISCLOSURE_BODY\n\n$VOICE_INPUT_ONLINE_RECOGNITION_NOTE")
                 .setPositiveButton("同意并开启语音输入") { _, _ ->
+                    consentDialog = null
                     onlineRecognitionAcknowledged = true
                     start()
                 }
                 .setNegativeButton("取消") { _, _ ->
-                    viewModel().reportVoiceInputUnavailable("语音输入已取消")
+                    consentDialog = null
+                    if (isViewModelReady()) viewModel().reportVoiceInputUnavailable("语音输入已取消")
                 }
                 .setOnCancelListener {
-                    viewModel().reportVoiceInputUnavailable("语音输入已取消")
+                    consentDialog = null
+                    if (isViewModelReady()) viewModel().reportVoiceInputUnavailable("语音输入已取消")
                 }
                 .show()
         }.onFailure {
+            consentDialog = null
             // Fail closed: without the online-recognition notice, do not start recognition.
-            viewModel().reportVoiceInputUnavailable("语音输入不可用")
+            if (isViewModelReady()) viewModel().reportVoiceInputUnavailable("语音输入不可用")
         }
     }
 
+    private fun dismissConsentDialog() {
+        consentDialog?.let { dialog ->
+            dialog.setOnCancelListener(null)
+            runCatching { dialog.dismiss() }
+        }
+        consentDialog = null
+    }
+
     override fun onStop(owner: LifecycleOwner) {
+        dismissConsentDialog()
         // Never keep the microphone request open while the UI is not visible; onResume does not reopen it.
         session.stopForLifecycle("语音输入已因离开界面而停止")
     }
 
     override fun onDestroy(owner: LifecycleOwner) {
+        dismissConsentDialog()
         session.destroy(
             releaseRecognizer = {
                 speechRecognizer?.destroy()
@@ -176,7 +197,7 @@ internal class VoiceRecognitionCoordinator(
 
     private fun recognitionListener(generation: Long): RecognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            if (session.isActive(generation)) viewModel().startVoiceInputCapture()
+            if (session.isListening(generation)) viewModel().startVoiceInputCapture()
         }
 
         override fun onBeginningOfSpeech() = Unit
@@ -234,6 +255,7 @@ internal class VoiceRecognitionSession(
 ) {
     private val gate = VoiceInputSessionGate()
     private var watchdog: Job? = null
+    private var listeningStopped = false
 
     val isActive: Boolean get() = gate.activeSessionId != 0L
 
@@ -241,6 +263,7 @@ internal class VoiceRecognitionSession(
     fun start(installListener: (Long) -> Unit, startListening: () -> Unit) {
         if (isActive) return
         val generation = gate.startSession()
+        listeningStopped = false
         installListener(generation)
         sink.captureStarted()
         watchdog = scope.launch {
@@ -260,15 +283,17 @@ internal class VoiceRecognitionSession(
             sink.unavailable("语音输入已中断")
             return
         }
+        listeningStopped = true
         runCatching(stopListening)
             .onSuccess { if (gate.isActive(generation)) sink.captureFinished() }
             .onFailure { if (claim(generation)) sink.unavailable("当前设备没有可用语音识别服务") }
     }
 
     fun cancel() {
-        claim(gate.activeSessionId)
-        runCatching(cancelRecognizer)
-        sink.unavailable("语音输入已取消")
+        if (claim(gate.activeSessionId)) {
+            runCatching(cancelRecognizer)
+            sink.unavailable("语音输入已取消")
+        }
     }
 
     fun stopForLifecycle(message: String) {
@@ -286,6 +311,9 @@ internal class VoiceRecognitionSession(
 
     /** Whether [generation] is still the live one; stale listener callbacks are dropped. */
     fun isActive(generation: Long): Boolean = gate.isActive(generation)
+
+    /** Active and still capturing audio (not yet transitioned to post-finish transcription). */
+    fun isListening(generation: Long): Boolean = gate.isActive(generation) && !listeningStopped
 
     fun onError(generation: Long, message: String) {
         if (claim(generation)) sink.unavailable(message)

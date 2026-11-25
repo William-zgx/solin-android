@@ -234,6 +234,25 @@ class VoiceRecognitionCoordinatorTest {
         assertFalse(VoiceInputSessionGate().isActive(0L))
     }
 
+    @Test
+    fun idleCancelIsNoOpAndFinishStopsListeningBeforeLateReadyCallback() = runTest {
+        val h = Harness(this)
+        h.session.cancel()
+        assertEquals(0, h.cancelCalls)
+        assertTrue(h.events.isEmpty())
+
+        h.begin()
+        assertTrue(h.session.isListening(h.generation))
+        h.session.finish { h.stopCalls++ }
+        assertTrue(h.session.isActive)
+        assertFalse(h.session.isListening(h.generation))
+
+        h.session.cancel()
+        h.session.cancel()
+        assertEquals(1, h.cancelCalls)
+        assertEquals(1, h.terminalCount())
+    }
+
     private companion object {
         const val DEADLINE = 60_000L
     }

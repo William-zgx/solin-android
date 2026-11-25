@@ -587,7 +587,7 @@ internal fun String.groundingFold(): String = GroundingText(this).folded
  * [text] folded for grounding (NFKC, lower case, whitespace removed, apostrophes unified) with a map
  * from every folded character back to its source range in [text].
  */
-internal class GroundingText(private val text: String) {
+internal class GroundingText(text: String) {
     val folded: String
     private val starts: IntArray
     private val ends: IntArray

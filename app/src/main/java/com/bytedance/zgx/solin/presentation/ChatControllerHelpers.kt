@@ -13,6 +13,7 @@ import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.RemoteConnectivitySnapshot
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.EvidenceQuality
 import com.bytedance.zgx.solin.evidence.EvidenceQualityLevel
@@ -243,7 +244,25 @@ internal fun initialChatPrivacyPlan(
     }
 )
 
-internal fun PromptPrivacyPlan.withRouteContext(route: AssistantRoute.Chat): PromptPrivacyPlan = PromptPrivacyPlanner.append(this, route.toContextPrivacySegments())
+internal fun PromptPrivacyPlan.withRouteContext(
+    route: AssistantRoute.Chat,
+    userInput: String? = null
+): PromptPrivacyPlan {
+    val withContext = PromptPrivacyPlanner.append(this, route.toContextPrivacySegments())
+    if (userInput == null || remoteRouteBoundaryFailure(userInput, route.forRemoteSend()) == null) {
+        return withContext
+    }
+    return PromptPrivacyPlanner.append(
+        withContext,
+        listOf(
+            PromptPrivacySegment(
+                source = PromptSegmentSource.Evidence,
+                privacy = MessagePrivacy.LocalOnly,
+                requiresLocalModel = true
+            )
+        )
+    )
+}
 
 internal fun initialAgentRunOptions(
     state: ChatUiState,
@@ -465,8 +484,7 @@ internal fun ChatUiState.lastGenerationStatsForAdaptivePolicy(): GenerationStats
         )
     }
 
-internal fun ChatUiState.lastOutputQualityIssueForAdaptivePolicy(): GenerationQualityIssue? = modelHealth.lastOutputQualityIssue
-    ?.let { value -> runCatching { GenerationQualityIssue.valueOf(value) }.getOrNull() }
+internal fun ChatUiState.lastOutputQualityIssueForAdaptivePolicy(): GenerationQualityIssue? = persistedEnumOrNull(modelHealth.lastOutputQualityIssue)
 
 internal fun AssistantRoute.runIdOrNull(): String? = when (this) {
     is AssistantRoute.Chat -> runId
@@ -600,8 +618,6 @@ internal fun List<AgentPlan.UseTool>.batchToolTitle(): String = groupingBy { pla
     .joinToString(separator = "、") { (title, count) ->
         if (count > 1) "$title x$count" else title
     }
-
-/** Non-blank exception message for user-facing status text, falling back to the type name. */
 
 /** Prefixes [text] with the model's already streamed [partial] answer, if any. */
 internal fun afterPartialAnswer(partial: CharSequence, text: String): String = if (partial.isBlank()) text else "$partial\n\n$text"
