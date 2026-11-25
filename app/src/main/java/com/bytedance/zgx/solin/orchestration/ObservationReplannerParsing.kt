@@ -7,10 +7,12 @@ import com.bytedance.zgx.solin.device.toScreenBoundsOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 
+// Order after/current observation before `beforeScreenObservationJson` so the 2,000-char local
+// evidence cap never truncates the active snapshot's scoped refs behind stale pre-action evidence.
 internal val localObservationJsonKeys = listOf(
+    "afterScreenObservationJson",
     "screenObservationJson",
-    "beforeScreenObservationJson",
-    "afterScreenObservationJson"
+    "beforeScreenObservationJson"
 )
 
 internal data class OcrTargetEvidencePrompt(

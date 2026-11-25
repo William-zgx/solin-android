@@ -169,4 +169,58 @@ class ContextAssemblerTest {
         }
         assertNull(catalogAssembler(other).remotePromptProjection(input, emptyList(), null, run))
     }
+
+    @Test
+    fun answerPlanEvaluatesContributorsOnceAndFailsClosedOnErrorsOrLocalOnlyAllowlistedId() {
+        val input = "用一句话介绍端侧 AI"
+        val run = fakeRun(input = input)
+
+        var calls = 0
+        val counting = object : SystemContextContributor {
+            override val sourceType = EvidenceSourceType.UserPrompt
+            override suspend fun contribute(userInput: String, run: AgentRun): EvidenceCard {
+                calls++
+                return EvidenceCard(
+                    id = "available-skills",
+                    sourceType = sourceType,
+                    privacy = MessagePrivacy.RemoteEligible,
+                    requiresLocalModel = false,
+                    text = "skills"
+                )
+            }
+        }
+        val singleAssembler = ContextAssembler(
+            systemPromptBuilder = SystemPromptBuilder(
+                contributors = listOf(counting),
+                includeDeviceControlSurvivalRules = false
+            )
+        )
+        val plan = singleAssembler.answerPlan(input, emptyList(), null, run)
+        assertEquals(1, calls)
+        assertEquals(input, plan.remotePromptForModel)
+
+        val throwing = object : SystemContextContributor {
+            override val sourceType = EvidenceSourceType.UserPrompt
+            override suspend fun contribute(userInput: String, run: AgentRun): EvidenceCard = error("boom")
+        }
+        assertNull(catalogAssembler(throwing).answerPlan(input, emptyList(), null, run).remotePromptForModel)
+
+        val localAllowlisted = object : SystemContextContributor {
+            override val sourceType = EvidenceSourceType.UserPrompt
+            override suspend fun contribute(userInput: String, run: AgentRun) = EvidenceCard(
+                id = "available-skills",
+                sourceType = sourceType,
+                privacy = MessagePrivacy.LocalOnly,
+                requiresLocalModel = false,
+                text = "private-in-allowlisted-id"
+            )
+        }
+        val localAssembler = ContextAssembler(
+            systemPromptBuilder = SystemPromptBuilder(
+                contributors = listOf(localAllowlisted),
+                includeDeviceControlSurvivalRules = false
+            )
+        )
+        assertNull(localAssembler.remotePromptProjection(input, emptyList(), null, run))
+    }
 }

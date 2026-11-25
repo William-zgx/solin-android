@@ -98,7 +98,9 @@ internal fun ActionDraft.withResolvedScopedTarget(
     if (observationId != ref.snapshotId) return this
     val found = latest.withObservationElements(parseCache) { elements ->
         elements.jsonObjects().any { element ->
-            element.optString("source") == "accessibility" && element.optString("id") == ref.nodeId
+            element.optString("source") == "accessibility" &&
+                element.optString("id") == ref.nodeId &&
+                element.supportsToolTargetMode(functionName)
         }
     }
     return if (found) copy(parameters = parameters + ("target" to ref.nodeId)) else this
@@ -235,8 +237,10 @@ private fun String?.observationHasDangerousTargetEvidence(
     toolName: String,
     parseCache: ObservationJsonParseCache
 ): Boolean = withObservationElements(parseCache) { elements ->
-    elements.jsonObjects().any { element ->
-        element.isDangerousTargetEvidence(normalizedTarget, toolName)
+    val allElements = elements.jsonObjects()
+    val ocrElements = allElements.filter { element -> element.optString("source") == "ocr" }
+    allElements.any { element ->
+        element.isDangerousTargetEvidence(normalizedTarget, toolName, ocrElements)
     }
 }
 
@@ -250,13 +254,24 @@ private fun JSONObject.isDangerousActionEvidence(): Boolean {
     }
 }
 
-private fun JSONObject.isDangerousTargetEvidence(normalizedTarget: String, toolName: String): Boolean {
+private fun JSONObject.isDangerousTargetEvidence(
+    normalizedTarget: String,
+    toolName: String,
+    ocrElements: List<JSONObject>
+): Boolean {
     if (!isTargetEvidenceMatch(normalizedTarget)) return false
     val text = optString("text")
-    return if (optString("source") == "ocr") {
-        text.hasOcrDangerousActionText()
-    } else {
-        text.hasDangerousActionText() && supportsToolTargetMode(toolName)
+    if (optString("source") == "ocr") {
+        return text.hasOcrDangerousActionText()
+    }
+    if (!supportsToolTargetMode(toolName)) return false
+    if (text.hasDangerousActionText()) return true
+    // T2/T3: blank-text Accessibility controls grounded with enclosed OCR text (accessibility+ocr)
+    // must still fail closed when any enclosed OCR label is a critical action.
+    val bounds = optJSONObject("bounds") ?: return false
+    return ocrElements.any { ocrElement ->
+        ocrElement.optString("text").hasOcrDangerousActionText() &&
+            bounds.containsOcrGroundingElementBounds(ocrElement.optJSONObject("bounds"))
     }
 }
 

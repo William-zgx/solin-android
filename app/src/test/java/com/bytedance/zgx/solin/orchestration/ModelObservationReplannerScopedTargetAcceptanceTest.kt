@@ -116,6 +116,21 @@ class ModelObservationReplannerScopedTargetAcceptanceTest : ObservationReplanner
     }
 
     @Test
+    fun scopedRefToBlankAccessibilityNodeOverDangerousOcrTextIsRejectedAsDangerous() {
+        val blankPayNode = "n8_cafe1234_3f9a1c7e"
+        val obs = screenObservationFixtureJson(
+            observationId = afterId,
+            elements = arrayOf(
+                accessibilityElement(blankPayNode, "", "button", 10, 900, 410, 960, clickable = true),
+                ocrElement("ocr:block:0", "立即支付", left = 20, top = 910, right = 400, bottom = 950)
+            )
+        )
+        val (replan, reason) = plan(MobileActionFunctions.UI_TAP, "$afterId/$blankPayNode", "afterScreenObservationJson" to obs)
+        assertNull(replan)
+        assertEquals("dangerous_observation_action", reason)
+    }
+
+    @Test
     fun scopedTypingStaysFailClosed() {
         val (replan, reason) = plan(MobileActionFunctions.UI_TYPE_TEXT, "$afterId/$tapNode", "afterScreenObservationJson" to observation(afterId))
         assertNull(replan)

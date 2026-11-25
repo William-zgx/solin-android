@@ -217,4 +217,41 @@ class ObservationReplannerScopedTargetShortlistTest : ObservationReplannerTestFi
         val full = ctx.observationModelPrompt(registry)
         assertTrue(full, full.contains("scroll=$snapshot/$scrollId"))
     }
+
+    @Test
+    fun afterObservationPrecedesBeforeSoLargeEvidenceRetainsActiveScopedRefs() {
+        val beforeId = "screen_1731000000100_11111111"
+        val afterId = "screen_1731000000200_22222222"
+        val beforeElements = (0 until 10).map { i ->
+            accessibilityElement("n${i}_bb${i}bb${i}_11111111", "旧页面条目长标签内容$i", "button", 10, 20 + i * 60, 410, 70 + i * 60, clickable = true)
+        }.toTypedArray()
+        val afterTarget = "n0_aa0aa0_22222222"
+        val afterElements = arrayOf(
+            accessibilityElement(afterTarget, "搜索", "button", 10, 20, 210, 80, clickable = true)
+        ) + (1 until 9).map { i ->
+            accessibilityElement("n${i}_aa${i}aa${i}_22222222", "新页面结果卡片$i", "button", 10, 90 + i * 60, 410, 140 + i * 60, clickable = true)
+        }.toTypedArray()
+        val evidence = resultWith(
+            "beforeScreenObservationJson" to screenObservationFixtureJson(beforeId, beforeElements),
+            "afterScreenObservationJson" to screenObservationFixtureJson(afterId, afterElements)
+        ).localObservationEvidencePrompt("搜索")
+        assertTrue("after scoped ref must survive 2000-char local evidence cap:\n$evidence", evidence.contains("$afterId/$afterTarget"))
+        assertTrue(evidence.targetShortlistTargetValues().any { it.startsWith("$afterId/") })
+    }
+
+    @Test
+    fun emptyAfterObservationDoesNotFallBackToBeforeShortlist() {
+        val beforeId = "screen_1731000000100_11111111"
+        val afterId = "screen_1731000000200_22222222"
+        val before = searchEntryObservation(id = beforeId, nodeId = "n3_ab12cd")
+        val emptyAfter = screenObservationFixtureJson(observationId = afterId, elements = emptyArray())
+        val evidence = resultWith(
+            "beforeScreenObservationJson" to before,
+            "afterScreenObservationJson" to emptyAfter
+        ).localObservationEvidencePrompt("tap")
+        assertTrue(
+            "empty after observation must not expose stale before shortlist targets: ${evidence.targetShortlistTargetValues()}",
+            evidence.targetShortlistTargetValues().isEmpty()
+        )
+    }
 }

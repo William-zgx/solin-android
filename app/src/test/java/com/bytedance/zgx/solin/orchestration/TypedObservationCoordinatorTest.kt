@@ -130,6 +130,113 @@ class TypedObservationCoordinatorTest {
         assertNull(runtime.latestPendingConfirmation())
     }
 
+    @Test
+    fun typedReplannerRefusesFailedWrongSurfaceWrongPackageAndDangerousTargets() {
+        val replanner = TypedObservationCandidateReplanner(enabled = true)
+        val run = AgentRun(
+            id = "run-guard",
+            input = "打开淘宝搜索耳机",
+            state = AgentRunState.Observing,
+            createdAtMillis = 1L,
+            updatedAtMillis = 1L
+        )
+        val observeReq = com.bytedance.zgx.solin.tool.ToolRequest(
+            id = "obs-1",
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            arguments = mapOf("expectedPackageName" to "com.taobao.taobao")
+        )
+        val goodObservation = searchInputScreenObservationJson("obs-good")
+        val baseData = mapOf(
+            "toolName" to observeReq.toolName,
+            "privacy" to "LocalOnly",
+            "requiresLocalModel" to "true",
+            "packageName" to "com.taobao.taobao",
+            "screenObservationJson" to goodObservation
+        )
+
+        // Failed tool result must not emit a typed continuation.
+        assertNull(
+            replanner.planNext(
+                AgentObservationReplanContext(
+                    run = run,
+                    previousRequest = observeReq,
+                    observedResult = ToolResult(observeReq.id, ToolStatus.Failed, "failed", baseData),
+                    priorRequests = listOf(observeReq)
+                )
+            )
+        )
+        // Wrong surface / blocked outcome (derived or explicit) must not emit a typed continuation.
+        listOf(
+            "failureKind" to "app_not_foreground",
+            "failureKind" to "dangerous_action",
+            "uiActionOutcome" to "wrong_surface"
+        ).forEach { flag ->
+            assertNull(
+                "expected null for $flag",
+                replanner.planNext(
+                    AgentObservationReplanContext(
+                        run = run,
+                        previousRequest = observeReq,
+                        observedResult = ToolResult(
+                            observeReq.id,
+                            ToolStatus.Succeeded,
+                            "ok",
+                            baseData + flag
+                        ),
+                        priorRequests = listOf(observeReq)
+                    )
+                )
+            )
+        }
+        // Expected package mismatch must not overwrite with another app's package.
+        assertNull(
+            replanner.planNext(
+                AgentObservationReplanContext(
+                    run = run,
+                    previousRequest = observeReq,
+                    observedResult = ToolResult(
+                        observeReq.id,
+                        ToolStatus.Succeeded,
+                        "ok",
+                        baseData + mapOf(
+                            "packageName" to "com.other.app",
+                            "screenObservationJson" to goodObservation.replace("com.taobao.taobao", "com.other.app")
+                        )
+                    ),
+                    priorRequests = listOf(observeReq)
+                )
+            )
+        )
+        // Dangerous target text must not be auto-selected.
+        val dangerousObs = """
+            {
+              "observationId":"obs-danger",
+              "packageName":"com.taobao.taobao",
+              "capturedAtMillis":1000,
+              "elements":[
+                {"id":"pay_box","text":"立即支付 搜索框","role":"input","source":"accessibility","bounds":{"left":10,"top":10,"right":200,"bottom":80},"clickability":{"clickable":true,"editable":true,"scrollable":false,"enabled":true}}
+              ],
+              "textSummary":"立即支付 搜索框",
+              "truncated":false
+            }
+        """.trimIndent()
+        assertNull(
+            replanner.planNext(
+                AgentObservationReplanContext(
+                    run = run,
+                    previousRequest = observeReq,
+                    observedResult = ToolResult(
+                        observeReq.id,
+                        ToolStatus.Succeeded,
+                        "ok",
+                        baseData + ("screenObservationJson" to dangerousObs)
+                    ),
+                    priorRequests = listOf(observeReq)
+                )
+            )
+        )
+    }
+
     private fun AgentObservationResult?.requireNextTool(toolName: String): AgentPlan.UseTool {
         assertNotNull(this)
         assertEquals(AgentRunState.ExecutingTool, this?.run?.state)

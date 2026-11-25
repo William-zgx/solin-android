@@ -47,11 +47,11 @@ internal fun AgentObservationReplanContext.correctiveObservationModelPrompt(
     val allowedTools = localOnlyObservationAllowedToolsPrompt(toolRegistry)
     val shortlist = observedResult.localObservationEvidencePrompt(intentPreview, parseCache)
         .targetShortlistTargetValues()
-        .take(MAX_CORRECTIVE_SHORTLIST_VALUES)
         // A scoped ref (~55+ chars) would be cut by the 48-char cap, so list its bare node id, which the
-        // executor still accepts. Typing and ocrFallback entries are already bare; duplicates collapse.
+        // executor still accepts. Deduplicate before capping so editable+clickable nodes use one slot.
         .map { value -> (SnapshotRefs.parse(value)?.nodeId ?: value).shortTraceText(maxLength = MAX_CORRECTIVE_TARGET_CHARS) }
         .distinct()
+        .take(MAX_CORRECTIVE_SHORTLIST_VALUES)
     val shortlistText = if (shortlist.isEmpty()) {
         "无；不要输出需要 target 的工具"
     } else {

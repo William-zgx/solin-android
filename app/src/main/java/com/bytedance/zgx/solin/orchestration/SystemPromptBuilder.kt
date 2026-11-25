@@ -22,7 +22,8 @@ import kotlinx.coroutines.runBlocking
 data class SystemPrompt(
     val baseInstruction: String,
     val evidenceCards: List<EvidenceCard>,
-    val contributorAttributions: List<String> = emptyList()
+    val contributorAttributions: List<String> = emptyList(),
+    val hadContributorFailure: Boolean = false
 )
 
 /**
@@ -47,11 +48,13 @@ class SystemPromptBuilder(
     ): SystemPrompt {
         val collected = mutableListOf<EvidenceCard>()
         val attributions = mutableListOf<String>()
+        var hadContributorFailure = false
         contributors.forEach { contributor ->
             val result = runCatching { contributor.contribute(userInput, run) }
             result.onFailure {
-                // Ignore contributor failures per spec (do not crash the run).
-                // Future waves may want to log/telemetry this failure.
+                // Ignore contributor failures per spec (do not crash the run), but record the
+                // failure so fail-closed privacy projections do not treat a partial card list as clean.
+                hadContributorFailure = true
             }
             val card = result.getOrNull()
             if (card != null) {
@@ -66,7 +69,8 @@ class SystemPromptBuilder(
         return SystemPrompt(
             baseInstruction = defaultSystemInstruction,
             evidenceCards = collected,
-            contributorAttributions = attributions
+            contributorAttributions = attributions,
+            hadContributorFailure = hadContributorFailure
         )
     }
 

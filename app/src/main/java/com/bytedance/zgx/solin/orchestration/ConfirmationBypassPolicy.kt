@@ -151,16 +151,12 @@ internal class ConfirmationBypassPolicy(
             return CriticalApprovalReason.ExternalSendOrPayment
         }
         if (request.sensitivityReason != null) return CriticalApprovalReason.ModelFlaggedSensitive
-        val context by lazy {
-            if (spec.egressTextArguments.isNotEmpty() || request.toolName == MobileActionFunctions.UI_TYPE_TEXT) {
-                val privateRead = runReadPrivateData(runId, before = request.id)
-                EgressRunContext(
-                    privateReadBefore = privateRead,
-                    userInput = if (privateRead) traceStore.run(runId)?.input.orEmpty() else ""
-                )
-            } else {
-                EgressRunContext(privateReadBefore = false, userInput = "")
-            }
+        val context by lazy(LazyThreadSafetyMode.NONE) {
+            val privateRead = runReadPrivateData(runId, before = request.id)
+            EgressRunContext(
+                privateReadBefore = privateRead,
+                userInput = if (privateRead) traceStore.run(runId)?.input.orEmpty() else ""
+            )
         }
         val triggers = egressGate.evaluate(
             spec = spec,
@@ -171,7 +167,7 @@ internal class ConfirmationBypassPolicy(
         triggers.firstOrNull { it != EgressTrigger.TextHandedToExternalApp }?.let { trigger ->
             return trigger.approvalReason()
         }
-        if (isRemoteVisionFirstSend(runId, request, spec)) return CriticalApprovalReason.RemoteVisionFirstSend
+        if (isRemoteVisionFirstSend(runId, spec)) return CriticalApprovalReason.RemoteVisionFirstSend
         if (EgressTrigger.TextHandedToExternalApp in triggers) {
             return EgressTrigger.TextHandedToExternalApp.approvalReason()
         }
@@ -196,7 +192,6 @@ internal class ConfirmationBypassPolicy(
      */
     private fun isRemoteVisionFirstSend(
         runId: String,
-        request: ToolRequest,
         spec: ToolSpec
     ): Boolean = isRemoteVisionDrivingEnabled(runId) &&
         // ToolCapabilityTag.StartsInAppLoop: the app launches the observe→act loop then drives.

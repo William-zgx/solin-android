@@ -171,6 +171,17 @@ object MilestonePlanParser {
         MilestoneParseResult.Rejected(rejection.reason, rejection.index)
     }
 
+    internal fun parseMilestoneObject(
+        item: JSONObject,
+        index: Int,
+        userRequest: String,
+        vocabulary: MilestoneVocabulary
+    ): Milestone? = try {
+        item.readMilestone(index, userRequest, vocabulary)
+    } catch (_: PlanRejection) {
+        null
+    }
+
     private fun readPlan(raw: String, userRequest: String, vocabulary: MilestoneVocabulary): MilestonePlan {
         if (raw.length > MAX_RAW_CHARS) reject(MilestoneRejection.TooLarge)
         StrictJsonScan.firstViolation(raw)?.let { reason -> reject(reason.toMilestoneRejection()) }
@@ -353,7 +364,7 @@ object BranchingMilestonePlanParser {
             val item = items.get(index) as? JSONObject ?: reject(BranchRejection.WrongType, index)
             item.requireExactKeys(NODE_KEYS, index)
             val id = item.get("id") as? String ?: reject(BranchRejection.WrongType, index)
-            if (!NODE_ID.matches(id)) reject(BranchRejection.InvalidNodeId, index)
+            if (!NODE_ID.matches(id) || id in TERMINALS) reject(BranchRejection.InvalidNodeId, index)
             val predicateName = item.get("predicate") as? String ?: reject(BranchRejection.WrongType, index)
             val predicate = LocalPredicate.entries.firstOrNull { it.wireName == predicateName }
                 ?: reject(BranchRejection.UnknownPredicate, index)
@@ -418,12 +429,8 @@ object BranchingMilestonePlanParser {
         vocabulary: MilestoneVocabulary
     ): Milestone {
         val milestone = raw as? JSONObject ?: reject(BranchRejection.WrongType, index)
-        val wrapped = JSONObject().put("version", MilestonePlanParser.SCHEMA_VERSION)
-            .put("milestones", JSONArray().put(milestone))
-        return when (val result = MilestonePlanParser.parse(wrapped.toString(), userRequest, vocabulary)) {
-            is MilestoneParseResult.Accepted -> result.plan.milestones.single()
-            is MilestoneParseResult.Rejected -> reject(BranchRejection.InvalidMilestone, index)
-        }
+        return MilestonePlanParser.parseMilestoneObject(milestone, index, userRequest, vocabulary)
+            ?: reject(BranchRejection.InvalidMilestone, index)
     }
 
     private fun JSONObject.destination(key: String, index: Int): String = get(key) as? String ?: reject(BranchRejection.WrongType, index)

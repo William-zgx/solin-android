@@ -117,7 +117,8 @@ private val localEvidenceProtectedPromptPatterns = listOf(
     Regex("""addedText=[^;|]+"""),
     Regex("""addedActionable=[^;|]+"""),
     Regex("""afterScreenObservationJson\(id=[^)]+\)"""),
-    Regex("""screenObservationJson\(id=[^)]+\)""")
+    Regex("""screenObservationJson\(id=[^)]+\)"""),
+    Regex("""beforeScreenObservationJson\(id=[^,)]+""")
 )
 
 private val diagnosticProtectedPromptPatterns = listOf(
@@ -192,10 +193,11 @@ internal fun String.targetShortlistTargetSummary(): String? {
 }
 
 internal fun String.targetShortlistTargetValues(): List<String> {
-    // Only the after snapshot is published for scoped refs, so its shortlist wins when present.
-    val afterStart = indexOf("afterScreenObservationJson(").coerceAtLeast(0)
+    // Only the after snapshot is published for scoped refs; when present, never fall back to a
+    // stale `beforeScreenObservationJson` shortlist if the post-action screen has no targets.
+    val scope = activeObservationPromptScope()
     val pattern = Regex("""targetShortlist\(([^)]*)\)""")
-    val shortlist = (pattern.find(this, afterStart) ?: pattern.find(this))
+    val shortlist = pattern.find(scope)
         ?.groupValues
         ?.getOrNull(1)
         ?: return emptyList()
@@ -205,9 +207,16 @@ internal fun String.targetShortlistTargetValues(): List<String> {
         .distinct()
 }
 
-internal fun String.targetShortlistSummariesForPrompt(): String = distinctPromptMatches(Regex("""targetShortlist\([^)]*\)"""))
+internal fun String.targetShortlistSummariesForPrompt(): String = activeObservationPromptScope().distinctPromptMatches(Regex("""targetShortlist\([^)]*\)"""))
 
-internal fun String.targetEvidenceSummariesForPrompt(): String = distinctPromptMatches(Regex("""targetEvidence\([^)]*\)"""))
+internal fun String.targetEvidenceSummariesForPrompt(): String = activeObservationPromptScope().distinctPromptMatches(Regex("""targetEvidence\([^)]*\)"""))
+
+private fun String.activeObservationPromptScope(): String {
+    val afterStart = indexOf("afterScreenObservationJson(")
+    if (afterStart < 0) return this
+    val beforeStart = indexOf("beforeScreenObservationJson(", startIndex = afterStart)
+    return if (beforeStart > afterStart) substring(afterStart, beforeStart) else substring(afterStart)
+}
 
 private fun String.distinctPromptMatches(pattern: Regex): String = pattern
     .findAll(this)

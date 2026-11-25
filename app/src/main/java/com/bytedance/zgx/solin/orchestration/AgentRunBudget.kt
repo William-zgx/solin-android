@@ -57,10 +57,10 @@ internal class AgentRunBudget(
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
     private val compositeStepCount: (String) -> Int = { 0 }
 ) {
-    fun toolStepBudgetExceeded(runId: String): Boolean {
+    fun toolStepBudgetExceeded(runId: String, additionalSteps: Int = 1): Boolean {
         if (stepHistoryDegradedFailClosed(runId, budgetName = "tool step")) return true
-        return toolRequestsFor(runId).size.toLong() + compositeStepCount(runId).coerceAtLeast(0) >=
-            maxRunToolSteps
+        val used = toolRequestsFor(runId).size.toLong() + compositeStepCount(runId).coerceAtLeast(0)
+        return used + additionalSteps.coerceAtLeast(1) > maxRunToolSteps
     }
 
     fun observationDecisionBudgetExceeded(runId: String): Boolean {
@@ -92,11 +92,6 @@ internal class AgentRunBudget(
         return working >= maxRunWallClockMillis
     }
 
-    /**
-     * Fail-closed bridge for an unreadable step history: log once per check and report the budget as
-     * exhausted. Preferring an early termination over a possibly-uncapped loop is the deliberate
-     * trade — the run surfaces a budget failure the user can retry, instead of spinning invisibly.
-     */
     /**
      * True when the run's persisted step history is unreadable, after giving it one chance to
      * recover.

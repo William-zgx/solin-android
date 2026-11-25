@@ -390,13 +390,14 @@ private fun String.toScreenObservationPromptSection(
     val selectedElements = elements.selectedObservationElementsForPrompt()
     val elementSummaries = selectedElements
         .map { element -> element.toObservationElementPromptText() }
+    val parsedObservation = parseCache?.screenObservationOrNull(this)
+        ?: screenObservationFromJsonStringOrNull(this)
     // Only the after / current snapshot is published for refs; "before" stays legacy bare evidence.
-    val observationId = if (key == "beforeScreenObservationJson") "" else json.optString("observationId")
+    // Derive observationId from the strict parsed observation so prompt rendering and
+    // withResolvedScopedTarget always agree on whether scoped refs can be emitted.
+    val observationId = if (key == "beforeScreenObservationJson") "" else parsedObservation?.observationId.orEmpty()
     val fusedTargetCandidates = elements.ocrGroundedAccessibilityTargetCandidates(observationId)
-    val resolverTargetRanks = (
-        parseCache?.screenObservationOrNull(this)
-            ?: screenObservationFromJsonStringOrNull(this)
-        )
+    val resolverTargetRanks = parsedObservation
         .resolverTargetRanks(intentTargetKind, observationId)
     val targetCandidates = (
         fusedTargetCandidates +
@@ -552,9 +553,34 @@ private fun JSONObject.toTargetCandidatePrompt(observationId: String): LocalTarg
     val targetValue = id?.shortTraceText(maxLength = 72) ?: text
     val scopedRef = id?.takeIf { source == "accessibility" && modeTags.hasScopedMode() }
         ?.let { nodeId -> scopedNodeTarget(observationId, nodeId) }
-    val bounds = optJSONObject("bounds")?.boundsPromptText()
-    val promptText = buildString {
-        append(text)
+    return buildLocalTargetCandidatePrompt(
+        label = text,
+        targetValue = targetValue,
+        modeTags = modeTags,
+        source = source,
+        role = role,
+        bounds = optJSONObject("bounds")?.boundsPromptText(),
+        confidence = optDouble("confidence", 0.0),
+        scopedRef = scopedRef
+    )
+}
+
+private fun buildLocalTargetCandidatePrompt(
+    label: String,
+    targetValue: String,
+    modeTags: List<String>,
+    source: String,
+    role: String,
+    bounds: String?,
+    confidence: Double,
+    scopedRef: String?
+): LocalTargetCandidatePrompt = LocalTargetCandidatePrompt(
+    label = label,
+    targetValue = targetValue,
+    modeTags = modeTags,
+    role = role,
+    promptText = buildString {
+        append(label)
         append("{target=")
         append(displayTargetFor(modeTags, targetValue, scopedRef))
         append(",modeTags=")
@@ -568,18 +594,11 @@ private fun JSONObject.toTargetCandidatePrompt(observationId: String): LocalTarg
             append(value)
         }
         append(",confidence=")
-        append(optDouble("confidence", 0.0).formatPromptScore())
+        append(confidence.formatPromptScore())
         append("}")
-    }
-    return LocalTargetCandidatePrompt(
-        label = text,
-        targetValue = targetValue,
-        modeTags = modeTags,
-        role = role,
-        promptText = promptText,
-        scopedRef = scopedRef
-    )
-}
+    },
+    scopedRef = scopedRef
+)
 
 private fun List<String>.hasScopedMode(): Boolean = any { mode -> mode.isScopedMode() }
 
@@ -640,26 +659,14 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
     val modeTags = clickability.clickabilityModeTags()
     if (modeTags.isEmpty()) return null
     val scopedRef = id.takeIf { modeTags.hasScopedMode() }?.let { nodeId -> scopedNodeTarget(observationId, nodeId) }
-    val promptText = buildString {
-        append(ocrText)
-        append("{target=")
-        append(displayTargetFor(modeTags, targetValue, scopedRef))
-        append(",modeTags=")
-        append(modeTags.joinToString(separator = "+"))
-        append(",source=accessibility+ocr,role=")
-        append(role)
-        append(",bounds=")
-        append(bounds.boundsPromptText())
-        append(",confidence=")
-        append(optDouble("confidence", 1.0).formatPromptScore())
-        append("}")
-    }
-    return LocalTargetCandidatePrompt(
+    return buildLocalTargetCandidatePrompt(
         label = ocrText,
         targetValue = targetValue,
         modeTags = modeTags,
+        source = "accessibility+ocr",
         role = role,
-        promptText = promptText,
+        bounds = bounds.boundsPromptText(),
+        confidence = optDouble("confidence", 1.0),
         scopedRef = scopedRef
     )
 }

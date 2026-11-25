@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.common.keysSet
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.RunPlacementBindingDao
@@ -138,9 +139,7 @@ class RoomRunPlacementBindingStore(
         if (!result.targetStateMatched) {
             return TerminalizeOutcome(TerminalizeRunResult.Rejected, stopHandle)
         }
-        val placement = result.binding?.placement?.let { raw ->
-            runCatching { RunPlacement.valueOf(raw) }.getOrNull()
-        }
+        val placement = persistedEnumOrNull<RunPlacement>(result.binding?.placement)
         return TerminalizeOutcome(TerminalizeRunResult.Terminalized(placement), stopHandle)
     }
 
@@ -207,7 +206,7 @@ class RoomRunPlacementBindingStore(
         }
         val binding = entity.toDomainOrNull()
             ?: return notRestorable(RunPlacementRecoveryRejection.UnknownEnum)
-        val runState = runCatching { AgentRunState.valueOf(snapshot.run.state) }.getOrNull()
+        val runState = persistedEnumOrNull<AgentRunState>(snapshot.run.state)
             ?: return notRestorable(RunPlacementRecoveryRejection.UnknownEnum)
         if (runState.isTerminal()) {
             return notRestorable(RunPlacementRecoveryRejection.TerminalRun)

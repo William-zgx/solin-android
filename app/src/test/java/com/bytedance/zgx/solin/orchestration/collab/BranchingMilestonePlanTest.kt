@@ -38,6 +38,8 @@ class BranchingMilestonePlanTest {
         assertRejected(BranchRejection.TrailingContent, validPlan() + " trailing")
         assertRejected(BranchRejection.UnknownPredicate, editNode(0) { put("predicate", "screen_text") })
         assertRejected(BranchRejection.DuplicateNodeId, editNode(1) { put("id", "search") })
+        assertRejected(BranchRejection.InvalidNodeId, editNode(0) { put("id", "done") })
+        assertRejected(BranchRejection.InvalidNodeId, editNode(0) { put("id", "blocked") })
         assertRejected(BranchRejection.NonForwardDestination, editNode(0) { put("on_false", "search") })
         assertRejected(BranchRejection.UnknownDestination, editNode(0) { put("on_false", "missing") })
         assertRejected(

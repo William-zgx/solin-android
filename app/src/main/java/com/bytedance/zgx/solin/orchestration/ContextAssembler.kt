@@ -46,17 +46,92 @@ class ContextAssembler(
         deviceContext: DeviceContextSnapshot?,
         run: AgentRun
     ): String {
-        // Translation turns are plain chat; a fixed instruction keeps small models from answering
-        // or explaining the text instead of translating it. Context cards would only distract here.
         TranslationIntentParser.parse(input)?.let { request -> return request.chatInstruction() }
+        return assembleAnswerPromptWithCards(
+            input = input,
+            memoryHits = memoryHits,
+            deviceContext = deviceContext,
+            contributorCards = loadContributorCards(input, run).cards
+        )
+    }
+
+    /** Local answer prompt plus its privacy-safe remote projection, kept paired in one plan. */
+    fun answerPlan(
+        input: String,
+        memoryHits: List<MemoryHit>,
+        deviceContext: DeviceContextSnapshot?,
+        run: AgentRun
+    ): AgentPlan.Answer {
+        TranslationIntentParser.parse(input)?.let { request ->
+            return AgentPlan.Answer(
+                promptForModel = request.chatInstruction(),
+                memoryHits = memoryHits,
+                deviceContext = deviceContext,
+                remotePromptForModel = null
+            )
+        }
+        // Load contributor cards once per turn so local and remote projections stay consistent
+        // without repeating runBlocking.
+        val loaded = loadContributorCards(input, run)
+        return AgentPlan.Answer(
+            promptForModel = assembleAnswerPromptWithCards(input, memoryHits, deviceContext, loaded.cards),
+            memoryHits = memoryHits,
+            deviceContext = deviceContext,
+            remotePromptForModel = remotePromptProjectionWithCards(input, memoryHits, deviceContext, loaded)
+        )
+    }
+
+    /**
+     * Prompt that may be sent to a remote model: the raw [input], or null when the local prompt
+     * carries anything beyond an explicitly allowlisted static card. No local memory, device
+     * context or translation turn, and every included contributor card id must be in
+     * [REMOTE_PROJECTION_ALLOWED_CARD_IDS] and [MessagePrivacy.RemoteEligible]; RemoteEligible alone is never trusted.
+     */
+    fun remotePromptProjection(
+        input: String,
+        memoryHits: List<MemoryHit>,
+        deviceContext: DeviceContextSnapshot?,
+        run: AgentRun
+    ): String? {
+        if (memoryHits.isNotEmpty() || deviceContext != null) return null
+        if (TranslationIntentParser.parse(input) != null) return null
+        return remotePromptProjectionWithCards(input, memoryHits, deviceContext, loadContributorCards(input, run))
+    }
+
+    private data class LoadedContributorCards(
+        val cards: List<EvidenceCard>,
+        val failed: Boolean
+    )
+
+    private fun loadContributorCards(input: String, run: AgentRun): LoadedContributorCards {
+        val builder = systemPromptBuilder ?: return LoadedContributorCards(emptyList(), failed = false)
+        val prompt = runCatching { builder.buildSystemPromptBlocking(input, run) }.getOrNull()
+            ?: return LoadedContributorCards(emptyList(), failed = true)
+        val cards = prompt.evidenceCards.filter { card -> !card.requiresLocalModel }
+        return LoadedContributorCards(cards = cards, failed = prompt.hadContributorFailure)
+    }
+
+    private fun remotePromptProjectionWithCards(
+        input: String,
+        memoryHits: List<MemoryHit>,
+        deviceContext: DeviceContextSnapshot?,
+        loaded: LoadedContributorCards
+    ): String? {
+        if (memoryHits.isNotEmpty() || deviceContext != null || loaded.failed) return null
+        val allowed = loaded.cards.all { card ->
+            card.privacy == MessagePrivacy.RemoteEligible &&
+                card.id in REMOTE_PROJECTION_ALLOWED_CARD_IDS
+        }
+        return input.takeIf { allowed }
+    }
+
+    private fun assembleAnswerPromptWithCards(
+        input: String,
+        memoryHits: List<MemoryHit>,
+        deviceContext: DeviceContextSnapshot?,
+        contributorCards: List<EvidenceCard>
+    ): String {
         val localMemoryHits = memoryHits.filter { hit -> hit.isAvailableForLocalContext() }
-        val contributorCards = runCatching {
-            systemPromptBuilder
-                ?.buildSystemPromptBlocking(input, run)
-                ?.evidenceCards
-                .orEmpty()
-                .filter { card -> !card.requiresLocalModel }
-        }.getOrDefault(emptyList())
         val builtInCards = evidenceCardsForAnswerContext(localMemoryHits, deviceContext)
         val allCards = builtInCards + contributorCards
         if (
@@ -112,43 +187,6 @@ class ContextAssembler(
 
             用户问题：$input
         """.trimIndent()
-    }
-
-    /** Local answer prompt plus its privacy-safe remote projection, kept paired in one plan. */
-    fun answerPlan(
-        input: String,
-        memoryHits: List<MemoryHit>,
-        deviceContext: DeviceContextSnapshot?,
-        run: AgentRun
-    ): AgentPlan.Answer = AgentPlan.Answer(
-        promptForModel = assembleAnswerPrompt(input, memoryHits, deviceContext, run),
-        memoryHits = memoryHits,
-        deviceContext = deviceContext,
-        remotePromptForModel = remotePromptProjection(input, memoryHits, deviceContext, run)
-    )
-
-    /**
-     * Prompt that may be sent to a remote model: the raw [input], or null when the local prompt
-     * carries anything beyond an explicitly allowlisted static card. No local memory, device
-     * context or translation turn, and every included contributor card id must be in
-     * [REMOTE_PROJECTION_ALLOWED_CARD_IDS]; RemoteEligible alone is never trusted.
-     */
-    fun remotePromptProjection(
-        input: String,
-        memoryHits: List<MemoryHit>,
-        deviceContext: DeviceContextSnapshot?,
-        run: AgentRun
-    ): String? {
-        if (memoryHits.isNotEmpty() || deviceContext != null) return null
-        if (TranslationIntentParser.parse(input) != null) return null
-        val cards = runCatching {
-            systemPromptBuilder
-                ?.buildSystemPromptBlocking(input, run)
-                ?.evidenceCards
-                .orEmpty()
-                .filter { card -> !card.requiresLocalModel }
-        }.getOrNull() ?: return null
-        return input.takeIf { cards.all { card -> card.id in REMOTE_PROJECTION_ALLOWED_CARD_IDS } }
     }
 
     private fun evidenceCardsForAnswerContext(

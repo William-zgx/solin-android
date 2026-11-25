@@ -57,56 +57,19 @@ internal class ModelToolRequestCoordinator(
             return host.failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
         host.rejectRemoteToolIfNotExposedInCurrentScope(runId, request)?.let { rejected ->
-            val updatedRun = traceStore.compareAndSetState(
+            return rejectSingleModelToolRequest(
                 runId = runId,
-                expectedState = AgentRunState.GeneratingAnswer,
-                state = AgentRunState.Failed
-            ) ?: return null
-            traceStore.appendRejectedRoutingDecision(
-                runId = runId,
-                path = IntentRoutingPath.RemoteToolPlanning,
                 toolName = request.toolName,
-                reason = "remote_tool_not_exposed"
-            )
-            traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
-            traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
-            auditRecorder.rejected(runId, rejected)
-            val decision = AgentObservationDecision.Fail(rejected.summary)
-            traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-            // This rejection leaves GeneratingAnswer directly, so observeModelResult's
-            // publishTransition never runs; publish the terminal counterpart here instead.
-            host.publishRunFailed(runId, AgentErrorCode.Validation, rejected.summary)
-            host.clearEphemeralRunState(runId)
-            return AgentModelObservationResult(
-                run = updatedRun,
-                decision = decision,
-                steps = traceStore.steps(runId)
+                rejected = rejected,
+                routingReason = "remote_tool_not_exposed"
             )
         }
         if (traceQueries.toolRequestFor(runId, request.id) != null) {
-            val rejected = request.rejected("Model tool request id already exists: ${request.id}")
-            val updatedRun = traceStore.compareAndSetState(
+            return rejectSingleModelToolRequest(
                 runId = runId,
-                expectedState = AgentRunState.GeneratingAnswer,
-                state = AgentRunState.Failed
-            ) ?: return null
-            traceStore.appendRejectedRoutingDecision(
-                runId = runId,
-                path = IntentRoutingPath.RemoteToolPlanning,
                 toolName = request.toolName,
-                reason = "duplicate_model_tool_request_id"
-            )
-            traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
-            traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
-            auditRecorder.rejected(runId, rejected)
-            val decision = AgentObservationDecision.Fail(rejected.summary)
-            traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-            host.publishRunFailed(runId, AgentErrorCode.Validation, rejected.summary)
-            host.clearEphemeralRunState(runId)
-            return AgentModelObservationResult(
-                run = updatedRun,
-                decision = decision,
-                steps = traceStore.steps(runId)
+                rejected = request.rejected("Model tool request id already exists: ${request.id}"),
+                routingReason = "duplicate_model_tool_request_id"
             )
         }
         val draft = initialToolPlanner.draftForRemoteToolRequest(request)
@@ -145,34 +108,50 @@ internal class ModelToolRequestCoordinator(
                 )
             }
 
-            is AgentPlan.RejectedTool -> {
-                val updatedRun = traceStore.compareAndSetState(
-                    runId = runId,
-                    expectedState = AgentRunState.GeneratingAnswer,
-                    state = AgentRunState.Failed
-                ) ?: return null
-                traceStore.appendRejectedRoutingDecision(
-                    runId = runId,
-                    path = IntentRoutingPath.RemoteToolPlanning,
-                    toolName = request.toolName,
-                    reason = plan.result.summary.toRoutingReasonSlug()
-                )
-                traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
-                traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
-                auditRecorder.rejected(runId, plan.result)
-                val decision = AgentObservationDecision.Fail(plan.result.summary)
-                traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-                host.publishRunFailed(runId, AgentErrorCode.Validation, plan.result.summary)
-                host.clearEphemeralRunState(runId)
-                AgentModelObservationResult(
-                    run = updatedRun,
-                    decision = decision,
-                    steps = traceStore.steps(runId)
-                )
-            }
+            is AgentPlan.RejectedTool -> rejectSingleModelToolRequest(
+                runId = runId,
+                toolName = request.toolName,
+                rejected = plan.result,
+                routingReason = plan.result.summary.toRoutingReasonSlug(),
+                plan = plan
+            )
 
             else -> null
         }
+    }
+
+    private fun rejectSingleModelToolRequest(
+        runId: String,
+        toolName: String,
+        rejected: ToolResult,
+        routingReason: String,
+        plan: AgentPlan.RejectedTool = AgentPlan.RejectedTool(rejected)
+    ): AgentModelObservationResult? {
+        val updatedRun = traceStore.compareAndSetState(
+            runId = runId,
+            expectedState = AgentRunState.GeneratingAnswer,
+            state = AgentRunState.Failed
+        ) ?: return null
+        traceStore.appendRejectedRoutingDecision(
+            runId = runId,
+            path = IntentRoutingPath.RemoteToolPlanning,
+            toolName = toolName,
+            reason = routingReason
+        )
+        traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
+        traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
+        auditRecorder.rejected(runId, rejected)
+        val decision = AgentObservationDecision.Fail(rejected.summary)
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        // This rejection leaves GeneratingAnswer directly, so observeModelResult's
+        // publishTransition never runs; publish the terminal counterpart here instead.
+        host.publishRunFailed(runId, AgentErrorCode.Validation, rejected.summary)
+        host.clearEphemeralRunState(runId)
+        return AgentModelObservationResult(
+            run = updatedRun,
+            decision = decision,
+            steps = traceStore.steps(runId)
+        )
     }
 
     fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? {
@@ -197,11 +176,10 @@ internal class ModelToolRequestCoordinator(
                 ).rejected("Remote model returned an empty tool batch.")
             )
         }
-        val existingRequests = traceQueries.toolRequestsFor(runId)
-        val existingRequestIds = existingRequests.mapTo(mutableSetOf()) { request -> request.id }
-        if (existingRequests.size + requests.size > runBudget.maxRunToolSteps) {
+        if (runBudget.toolStepBudgetExceeded(runId, additionalSteps = requests.size)) {
             return host.failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
+        val existingRequestIds = traceQueries.toolRequestsFor(runId).mapTo(mutableSetOf()) { request -> request.id }
         requests.groupingBy { request -> request.id }
             .eachCount()
             .entries

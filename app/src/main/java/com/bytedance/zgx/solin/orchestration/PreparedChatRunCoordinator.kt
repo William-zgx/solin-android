@@ -174,7 +174,11 @@ internal class PreparedChatRunCoordinator(
         }.onFailure {
             solinD(TAG_MODEL, "prepare fromDecision rejected exception=${it.javaClass.simpleName}")
         }.getOrNull() ?: return PrepareChatRunResult.BindingRejected
-        val permit = runCatching { bindingStore.bindAndReserve(binding) }.getOrNull()
+        val permit = runCatching { bindingStore.bindAndReserve(binding) }
+            .onFailure {
+                solinD(TAG_MODEL, "prepare bindAndReserve threw exception=${it.javaClass.simpleName}")
+            }
+            .getOrNull()
             ?: return PrepareChatRunResult.BindingRejected
 
         val prepared = PreparedChatRun.freeze(frozenRequest, binding, permit)

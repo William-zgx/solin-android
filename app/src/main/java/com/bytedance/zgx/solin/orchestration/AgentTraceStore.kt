@@ -1567,7 +1567,7 @@ private fun AgentStep.encodeTrace(runId: String): TraceEncoding = when (this) {
         summary = "Exposed ${toolNames.size} remote tool(s) in ${scope.name} scope."
     ) {
         put("scope", scope.name)
-        put("toolNames", toolNames.sorted())
+        put("toolNames", toolNames.sorted().toJsonArray())
     }
 
     is AgentStep.PlacementSelected -> traceEncoding(
@@ -1669,7 +1669,7 @@ private fun AgentStep.encodeTrace(runId: String): TraceEncoding = when (this) {
     ) {
         put("requestId", request.id)
         put("toolName", request.toolName)
-        put("argumentKeys", request.arguments.keys.sorted())
+        put("argumentKeys", request.arguments.keys.sorted().toJsonArray())
         put("draftTitle", draft.title.shortTraceText())
     }
 
