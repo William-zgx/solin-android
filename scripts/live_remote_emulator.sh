@@ -97,16 +97,18 @@ shell_single_quote() {
 }
 
 debug_receiver_configure_remote() {
-  local base_url_quoted model_quoted api_key_quoted
+  local base_url_quoted model_quoted api_key_quoted broadcast_output
   base_url_quoted="$(shell_single_quote "$LIVE_REMOTE_BASE_URL")"
   model_quoted="$(shell_single_quote "$LIVE_REMOTE_MODEL")"
   api_key_quoted="$(shell_single_quote "$LIVE_REMOTE_API_KEY")"
-  "$ADB_BIN" -s "$SELECTED_SERIAL" shell run-as "$PACKAGE_NAME" sh -s <<EOF
+  broadcast_output="$("$ADB_BIN" -s "$SELECTED_SERIAL" shell run-as "$PACKAGE_NAME" sh -s <<EOF
 base_url=$base_url_quoted
 model_name=$model_quoted
 api_key=$api_key_quoted
 am broadcast --user 0 -n "$DEBUG_CONFIG_RECEIVER" --es baseUrl "\$base_url" --es modelName "\$model_name" --es apiKey "\$api_key" --ez clearState true
 EOF
+)" || return 1
+  grep -Fq 'result=-1' <<<"$broadcast_output"
 }
 
 clear_remote_config() {
@@ -275,7 +277,7 @@ def walk(node, ancestors):
 walk(root, [])
 sys.exit(1)
 PY
-)"
+)" || point=""
   [[ -n "$point" ]] || fail ui-input "$failure_reason" "Could not find $target_name in $dump_file."
   "${ADB[@]}" shell input tap $point
 }
@@ -334,6 +336,7 @@ if ! dump_ui /sdcard/solin-live-remote-before-input.xml "$INPUT_DUMP_FILE"; then
   fail evidence input-ui-dump-failed "Live remote input UI dump failed."
 fi
 tap_node_from_dump edittext "" "$INPUT_DUMP_FILE" prompt-field-not-found
+sleep 0.5
 encoded_prompt="${LIVE_REMOTE_PROMPT// /%s}"
 if ! "${ADB[@]}" shell input text "$encoded_prompt"; then
   fail ui-input prompt-text-input-failed "Prompt text input failed."

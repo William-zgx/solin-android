@@ -410,7 +410,9 @@ stop_test_processes() {
   if ! selected_device_is_available; then
     return
   fi
-  "$ADB_BIN" -s "$SELECTED_SERIAL" shell am force-stop "$PACKAGE_NAME" >/dev/null 2>&1 || true
+  if [[ "$REQUIRE_SOLIN_ACCESSIBILITY" != "1" ]]; then
+    "$ADB_BIN" -s "$SELECTED_SERIAL" shell am force-stop "$PACKAGE_NAME" >/dev/null 2>&1 || true
+  fi
   "$ADB_BIN" -s "$SELECTED_SERIAL" shell am force-stop "$TEST_PACKAGE_NAME" >/dev/null 2>&1 || true
 }
 

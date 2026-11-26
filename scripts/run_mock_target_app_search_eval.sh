@@ -539,7 +539,7 @@ install_mock_app \
   "搜索商品" \
   "淘宝搜索商品 EvalSearchInput" \
   "搜索" \
-  "淘宝搜索 EvalSearchSubmit" \
+  "淘宝搜索 EvalSearchButton" \
   "综合 销量 筛选 商品列表"
 install_mock_app \
   com.xunmeng.pinduoduo \
@@ -547,7 +547,7 @@ install_mock_app \
   "多多搜索 搜索商品" \
   "拼多多搜索商品 EvalSearchInput" \
   "搜索" \
-  "拼多多搜索 EvalSearchSubmit" \
+  "拼多多搜索 EvalSearchButton" \
   "综合 销量 筛选 百亿补贴"
 install_mock_app \
   com.autonavi.minimap \
@@ -555,7 +555,7 @@ install_mock_app \
   "搜索地点 目的地" \
   "高德地图搜索地点 EvalSearchInput" \
   "搜索" \
-  "高德地图搜索 EvalSearchSubmit" \
+  "高德地图搜索 EvalSearchButton" \
   "路线 导航 到这去 地点列表"
 
 run_case taobao com.taobao.taobao "淘宝" "海河牛奶" "筛选"
