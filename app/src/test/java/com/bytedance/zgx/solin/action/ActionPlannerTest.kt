@@ -17,7 +17,7 @@ class ActionPlannerTest {
     private val planner = MobileActionPlanner()
     private val fixedPlanner = MobileActionPlanner(
         clockMillis = { Instant.parse("2026-06-14T02:00:00Z").toEpochMilli() },
-        zoneId = ZoneId.of("Asia/Shanghai"),
+        zoneId = ZoneId.of("Asia/Shanghai")
     )
 
     @Test
@@ -26,22 +26,22 @@ class ActionPlannerTest {
             IntentCandidate(
                 toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                 confidence = ActionIntentConfidence.Low,
-                reason = "ambiguous",
-            ).isAction,
+                reason = "ambiguous"
+            ).isAction
         )
         assertTrue(
             IntentCandidate(
                 toolName = null,
                 confidence = ActionIntentConfidence.Medium,
-                reason = "runtime classifier accepted",
-            ).isAction,
+                reason = "runtime classifier accepted"
+            ).isAction
         )
     }
 
     @Test
     fun parsesWhitelistedCallOutputIntoConfirmedDraft() {
         val draft = planner.parseModelOutput(
-            """call:compose_email{"subject":"Hi","body":"明天聊"}""",
+            """call:compose_email{"subject":"Hi","body":"明天聊"}"""
         )
 
         requireNotNull(draft)
@@ -54,7 +54,7 @@ class ActionPlannerTest {
     @Test
     fun strictModelToolOutputParsesSinglePrimitiveJsonObject() {
         val parsed = planner.parseModelToolOutput(
-            """call:query_recent_files{"kind":"images","maxCount":2,"includeHidden":false}""",
+            """call:query_recent_files{"kind":"images","maxCount":2,"includeHidden":false}"""
         )
 
         val draft = (parsed as ModelToolOutputParseResult.Parsed).draft
@@ -75,7 +75,7 @@ class ActionPlannerTest {
             """
             我会先执行这个低风险动作。
             call:ui_tap{"target":"搜索栏"}
-            """.trimIndent(),
+            """.trimIndent()
         )
 
         assertEquals(ModelToolOutputParseResult.None, result)
@@ -88,7 +88,7 @@ class ActionPlannerTest {
             ```json
             call:ui_type_text{"target":"搜索输入框","text":"海河牛奶"}
             ```
-            """.trimIndent(),
+            """.trimIndent()
         )
 
         requireNotNull(draft)
@@ -103,7 +103,7 @@ class ActionPlannerTest {
             """
             call:ui_tap{"target":"搜索栏"}
             call:ui_type_text{"target":"搜索输入框","text":"海河牛奶"}
-            """.trimIndent(),
+            """.trimIndent()
         )
 
         rejected as ModelToolOutputParseResult.Rejected
@@ -114,8 +114,8 @@ class ActionPlannerTest {
     fun modelOutputRejectsTrailingTextAfterCall() {
         assertNull(
             planner.parseModelOutput(
-                """call:ui_tap{"target":"搜索栏"} 我会执行这个动作。""",
-            ),
+                """call:ui_tap{"target":"搜索栏"} 我会执行这个动作。"""
+            )
         )
     }
 
@@ -131,7 +131,7 @@ class ActionPlannerTest {
             """
             call:web_search{"query":"Kotlin"}
             call:open_wifi_settings{}
-            """.trimIndent(),
+            """.trimIndent()
         )
         assertTrue(multi is ModelToolOutputParseResult.Rejected)
     }
@@ -166,11 +166,11 @@ class ActionPlannerTest {
                                   "additionalProperties": false
                                 }
                             """.trimIndent(),
-                            capability = ToolCapability.DeviceContext,
-                        ),
+                            capability = ToolCapability.DeviceContext
+                        )
                     )
-                },
-            ),
+                }
+            )
         )
 
         val parsed = customPlanner.parseModelToolOutput("""call:custom_registry_tool{"value":"ok"}""")
@@ -191,14 +191,14 @@ class ActionPlannerTest {
                         title = "Hybrid registry tool",
                         description = "Hybrid registry tool",
                         inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
-                        capability = ToolCapability.DeviceContext,
-                    ),
+                        capability = ToolCapability.DeviceContext
+                    )
                 )
-            },
+            }
         )
         val runtime = HybridActionPlanningRuntime(
             cacheDir = Files.createTempDirectory("hybrid-action-runtime-test").toFile(),
-            toolRegistry = customRegistry,
+            toolRegistry = customRegistry
         )
 
         val parsed = runtime.parseModelToolOutput("""call:hybrid_registry_tool{}""")
@@ -211,7 +211,7 @@ class ActionPlannerTest {
     @Test
     fun parsesHermesStyleWebSearchCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:web_search{"query":"Kotlin coroutines Android"}""",
+            """call:web_search{"query":"Kotlin coroutines Android"}"""
         )
 
         requireNotNull(draft)
@@ -250,7 +250,7 @@ class ActionPlannerTest {
         ToolRegistry().specs().forEach { spec ->
             assertTrue(
                 "prompt must include registered tool ${spec.name}",
-                prompt.contains("- ${spec.name} "),
+                prompt.contains("- ${spec.name} ")
             )
         }
         assertTrue(prompt.contains("支持函数如下"))
@@ -263,7 +263,7 @@ class ActionPlannerTest {
     @Test
     fun parsesCalendarAvailabilityCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:query_calendar_availability{"start":"2026-06-01T09:00:00Z","end":"2026-06-01T10:00:00Z"}""",
+            """call:query_calendar_availability{"start":"2026-06-01T09:00:00Z","end":"2026-06-01T10:00:00Z"}"""
         )
 
         requireNotNull(draft)
@@ -276,7 +276,7 @@ class ActionPlannerTest {
     @Test
     fun parsesRecentFilesCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:query_recent_files{"kind":"images","maxCount":"4"}""",
+            """call:query_recent_files{"kind":"images","maxCount":"4"}"""
         )
 
         requireNotNull(draft)
@@ -290,7 +290,7 @@ class ActionPlannerTest {
     @Test
     fun parsesRecentScreenshotOcrCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:read_recent_screenshot_ocr{"maxCount":"1"}""",
+            """call:read_recent_screenshot_ocr{"maxCount":"1"}"""
         )
 
         requireNotNull(draft)
@@ -302,7 +302,7 @@ class ActionPlannerTest {
     @Test
     fun parsesRecentImageOcrCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:read_recent_image_ocr{"maxCount":"3"}""",
+            """call:read_recent_image_ocr{"maxCount":"3"}"""
         )
 
         requireNotNull(draft)
@@ -315,7 +315,7 @@ class ActionPlannerTest {
     @Test
     fun parsesCurrentScreenshotOcrCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:capture_current_screenshot_ocr{"captureMode":"current_screen"}""",
+            """call:capture_current_screenshot_ocr{"captureMode":"current_screen"}"""
         )
 
         requireNotNull(draft)
@@ -328,7 +328,7 @@ class ActionPlannerTest {
     @Test
     fun parsesCurrentScreenTextCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:read_current_screen_text{"maxChars":"1200"}""",
+            """call:read_current_screen_text{"maxChars":"1200"}"""
         )
 
         requireNotNull(draft)
@@ -341,7 +341,7 @@ class ActionPlannerTest {
     @Test
     fun parsesContactQueryCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:query_contacts{"query":"Alice","maxCount":"2"}""",
+            """call:query_contacts{"query":"Alice","maxCount":"2"}"""
         )
 
         requireNotNull(draft)
@@ -364,7 +364,7 @@ class ActionPlannerTest {
     @Test
     fun parsesPeriodicCheckCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:configure_periodic_check{"enabled":"true","intervalMinutes":"120"}""",
+            """call:configure_periodic_check{"enabled":"true","intervalMinutes":"120"}"""
         )
 
         requireNotNull(draft)
@@ -378,7 +378,7 @@ class ActionPlannerTest {
     @Test
     fun parsesBackgroundTasksQueryCallOutput() {
         val draft = planner.parseModelOutput(
-            """call:query_background_tasks{"scope":"all","maxCount":"5"}""",
+            """call:query_background_tasks{"scope":"all","maxCount":"5"}"""
         )
 
         requireNotNull(draft)
@@ -393,7 +393,7 @@ class ActionPlannerTest {
     @Test
     fun strictModelToolOutputParsesPeriodicCheckBooleans() {
         val parsed = planner.parseModelToolOutput(
-            """call:configure_periodic_check{"enabled":true,"intervalMinutes":120,"requiresCharging":false}""",
+            """call:configure_periodic_check{"enabled":true,"intervalMinutes":120,"requiresCharging":false}"""
         )
 
         val draft = (parsed as ModelToolOutputParseResult.Parsed).draft
@@ -406,7 +406,7 @@ class ActionPlannerTest {
     @Test
     fun strictModelToolOutputParsesObserveAndUiToolCalls() {
         val observe = planner.parseModelToolOutput(
-            """call:observe_current_screen{"maxTextChars":2000,"maxNodes":80}""",
+            """call:observe_current_screen{"maxTextChars":2000,"maxNodes":80}"""
         )
         val observeDraft = (observe as ModelToolOutputParseResult.Parsed).draft
         assertEquals(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, observeDraft.functionName)
@@ -415,7 +415,7 @@ class ActionPlannerTest {
         assertTrue(observeDraft.requiresConfirmation)
 
         val tap = planner.parseModelToolOutput(
-            """call:ui_tap{"target":"Wi-Fi","timeoutMillis":1500}""",
+            """call:ui_tap{"target":"Wi-Fi","timeoutMillis":1500}"""
         )
         val tapDraft = (tap as ModelToolOutputParseResult.Parsed).draft
         assertEquals(MobileActionFunctions.UI_TAP, tapDraft.functionName)
@@ -424,7 +424,7 @@ class ActionPlannerTest {
         assertTrue(tapDraft.requiresConfirmation)
 
         val typeText = planner.parseModelToolOutput(
-            """call:ui_type_text{"target":"搜索","text":"Kotlin 协程","timeoutMillis":1500}""",
+            """call:ui_type_text{"target":"搜索","text":"Kotlin 协程","timeoutMillis":1500}"""
         )
         val typeTextDraft = (typeText as ModelToolOutputParseResult.Parsed).draft
         assertEquals(MobileActionFunctions.UI_TYPE_TEXT, typeTextDraft.functionName)
@@ -434,7 +434,7 @@ class ActionPlannerTest {
         assertTrue(typeTextDraft.requiresConfirmation)
 
         val submitSearch = planner.parseModelToolOutput(
-            """call:ui_submit_search{"timeoutMillis":1500}""",
+            """call:ui_submit_search{"timeoutMillis":1500}"""
         )
         val submitSearchDraft = (submitSearch as ModelToolOutputParseResult.Parsed).draft
         assertEquals(MobileActionFunctions.UI_SUBMIT_SEARCH, submitSearchDraft.functionName)
@@ -445,7 +445,7 @@ class ActionPlannerTest {
     @Test
     fun modelToolOutputNormalizesUiTargetCandidateMetadata() {
         val tap = planner.parseModelToolOutput(
-            """call:ui_tap{"target":"搜索{target=search-submit,modeTags=tap,bounds=[1,2,3,4]}"}""",
+            """call:ui_tap{"target":"搜索{target=search-submit,modeTags=tap,bounds=[1,2,3,4]}"}"""
         )
         val tapDraft = (tap as ModelToolOutputParseResult.Parsed).draft
         assertEquals(MobileActionFunctions.UI_TAP, tapDraft.functionName)
@@ -454,7 +454,7 @@ class ActionPlannerTest {
         val typeText = planner.parseModelToolOutput(
             """
             call:ui_type_text{"target":"targetShortlist(type=search-input,tap=search-input|search-submit,ocrFallback=搜索)","text":"Kotlin"}
-            """.trimIndent(),
+            """.trimIndent()
         )
         val typeTextDraft = (typeText as ModelToolOutputParseResult.Parsed).draft
         assertEquals(MobileActionFunctions.UI_TYPE_TEXT, typeTextDraft.functionName)
@@ -462,7 +462,7 @@ class ActionPlannerTest {
         assertEquals("Kotlin", typeTextDraft.parameters["text"])
 
         val scroll = planner.parseModelToolOutput(
-            """call:ui_scroll{"direction":"down","target":"scroll=results-list"}""",
+            """call:ui_scroll{"direction":"down","target":"scroll=results-list"}"""
         )
         val scrollDraft = (scroll as ModelToolOutputParseResult.Parsed).draft
         assertEquals(MobileActionFunctions.UI_SCROLL, scrollDraft.functionName)
@@ -472,7 +472,7 @@ class ActionPlannerTest {
     @Test
     fun modelOutputParsesPrimitiveJsonAndNormalizesUiTargetMetadata() {
         val draft = planner.parseModelOutput(
-            """call:ui_tap{"target":"target=search-submit","timeoutMillis":1500}""",
+            """call:ui_tap{"target":"target=search-submit","timeoutMillis":1500}"""
         )
 
         requireNotNull(draft)
@@ -484,7 +484,7 @@ class ActionPlannerTest {
     @Test
     fun modelToolOutputLeavesNonUiTargetParametersUnchanged() {
         val draft = planner.parseModelOutput(
-            """call:open_system_settings{"target":"target=network"}""",
+            """call:open_system_settings{"target":"target=network"}"""
         )
 
         requireNotNull(draft)
@@ -612,7 +612,7 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("Do not open Wi-Fi settings; explain only").kind)
         assertFalse(
             planner.plan("打开名为 WiFi 的 App").draft?.functionName ==
-                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS
         )
         assertEquals(ActionPlanKind.NoAction, planner.plan("手电筒 API 怎么用").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("打开手电筒").kind)
@@ -639,7 +639,11 @@ class ActionPlannerTest {
             "打开飞行模式" to SystemSettingsTargets.AIRPLANE_MODE,
             "打开输入法设置" to SystemSettingsTargets.INPUT_METHOD,
             "打开无障碍设置" to SystemSettingsTargets.ACCESSIBILITY,
+            "打开设置" to SystemSettingsTargets.GENERAL,
+            "帮我打开设置" to SystemSettingsTargets.GENERAL,
+            "进入设置" to SystemSettingsTargets.GENERAL,
             "open bluetooth settings" to SystemSettingsTargets.BLUETOOTH,
+            "open settings" to SystemSettingsTargets.GENERAL
         ).forEach { (input, target) ->
             val plan = planner.plan(input)
 
@@ -788,7 +792,7 @@ class ActionPlannerTest {
         assertEquals("开会", plan.draft?.parameters?.get("title"))
         assertEquals(
             Instant.parse("2026-06-15T00:00:00Z").toEpochMilli().toString(),
-            plan.draft?.parameters?.get("triggerAtMillis"),
+            plan.draft?.parameters?.get("triggerAtMillis")
         )
         assertNull(plan.draft?.parameters?.get("delayMinutes"))
     }
@@ -936,7 +940,7 @@ class ActionPlannerTest {
             "提醒我 10 分钟后喝水，然后提醒我 20 分钟后运动",
             "不要看我有空 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
             "别读最近截图文字",
-            "不要 OCR 最近图片",
+            "不要 OCR 最近图片"
         )
 
         noActionInputs.forEach { input ->
@@ -985,7 +989,7 @@ class ActionPlannerTest {
     @Test
     fun infersCalendarAvailabilityDraftWhenIsoWindowIsExplicit() {
         val plan = planner.plan(
-            "查一下忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
+            "查一下忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"
         )
 
         assertEquals(ActionPlanKind.Draft, plan.kind)
@@ -994,7 +998,7 @@ class ActionPlannerTest {
         assertEquals("2026-06-01T10:00:00Z", plan.draft?.parameters?.get("end"))
 
         val englishPlan = planner.plan(
-            "calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
+            "calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z"
         )
         assertEquals(ActionPlanKind.Draft, englishPlan.kind)
         assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, englishPlan.draft?.functionName)
@@ -1010,11 +1014,11 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("how to implement free/busy").kind)
         assertEquals(
             ActionPlanKind.NoAction,
-            planner.plan("查忙闲 2026-06-01T10:00:00Z 到 2026-06-01T09:00:00Z").kind,
+            planner.plan("查忙闲 2026-06-01T10:00:00Z 到 2026-06-01T09:00:00Z").kind
         )
         assertEquals(
             ActionPlanKind.NoAction,
-            planner.plan("查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z").kind,
+            planner.plan("查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z").kind
         )
     }
 
@@ -1304,7 +1308,7 @@ class ActionPlannerTest {
             "打开时钟" to "时钟",
             "打开便签" to "便签",
             "打开通讯录" to "通讯录",
-            "打开拼多多" to "拼多多",
+            "打开拼多多" to "拼多多"
         )
         commonAppCases.forEach { (input, appName) ->
             val commonPlan = planner.plan(input)
@@ -1386,7 +1390,7 @@ class ActionPlannerTest {
     @Test
     fun parsesAppIntentCallOutputWithPackageName() {
         val draft = planner.parseModelOutput(
-            """call:open_app_intent{"packageName":"com.example.app"}""",
+            """call:open_app_intent{"packageName":"com.example.app"}"""
         )
 
         requireNotNull(draft)
@@ -1395,7 +1399,7 @@ class ActionPlannerTest {
         assertEquals(setOf("packageName"), draft.parameters.keys)
 
         val byNameDraft = planner.parseModelOutput(
-            """call:open_app_by_name{"appName":"拼多多"}""",
+            """call:open_app_by_name{"appName":"拼多多"}"""
         )
         requireNotNull(byNameDraft)
         assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, byNameDraft.functionName)
@@ -1406,7 +1410,7 @@ class ActionPlannerTest {
     @Test
     fun parsesAppDeepTargetCallOutputWithAllowlistedTargetId() {
         val draft = planner.parseModelOutput(
-            """call:open_app_deep_target{"targetId":"android_app_details_settings","packageName":"com.example.app"}""",
+            """call:open_app_deep_target{"targetId":"android_app_details_settings","packageName":"com.example.app"}"""
         )
 
         requireNotNull(draft)

@@ -22,23 +22,23 @@ import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.solin.background.ReminderScheduleRequest
 import com.bytedance.zgx.solin.device.DeviceControlSessionService
-import com.bytedance.zgx.solin.tool.ToolErrorCode
-import com.bytedance.zgx.solin.tool.ToolExecutor
+import com.bytedance.zgx.solin.logging.cleanMessage
 import com.bytedance.zgx.solin.tool.MAX_SHARE_TEXT_CHARS
 import com.bytedance.zgx.solin.tool.MAX_SHARE_TITLE_CHARS
 import com.bytedance.zgx.solin.tool.MAX_SMS_BODY_CHARS
 import com.bytedance.zgx.solin.tool.PHONE_NUMBER_PATTERN
+import com.bytedance.zgx.solin.tool.ToolErrorCode
+import com.bytedance.zgx.solin.tool.ToolExecutor
 import com.bytedance.zgx.solin.tool.ToolRegistry
-import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.failed
 import com.bytedance.zgx.solin.tool.invalidRequest
 import com.bytedance.zgx.solin.tool.succeeded
 import com.bytedance.zgx.solin.tool.unknownToolFailure
 import java.net.URI
 import java.util.Calendar
-import com.bytedance.zgx.solin.logging.cleanMessage
 
 class ActionExecutor(
     private val context: Context?,
@@ -51,7 +51,7 @@ class ActionExecutor(
     private val deviceControlSessionStarter: ((String) -> Unit)? = null,
     private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     /** Test seam for [MobileActionFunctions.CONTROL_MEDIA]; production dispatches through [AudioManager]. */
-    private val mediaKeyDispatcher: ((Int) -> Boolean)? = null,
+    private val mediaKeyDispatcher: ((Int) -> Boolean)? = null
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         when (request.toolName) {
@@ -86,7 +86,7 @@ class ActionExecutor(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "媒体控制服务不可用",
                 retryable = true,
-                data = mapOf("toolName" to request.toolName),
+                data = mapOf("toolName" to request.toolName)
             )
         val dispatched = runCatching { dispatcher(keyCode) }.getOrDefault(false)
         if (!dispatched) {
@@ -94,7 +94,7 @@ class ActionExecutor(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "媒体按键发送失败",
                 retryable = true,
-                data = mapOf("toolName" to request.toolName),
+                data = mapOf("toolName" to request.toolName)
             )
         }
         return request.succeeded(
@@ -103,8 +103,8 @@ class ActionExecutor(
                 "toolName" to request.toolName,
                 "command" to command,
                 "dispatchState" to "KeyEventDispatched",
-                "completionVerified" to "false",
-            ),
+                "completionVerified" to "false"
+            )
         )
     }
 
@@ -125,7 +125,7 @@ class ActionExecutor(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "剪贴板没有可读取的文本",
                 retryable = true,
-                data = request.clipboardContextData(),
+                data = request.clipboardContextData()
             )
         }
         val clipped = text.take(MAX_CLIPBOARD_RESULT_CHARS)
@@ -133,8 +133,8 @@ class ActionExecutor(
             summary = "已读取剪贴板文本（${text.length} 字符）",
             data = request.clipboardContextData() + mapOf(
                 "text" to clipped,
-                "truncated" to (text.length > clipped.length).toString(),
-            ),
+                "truncated" to (text.length > clipped.length).toString()
+            )
         )
     }
 
@@ -151,13 +151,13 @@ class ActionExecutor(
             ?: return request.failed(
                 code = ToolErrorCode.MissingArgument,
                 summary = "note 动作缺少 content 参数",
-                retryable = false,
+                retryable = false
             )
         if (content.isBlank()) {
             return request.failed(
                 code = ToolErrorCode.InvalidRequest,
                 summary = "note 内容不能为空",
-                retryable = false,
+                retryable = false
             )
         }
         return request.succeeded(
@@ -166,8 +166,8 @@ class ActionExecutor(
                 "toolName" to request.toolName,
                 "content" to content,
                 "privacy" to MessagePrivacy.LocalOnly.name,
-                "requiresLocalModel" to true.toString(),
-            ),
+                "requiresLocalModel" to true.toString()
+            )
         )
     }
 
@@ -180,15 +180,15 @@ class ActionExecutor(
             ?: return request.failed(
                 code = ToolErrorCode.MissingArgument,
                 summary = "finish 动作缺少 message 参数",
-                retryable = false,
+                retryable = false
             )
         return request.succeeded(
             summary = message,
             data = mapOf(
                 "toolName" to request.toolName,
                 "shouldFinish" to "true",
-                "finishMessage" to message,
-            ),
+                "finishMessage" to message
+            )
         )
     }
 
@@ -204,7 +204,7 @@ class ActionExecutor(
             ?: return request.failed(
                 code = ToolErrorCode.MissingArgument,
                 summary = "take_over 动作缺少 reason 参数",
-                retryable = false,
+                retryable = false
             )
         val prompt = request.arguments["prompt"]?.trim()
             ?: "请完成需要人工操作的步骤（$reason），完成后告诉我继续。"
@@ -216,8 +216,8 @@ class ActionExecutor(
                 "takeOverReason" to reason,
                 "takeOverPrompt" to prompt,
                 "privacy" to MessagePrivacy.LocalOnly.name,
-                "requiresLocalModel" to "true",
-            ),
+                "requiresLocalModel" to "true"
+            )
         )
     }
 
@@ -227,14 +227,14 @@ class ActionExecutor(
                 code = ToolErrorCode.PermissionDenied,
                 summary = "需要通知权限才能安排后台提醒",
                 retryable = true,
-                data = mapOf("toolName" to request.toolName),
+                data = mapOf("toolName" to request.toolName)
             )
         }
         val scheduler = backgroundTaskScheduler
             ?: return request.failed(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "后台任务调度器不可用",
-                retryable = true,
+                retryable = true
             )
         val title = request.arguments["title"].orEmpty()
         val body = request.arguments["body"].orEmpty()
@@ -244,7 +244,7 @@ class ActionExecutor(
             return request.failed(
                 code = ToolErrorCode.InvalidRequest,
                 summary = "提醒时间参数无效",
-                retryable = false,
+                retryable = false
             )
         }
         return scheduler.scheduleReminder(
@@ -252,8 +252,8 @@ class ActionExecutor(
                 title = title,
                 body = body,
                 delayMinutes = delayMinutes,
-                triggerAtMillis = triggerAtMillis,
-            ),
+                triggerAtMillis = triggerAtMillis
+            )
         ).fold(
             onSuccess = { task ->
                 request.succeeded(
@@ -264,8 +264,8 @@ class ActionExecutor(
                         "taskStatus" to task.status.name,
                         "triggerAtMillis" to task.triggerAtMillis.toString(),
                         "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
-                        "recoveryTaskId" to task.id,
-                    ),
+                        "recoveryTaskId" to task.id
+                    )
                 )
             },
             onFailure = { throwable ->
@@ -273,9 +273,9 @@ class ActionExecutor(
                     code = ToolErrorCode.ExecutionFailed,
                     summary = "后台提醒安排失败：${throwable.cleanMessage()}",
                     retryable = true,
-                    data = mapOf("toolName" to request.toolName),
+                    data = mapOf("toolName" to request.toolName)
                 )
-            },
+            }
         )
     }
 
@@ -284,27 +284,27 @@ class ActionExecutor(
             ?: return request.failed(
                 code = ToolErrorCode.InvalidRequest,
                 summary = "周期检查启用参数无效",
-                retryable = false,
+                retryable = false
             )
         if (enabled && !canPostReminderNotifications()) {
             return request.failed(
                 code = ToolErrorCode.PermissionDenied,
                 summary = "需要通知权限才能开启本地提醒周期检查",
                 retryable = true,
-                data = mapOf("toolName" to request.toolName),
+                data = mapOf("toolName" to request.toolName)
             )
         }
         val scheduler = backgroundTaskScheduler
             ?: return request.failed(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "后台任务调度器不可用",
-                retryable = true,
+                retryable = true
             )
         val scheduleRequest = request.toPeriodicCheckScheduleRequest(enabled)
             ?: return request.failed(
                 code = ToolErrorCode.InvalidRequest,
                 summary = "周期检查参数无效",
-                retryable = false,
+                retryable = false
             )
 
         val result = if (enabled) {
@@ -320,7 +320,7 @@ class ActionExecutor(
                     } else {
                         "已关闭本地提醒周期检查"
                     },
-                    data = policy.toPeriodicCheckToolData(request.toolName),
+                    data = policy.toPeriodicCheckToolData(request.toolName)
                 )
             },
             onFailure = { throwable ->
@@ -328,9 +328,9 @@ class ActionExecutor(
                     code = ToolErrorCode.ExecutionFailed,
                     summary = "周期检查配置失败：${throwable.cleanMessage()}",
                     retryable = true,
-                    data = mapOf("toolName" to request.toolName),
+                    data = mapOf("toolName" to request.toolName)
                 )
-            },
+            }
         )
     }
 
@@ -340,14 +340,14 @@ class ActionExecutor(
             return request.failed(
                 code = ToolErrorCode.InvalidRequest,
                 summary = "提醒任务 id 不能为空",
-                retryable = false,
+                retryable = false
             )
         }
         val scheduler = backgroundTaskScheduler
             ?: return request.failed(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "后台任务调度器不可用",
-                retryable = true,
+                retryable = true
             )
         return scheduler.cancelScheduledTask(taskId)
             .fold(
@@ -357,8 +357,8 @@ class ActionExecutor(
                         data = mapOf(
                             "toolName" to request.toolName,
                             "taskId" to taskId,
-                            "taskStatus" to "Cancelled",
-                        ),
+                            "taskStatus" to "Cancelled"
+                        )
                     )
                 },
                 onFailure = { throwable ->
@@ -367,46 +367,44 @@ class ActionExecutor(
                         code = if (invalidCancellation) ToolErrorCode.InvalidRequest else ToolErrorCode.ExecutionFailed,
                         summary = "后台任务取消失败：${throwable.cleanMessage()}",
                         retryable = !invalidCancellation,
-                        data = mapOf("toolName" to request.toolName),
+                        data = mapOf("toolName" to request.toolName)
                     )
-                },
+                }
             )
     }
 
     private fun ToolRequest.toPeriodicCheckScheduleRequest(enabled: Boolean): PeriodicCheckScheduleRequest? {
-        fun longArg(name: String, default: Long): Long =
-            arguments[name]?.toLongOrNull() ?: default
+        fun longArg(name: String, default: Long): Long = arguments[name]?.toLongOrNull() ?: default
 
-        fun booleanArg(name: String, default: Boolean): Boolean? =
-            arguments[name]?.toBooleanStrictOrNull() ?: if (name in arguments) null else default
+        fun booleanArg(name: String, default: Boolean): Boolean? = arguments[name]?.toBooleanStrictOrNull() ?: if (name in arguments) null else default
 
         val requiresBatteryNotLow = booleanArg(
             "requiresBatteryNotLow",
-            PeriodicCheckConstraints().requiresBatteryNotLow,
+            PeriodicCheckConstraints().requiresBatteryNotLow
         ) ?: return null
         val requiresCharging = booleanArg(
             "requiresCharging",
-            PeriodicCheckConstraints().requiresCharging,
+            PeriodicCheckConstraints().requiresCharging
         ) ?: return null
 
         return PeriodicCheckScheduleRequest(
             enabled = enabled,
             intervalMinutes = longArg(
                 "intervalMinutes",
-                PeriodicCheckScheduleRequest.DEFAULT_INTERVAL_MINUTES,
+                PeriodicCheckScheduleRequest.DEFAULT_INTERVAL_MINUTES
             ),
             minNotificationSpacingMinutes = longArg(
                 "minNotificationSpacingMinutes",
-                PeriodicCheckScheduleRequest.DEFAULT_MIN_NOTIFICATION_SPACING_MINUTES,
+                PeriodicCheckScheduleRequest.DEFAULT_MIN_NOTIFICATION_SPACING_MINUTES
             ),
             overdueGraceMinutes = longArg(
                 "overdueGraceMinutes",
-                PeriodicCheckScheduleRequest.DEFAULT_OVERDUE_GRACE_MINUTES,
+                PeriodicCheckScheduleRequest.DEFAULT_OVERDUE_GRACE_MINUTES
             ),
             constraints = PeriodicCheckConstraints(
                 requiresBatteryNotLow = requiresBatteryNotLow,
-                requiresCharging = requiresCharging,
-            ),
+                requiresCharging = requiresCharging
+            )
         ).normalized()
     }
 
@@ -421,7 +419,7 @@ class ActionExecutor(
                     "Scheduled"
                 } else {
                     "Cancelled"
-                },
+                }
             )
             put("intervalMinutes", normalized.intervalMinutes.toString())
             put("minNotificationSpacingMinutes", normalized.minNotificationSpacingMinutes.toString())
@@ -437,125 +435,122 @@ class ActionExecutor(
         }
     }
 
-    private fun intentsFor(request: ToolRequest): List<Intent>? =
-        when (request.toolName) {
-            MobileActionFunctions.OPEN_WIFI_SETTINGS -> listOf(Intent(Settings.ACTION_WIFI_SETTINGS))
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> listOf(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
-                systemSettingsActionsFor(request.arguments.getValue("target")).map(::Intent)
-            MobileActionFunctions.DIAL_PHONE_NUMBER ->
-                listOf(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${request.arguments.getValue("phoneNumber")}")))
-            MobileActionFunctions.COMPOSE_SMS ->
-                listOf(
-                    Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${request.arguments.getValue("phoneNumber")}")).apply {
-                        request.arguments["body"]?.takeIf { it.isNotBlank() }?.let { body ->
-                            putExtra(SMS_BODY_EXTRA, body)
-                        }
-                    },
+    private fun intentsFor(request: ToolRequest): List<Intent>? = when (request.toolName) {
+        MobileActionFunctions.OPEN_WIFI_SETTINGS -> listOf(Intent(Settings.ACTION_WIFI_SETTINGS))
+        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> listOf(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+            systemSettingsActionsFor(request.arguments.getValue("target")).map(::Intent)
+        MobileActionFunctions.DIAL_PHONE_NUMBER ->
+            listOf(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${request.arguments.getValue("phoneNumber")}")))
+        MobileActionFunctions.COMPOSE_SMS ->
+            listOf(
+                Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${request.arguments.getValue("phoneNumber")}")).apply {
+                    request.arguments["body"]?.takeIf { it.isNotBlank() }?.let { body ->
+                        putExtra(SMS_BODY_EXTRA, body)
+                    }
+                }
+            )
+        MobileActionFunctions.SEARCH_MAPS ->
+            listOf(
+                Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("geo:0,0?q=${Uri.encode(request.arguments["query"].orEmpty())}")
                 )
-            MobileActionFunctions.SEARCH_MAPS ->
-                listOf(
-                    Intent(
-                        Intent.ACTION_VIEW,
-                        Uri.parse("geo:0,0?q=${Uri.encode(request.arguments["query"].orEmpty())}"),
-                    ),
-                )
-            MobileActionFunctions.COMPOSE_EMAIL ->
-                listOf(
-                    Intent(Intent.ACTION_SENDTO).apply {
-                        data = Uri.parse("mailto:")
-                        putExtra(Intent.EXTRA_SUBJECT, request.arguments["subject"].orEmpty())
-                        putExtra(Intent.EXTRA_TEXT, request.arguments["body"].orEmpty())
-                    },
-                )
-            MobileActionFunctions.CREATE_CALENDAR_EVENT ->
-                listOf(
-                    Intent(Intent.ACTION_INSERT).apply {
-                        data = CalendarContract.Events.CONTENT_URI
-                        putExtra(CalendarContract.Events.TITLE, request.arguments["title"].orEmpty())
-                        putExtra(CalendarContract.Events.DESCRIPTION, request.arguments["description"].orEmpty())
-                        request.arguments["beginTimeMillis"]?.toLongOrNull()?.let { begin ->
-                            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
-                        }
-                        request.arguments["endTimeMillis"]?.toLongOrNull()?.let { end ->
-                            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end)
-                        }
-                        if (request.arguments["allDay"] == "true") {
-                            putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
-                        }
-                    },
-                )
-            MobileActionFunctions.CREATE_CONTACT_DRAFT ->
-                listOf(
-                    Intent(ContactsContract.Intents.Insert.ACTION).apply {
-                        type = ContactsContract.RawContacts.CONTENT_TYPE
-                        putExtra(ContactsContract.Intents.Insert.NAME, request.arguments["name"].orEmpty())
-                        putExtra(ContactsContract.Intents.Insert.EMAIL, request.arguments["email"].orEmpty())
-                        putExtra(ContactsContract.Intents.Insert.PHONE, request.arguments["phone"].orEmpty())
-                    },
-                )
-            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> listOf(Intent(Settings.ACTION_SETTINGS))
-            MobileActionFunctions.SET_SYSTEM_ALARM -> listOf(systemAlarmIntent(request))
-            MobileActionFunctions.SET_SYSTEM_TIMER -> listOf(systemTimerIntent(request))
-            MobileActionFunctions.SHARE_TEXT -> listOf(shareTextIntent(request))
-            MobileActionFunctions.OPEN_DEEP_LINK ->
-                listOf(
-                    Intent(Intent.ACTION_VIEW, Uri.parse(request.arguments.getValue("uri")))
-                        .withCategoryIfAvailable(Intent.CATEGORY_BROWSABLE),
-                )
-            MobileActionFunctions.OPEN_CAMERA -> listOf(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
-            MobileActionFunctions.OPEN_APP_BY_NAME -> appNameIntentCandidates(request)
-            MobileActionFunctions.OPEN_APP_INTENT -> appIntentCandidates(request)
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
-                listOf(appDeepTargetFor(request).buildIntent(request.arguments))
-            else -> null
-        }
+            )
+        MobileActionFunctions.COMPOSE_EMAIL ->
+            listOf(
+                Intent(Intent.ACTION_SENDTO).apply {
+                    data = Uri.parse("mailto:")
+                    putExtra(Intent.EXTRA_SUBJECT, request.arguments["subject"].orEmpty())
+                    putExtra(Intent.EXTRA_TEXT, request.arguments["body"].orEmpty())
+                }
+            )
+        MobileActionFunctions.CREATE_CALENDAR_EVENT ->
+            listOf(
+                Intent(Intent.ACTION_INSERT).apply {
+                    data = CalendarContract.Events.CONTENT_URI
+                    putExtra(CalendarContract.Events.TITLE, request.arguments["title"].orEmpty())
+                    putExtra(CalendarContract.Events.DESCRIPTION, request.arguments["description"].orEmpty())
+                    request.arguments["beginTimeMillis"]?.toLongOrNull()?.let { begin ->
+                        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+                    }
+                    request.arguments["endTimeMillis"]?.toLongOrNull()?.let { end ->
+                        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end)
+                    }
+                    if (request.arguments["allDay"] == "true") {
+                        putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
+                    }
+                }
+            )
+        MobileActionFunctions.CREATE_CONTACT_DRAFT ->
+            listOf(
+                Intent(ContactsContract.Intents.Insert.ACTION).apply {
+                    type = ContactsContract.RawContacts.CONTENT_TYPE
+                    putExtra(ContactsContract.Intents.Insert.NAME, request.arguments["name"].orEmpty())
+                    putExtra(ContactsContract.Intents.Insert.EMAIL, request.arguments["email"].orEmpty())
+                    putExtra(ContactsContract.Intents.Insert.PHONE, request.arguments["phone"].orEmpty())
+                }
+            )
+        MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> listOf(Intent(Settings.ACTION_SETTINGS))
+        MobileActionFunctions.SET_SYSTEM_ALARM -> listOf(systemAlarmIntent(request))
+        MobileActionFunctions.SET_SYSTEM_TIMER -> listOf(systemTimerIntent(request))
+        MobileActionFunctions.SHARE_TEXT -> listOf(shareTextIntent(request))
+        MobileActionFunctions.OPEN_DEEP_LINK ->
+            listOf(
+                Intent(Intent.ACTION_VIEW, Uri.parse(request.arguments.getValue("uri")))
+                    .withCategoryIfAvailable(Intent.CATEGORY_BROWSABLE)
+            )
+        MobileActionFunctions.OPEN_CAMERA -> listOf(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+        MobileActionFunctions.OPEN_APP_BY_NAME -> appNameIntentCandidates(request)
+        MobileActionFunctions.OPEN_APP_INTENT -> appIntentCandidates(request)
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
+            listOf(appDeepTargetFor(request).buildIntent(request.arguments))
+        else -> null
+    }
 
-    private fun successSummaryFor(request: ToolRequest): String =
-        when (val toolName = request.toolName) {
-            MobileActionFunctions.OPEN_WIFI_SETTINGS -> "已打开 Wi-Fi 设置页"
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "已打开使用情况访问权限设置页"
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
-                "已打开${SystemSettingsTargets.pageLabel(request.arguments["target"].orEmpty())}"
-            MobileActionFunctions.SEARCH_MAPS -> "已打开地图搜索"
-            MobileActionFunctions.COMPOSE_EMAIL -> "已打开邮件草稿页"
-            MobileActionFunctions.DIAL_PHONE_NUMBER -> "已打开拨号盘并填入号码，请在拨号界面确认后拨出"
-            MobileActionFunctions.COMPOSE_SMS -> "已打开短信草稿，请在短信应用中确认后发送"
-            MobileActionFunctions.CREATE_CALENDAR_EVENT -> "已打开日历新建事件页"
-            MobileActionFunctions.CREATE_CONTACT_DRAFT -> "已打开联系人草稿页"
-            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "已打开系统设置页"
-            MobileActionFunctions.SET_SYSTEM_ALARM -> "已打开系统闹钟设置界面"
-            MobileActionFunctions.SET_SYSTEM_TIMER -> "已打开系统倒计时设置界面"
-            MobileActionFunctions.SHARE_TEXT -> "已打开系统分享面板"
-            MobileActionFunctions.OPEN_DEEP_LINK -> "已打开深链"
-            MobileActionFunctions.OPEN_CAMERA -> "已打开相机"
-            MobileActionFunctions.OPEN_APP_BY_NAME -> "已打开应用"
-            MobileActionFunctions.OPEN_APP_INTENT -> "已打开应用"
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "已打开应用深层目标"
-            else -> "工具已执行"
-        }
+    private fun successSummaryFor(request: ToolRequest): String = when (val toolName = request.toolName) {
+        MobileActionFunctions.OPEN_WIFI_SETTINGS -> "已打开 Wi-Fi 设置页"
+        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "已打开使用情况访问权限设置页"
+        MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+            "已打开${SystemSettingsTargets.pageLabel(request.arguments["target"].orEmpty())}"
+        MobileActionFunctions.SEARCH_MAPS -> "已打开地图搜索"
+        MobileActionFunctions.COMPOSE_EMAIL -> "已打开邮件草稿页"
+        MobileActionFunctions.DIAL_PHONE_NUMBER -> "已打开拨号盘并填入号码，请在拨号界面确认后拨出"
+        MobileActionFunctions.COMPOSE_SMS -> "已打开短信草稿，请在短信应用中确认后发送"
+        MobileActionFunctions.CREATE_CALENDAR_EVENT -> "已打开日历新建事件页"
+        MobileActionFunctions.CREATE_CONTACT_DRAFT -> "已打开联系人草稿页"
+        MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "已打开系统设置页"
+        MobileActionFunctions.SET_SYSTEM_ALARM -> "已打开系统闹钟设置界面"
+        MobileActionFunctions.SET_SYSTEM_TIMER -> "已打开系统倒计时设置界面"
+        MobileActionFunctions.SHARE_TEXT -> "已打开系统分享面板"
+        MobileActionFunctions.OPEN_DEEP_LINK -> "已打开深链"
+        MobileActionFunctions.OPEN_CAMERA -> "已打开相机"
+        MobileActionFunctions.OPEN_APP_BY_NAME -> "已打开应用"
+        MobileActionFunctions.OPEN_APP_INTENT -> "已打开应用"
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "已打开应用深层目标"
+        else -> "工具已执行"
+    }
 
     /** Returns the user-facing reason when an external-intent request is malformed, else null. */
-    private fun externalIntentInvalidReason(request: ToolRequest): String? =
-        when (request.toolName) {
-            MobileActionFunctions.OPEN_DEEP_LINK -> when {
-                (request.arguments.keys - setOf("uri")).isNotEmpty() -> "打开深链仅支持 uri 参数"
-                !isAllowedExternalUri(request.arguments["uri"].orEmpty()) -> "深链 URI 只支持安全的 https 链接"
-                else -> null
-            }
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> systemSettingsInvalidReason(request)
-            MobileActionFunctions.OPEN_APP_BY_NAME -> openAppByNameInvalidReason(request)
-            MobileActionFunctions.OPEN_APP_INTENT -> openAppIntentInvalidReason(request)
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> openAppDeepTargetInvalidReason(request)
-            MobileActionFunctions.SHARE_TEXT -> shareTextInvalidReason(request)
-            MobileActionFunctions.OPEN_CAMERA -> "打开相机不接受参数".takeIf { request.arguments.isNotEmpty() }
-            MobileActionFunctions.SET_SYSTEM_ALARM -> systemAlarmInvalidReason(request)
-            MobileActionFunctions.SET_SYSTEM_TIMER -> systemTimerInvalidReason(request)
-            MobileActionFunctions.CREATE_CALENDAR_EVENT -> calendarDraftInvalidReason(request)
-            MobileActionFunctions.DIAL_PHONE_NUMBER,
-            MobileActionFunctions.COMPOSE_SMS -> phoneDraftInvalidReason(request)
+    private fun externalIntentInvalidReason(request: ToolRequest): String? = when (request.toolName) {
+        MobileActionFunctions.OPEN_DEEP_LINK -> when {
+            (request.arguments.keys - setOf("uri")).isNotEmpty() -> "打开深链仅支持 uri 参数"
+            !isAllowedExternalUri(request.arguments["uri"].orEmpty()) -> "深链 URI 只支持安全的 https 链接"
             else -> null
         }
+        MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> systemSettingsInvalidReason(request)
+        MobileActionFunctions.OPEN_APP_BY_NAME -> openAppByNameInvalidReason(request)
+        MobileActionFunctions.OPEN_APP_INTENT -> openAppIntentInvalidReason(request)
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET -> openAppDeepTargetInvalidReason(request)
+        MobileActionFunctions.SHARE_TEXT -> shareTextInvalidReason(request)
+        MobileActionFunctions.OPEN_CAMERA -> "打开相机不接受参数".takeIf { request.arguments.isNotEmpty() }
+        MobileActionFunctions.SET_SYSTEM_ALARM -> systemAlarmInvalidReason(request)
+        MobileActionFunctions.SET_SYSTEM_TIMER -> systemTimerInvalidReason(request)
+        MobileActionFunctions.CREATE_CALENDAR_EVENT -> calendarDraftInvalidReason(request)
+        MobileActionFunctions.DIAL_PHONE_NUMBER,
+        MobileActionFunctions.COMPOSE_SMS -> phoneDraftInvalidReason(request)
+        else -> null
+    }
 
     /** Defense in depth behind the schema: only a plain number reaches tel:/smsto: (no USSD *#, no pause chars). */
     private fun phoneDraftInvalidReason(request: ToolRequest): String? {
@@ -700,8 +695,8 @@ class ActionExecutor(
         }
         return appIntentCandidates(
             request.copy(
-                arguments = mapOf("packageName" to packageName),
-            ),
+                arguments = mapOf("packageName" to packageName)
+            )
         )
     }
 
@@ -719,8 +714,8 @@ class ActionExecutor(
                     COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED,
                     extra = launch.packageName?.takeIf { it.isNotBlank() }
                         ?.let { mapOf("packageName" to it) }
-                        .orEmpty(),
-                ),
+                        .orEmpty()
+                )
             )
 
             ExternalActivityStartResult.ActivityNotFound -> noActivityFoundResult(request, metadata)
@@ -728,89 +723,88 @@ class ActionExecutor(
         }
     }
 
-    private fun externalActivityLaunchFor(request: ToolRequest): ExternalActivityLaunch? =
-        when (request.toolName) {
-            MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityLaunch(
+    private fun externalActivityLaunchFor(request: ToolRequest): ExternalActivityLaunch? = when (request.toolName) {
+        MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = Intent.ACTION_VIEW,
+            uri = request.arguments.getValue("uri")
+        )
+
+        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = Settings.ACTION_USAGE_ACCESS_SETTINGS
+        )
+
+        MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> {
+            val target = request.arguments.getValue("target")
+            ExternalActivityLaunch(
                 toolName = request.toolName,
-                action = Intent.ACTION_VIEW,
-                uri = request.arguments.getValue("uri"),
+                action = systemSettingsActionFor(target),
+                targetId = target
             )
+        }
 
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ExternalActivityLaunch(
-                toolName = request.toolName,
-                action = Settings.ACTION_USAGE_ACCESS_SETTINGS,
-            )
+        MobileActionFunctions.OPEN_CAMERA -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA
+        )
 
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> {
-                val target = request.arguments.getValue("target")
-                ExternalActivityLaunch(
-                    toolName = request.toolName,
-                    action = systemSettingsActionFor(target),
-                    targetId = target,
-                )
-            }
+        MobileActionFunctions.SET_SYSTEM_ALARM -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = AlarmClock.ACTION_SET_ALARM
+        )
 
-            MobileActionFunctions.OPEN_CAMERA -> ExternalActivityLaunch(
-                toolName = request.toolName,
-                action = MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA,
-            )
+        MobileActionFunctions.SET_SYSTEM_TIMER -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = AlarmClock.ACTION_SET_TIMER
+        )
 
-            MobileActionFunctions.SET_SYSTEM_ALARM -> ExternalActivityLaunch(
-                toolName = request.toolName,
-                action = AlarmClock.ACTION_SET_ALARM,
-            )
-
-            MobileActionFunctions.SET_SYSTEM_TIMER -> ExternalActivityLaunch(
-                toolName = request.toolName,
-                action = AlarmClock.ACTION_SET_TIMER,
-            )
-
-            MobileActionFunctions.OPEN_APP_BY_NAME -> {
-                val resolution = resolveLaunchableApp(request.arguments.getValue("appName"))
-                val packageName = (resolution as? AppLaunchResolution.Resolved)?.packageName
-                ExternalActivityLaunch(
-                    toolName = request.toolName,
-                    action = Intent.ACTION_MAIN,
-                    packageName = packageName,
-                )
-            }
-
-            MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityLaunch(
+        MobileActionFunctions.OPEN_APP_BY_NAME -> {
+            val resolution = resolveLaunchableApp(request.arguments.getValue("appName"))
+            val packageName = (resolution as? AppLaunchResolution.Resolved)?.packageName
+            ExternalActivityLaunch(
                 toolName = request.toolName,
                 action = Intent.ACTION_MAIN,
-                packageName = request.arguments.getValue("packageName"),
+                packageName = packageName
             )
-
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> {
-                val target = appDeepTargetFor(request)
-                ExternalActivityLaunch(
-                    toolName = request.toolName,
-                    action = target.intentAction,
-                    uri = "package:${request.arguments.getValue(AppDeepTargets.PACKAGE_NAME_ARGUMENT)}",
-                    packageName = request.arguments.getValue(AppDeepTargets.PACKAGE_NAME_ARGUMENT),
-                    targetId = target.id,
-                )
-            }
-
-            MobileActionFunctions.SHARE_TEXT -> ExternalActivityLaunch(
-                toolName = request.toolName,
-                action = Intent.ACTION_CHOOSER,
-            )
-
-            MobileActionFunctions.DIAL_PHONE_NUMBER -> ExternalActivityLaunch(
-                toolName = request.toolName,
-                action = Intent.ACTION_DIAL,
-                uri = "tel:${request.arguments.getValue("phoneNumber")}",
-            )
-
-            MobileActionFunctions.COMPOSE_SMS -> ExternalActivityLaunch(
-                toolName = request.toolName,
-                action = Intent.ACTION_SENDTO,
-                uri = "smsto:${request.arguments.getValue("phoneNumber")}",
-            )
-
-            else -> null
         }
+
+        MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = Intent.ACTION_MAIN,
+            packageName = request.arguments.getValue("packageName")
+        )
+
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET -> {
+            val target = appDeepTargetFor(request)
+            ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = target.intentAction,
+                uri = "package:${request.arguments.getValue(AppDeepTargets.PACKAGE_NAME_ARGUMENT)}",
+                packageName = request.arguments.getValue(AppDeepTargets.PACKAGE_NAME_ARGUMENT),
+                targetId = target.id
+            )
+        }
+
+        MobileActionFunctions.SHARE_TEXT -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = Intent.ACTION_CHOOSER
+        )
+
+        MobileActionFunctions.DIAL_PHONE_NUMBER -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = Intent.ACTION_DIAL,
+            uri = "tel:${request.arguments.getValue("phoneNumber")}"
+        )
+
+        MobileActionFunctions.COMPOSE_SMS -> ExternalActivityLaunch(
+            toolName = request.toolName,
+            action = Intent.ACTION_SENDTO,
+            uri = "smsto:${request.arguments.getValue("phoneNumber")}"
+        )
+
+        else -> null
+    }
 
     private fun isAllowedExternalUri(raw: String): Boolean {
         val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return false
@@ -822,11 +816,9 @@ class ActionExecutor(
             raw.none { character -> character.isWhitespace() || character.code < 0x20 }
     }
 
-    private fun Intent.withCategoryIfAvailable(category: String): Intent =
-        apply { runCatching { addCategory(category) } }
+    private fun Intent.withCategoryIfAvailable(category: String): Intent = apply { runCatching { addCategory(category) } }
 
-    private fun Intent.withPackageIfAvailable(packageName: String): Intent =
-        apply { runCatching { setPackage(packageName) } }
+    private fun Intent.withPackageIfAvailable(packageName: String): Intent = apply { runCatching { setPackage(packageName) } }
 
     private fun shareTextIntent(request: ToolRequest): Intent {
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
@@ -838,46 +830,44 @@ class ActionExecutor(
         }
         return Intent.createChooser(
             sendIntent,
-            request.arguments["title"].orEmpty().ifBlank { "分享文本" },
+            request.arguments["title"].orEmpty().ifBlank { "分享文本" }
         )
     }
 
-    private fun systemAlarmIntent(request: ToolRequest): Intent =
-        Intent(AlarmClock.ACTION_SET_ALARM).apply {
-            putExtra(AlarmClock.EXTRA_HOUR, request.arguments.getValue("hour").toInt())
-            putExtra(AlarmClock.EXTRA_MINUTES, request.arguments.getValue("minutes").toInt())
-            request.arguments["message"]?.takeIf { it.isNotBlank() }?.let { message ->
-                putExtra(AlarmClock.EXTRA_MESSAGE, message)
-            }
-            if (request.arguments["recurrence"] == "daily") {
-                putIntegerArrayListExtra(
-                    AlarmClock.EXTRA_DAYS,
-                    arrayListOf(
-                        Calendar.SUNDAY,
-                        Calendar.MONDAY,
-                        Calendar.TUESDAY,
-                        Calendar.WEDNESDAY,
-                        Calendar.THURSDAY,
-                        Calendar.FRIDAY,
-                        Calendar.SATURDAY,
-                    ),
+    private fun systemAlarmIntent(request: ToolRequest): Intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+        putExtra(AlarmClock.EXTRA_HOUR, request.arguments.getValue("hour").toInt())
+        putExtra(AlarmClock.EXTRA_MINUTES, request.arguments.getValue("minutes").toInt())
+        request.arguments["message"]?.takeIf { it.isNotBlank() }?.let { message ->
+            putExtra(AlarmClock.EXTRA_MESSAGE, message)
+        }
+        if (request.arguments["recurrence"] == "daily") {
+            putIntegerArrayListExtra(
+                AlarmClock.EXTRA_DAYS,
+                arrayListOf(
+                    Calendar.SUNDAY,
+                    Calendar.MONDAY,
+                    Calendar.TUESDAY,
+                    Calendar.WEDNESDAY,
+                    Calendar.THURSDAY,
+                    Calendar.FRIDAY,
+                    Calendar.SATURDAY
                 )
-            }
-            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+            )
         }
+        putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+    }
 
-    private fun systemTimerIntent(request: ToolRequest): Intent =
-        Intent(AlarmClock.ACTION_SET_TIMER).apply {
-            putExtra(AlarmClock.EXTRA_LENGTH, request.arguments.getValue("lengthSeconds").toInt())
-            request.arguments["message"]?.takeIf { it.isNotBlank() }?.let { message ->
-                putExtra(AlarmClock.EXTRA_MESSAGE, message)
-            }
-            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+    private fun systemTimerIntent(request: ToolRequest): Intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
+        putExtra(AlarmClock.EXTRA_LENGTH, request.arguments.getValue("lengthSeconds").toInt())
+        request.arguments["message"]?.takeIf { it.isNotBlank() }?.let { message ->
+            putExtra(AlarmClock.EXTRA_MESSAGE, message)
         }
+        putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+    }
 
     private fun executeExternalActivityIntents(
         request: ToolRequest,
-        intents: List<Intent>,
+        intents: List<Intent>
     ): ToolResult {
         var lastMetadata: ExternalActivityMetadata? = null
         intents.forEach { intent ->
@@ -887,21 +877,21 @@ class ActionExecutor(
             when (val result = startActivity(intent)) {
                 ExternalActivityStartResult.Started -> return request.succeeded(
                     summary = successSummaryFor(request),
-                    data = externalActivityData(request, metadata, COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED),
+                    data = externalActivityData(request, metadata, COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED)
                 )
 
                 ExternalActivityStartResult.ActivityNotFound -> Unit
                 is ExternalActivityStartResult.Failed -> return activityExecutionFailedResult(
                     request = request,
                     metadata = metadata,
-                    throwable = result.throwable,
+                    throwable = result.throwable
                 )
             }
         }
 
         return noActivityFoundResult(
             request = request,
-            metadata = lastMetadata ?: request.externalActivityMetadata(null),
+            metadata = lastMetadata ?: request.externalActivityMetadata(null)
         )
     }
 
@@ -914,25 +904,24 @@ class ActionExecutor(
         }
     }
 
-    private fun ToolRequest.deviceControlSessionReason(): String =
-        when (toolName) {
-            MobileActionFunctions.OPEN_APP_BY_NAME ->
-                "正在打开应用：${arguments["appName"].orEmpty().ifBlank { "目标应用" }}"
-            MobileActionFunctions.OPEN_APP_INTENT ->
-                "正在打开应用：${arguments["packageName"].orEmpty().ifBlank { "目标应用" }}"
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "正在打开应用功能"
-            MobileActionFunctions.OPEN_CAMERA -> "正在打开相机"
-            MobileActionFunctions.OPEN_WIFI_SETTINGS -> "正在打开 Wi-Fi 设置"
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "正在打开使用情况访问权限设置"
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
-                "正在打开${SystemSettingsTargets.pageLabel(arguments["target"].orEmpty())}"
-            MobileActionFunctions.SEARCH_MAPS -> "正在打开地图搜索"
-            else -> DeviceControlSessionService.DEFAULT_REASON
-        }
+    private fun ToolRequest.deviceControlSessionReason(): String = when (toolName) {
+        MobileActionFunctions.OPEN_APP_BY_NAME ->
+            "正在打开应用：${arguments["appName"].orEmpty().ifBlank { "目标应用" }}"
+        MobileActionFunctions.OPEN_APP_INTENT ->
+            "正在打开应用：${arguments["packageName"].orEmpty().ifBlank { "目标应用" }}"
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "正在打开应用功能"
+        MobileActionFunctions.OPEN_CAMERA -> "正在打开相机"
+        MobileActionFunctions.OPEN_WIFI_SETTINGS -> "正在打开 Wi-Fi 设置"
+        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "正在打开使用情况访问权限设置"
+        MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+            "正在打开${SystemSettingsTargets.pageLabel(arguments["target"].orEmpty())}"
+        MobileActionFunctions.SEARCH_MAPS -> "正在打开地图搜索"
+        else -> DeviceControlSessionService.DEFAULT_REASON
+    }
 
     private fun noActivityFoundResult(
         request: ToolRequest,
-        metadata: ExternalActivityMetadata,
+        metadata: ExternalActivityMetadata
     ): ToolResult {
         val appNameFailureSummary = if (request.toolName == MobileActionFunctions.OPEN_APP_BY_NAME) {
             appNameResolutionFailureSummary(request)
@@ -943,50 +932,48 @@ class ActionExecutor(
             code = ToolErrorCode.NoActivityFound,
             summary = appNameFailureSummary ?: "没有找到可以执行 ${request.toolName} 的应用或系统页面",
             retryable = true,
-            data = externalActivityData(request, metadata, COMPLETION_STATE_NOT_STARTED),
+            data = externalActivityData(request, metadata, COMPLETION_STATE_NOT_STARTED)
         )
     }
 
     private fun activityExecutionFailedResult(
         request: ToolRequest,
         metadata: ExternalActivityMetadata,
-        throwable: Throwable,
-    ): ToolResult =
-        request.failed(
-            code = ToolErrorCode.ExecutionFailed,
-            summary = EXTERNAL_ACTIVITY_START_FAILED_SUMMARY,
-            retryable = true,
-            data = externalActivityData(
-                request = request,
-                metadata = metadata,
-                completionState = COMPLETION_STATE_NOT_STARTED,
-                extra = mapOf("exceptionType" to throwable::class.java.simpleName),
-            ),
+        throwable: Throwable
+    ): ToolResult = request.failed(
+        code = ToolErrorCode.ExecutionFailed,
+        summary = EXTERNAL_ACTIVITY_START_FAILED_SUMMARY,
+        retryable = true,
+        data = externalActivityData(
+            request = request,
+            metadata = metadata,
+            completionState = COMPLETION_STATE_NOT_STARTED,
+            extra = mapOf("exceptionType" to throwable::class.java.simpleName)
         )
+    )
 
     private fun externalActivityData(
         request: ToolRequest,
         metadata: ExternalActivityMetadata,
         completionState: String,
-        extra: Map<String, String> = emptyMap(),
-    ): Map<String, String> =
-        buildMap {
-            put("toolName", request.toolName)
-            put("completionState", completionState)
-            put("completionVerified", "false")
-            put("externalOutcome", "Unknown")
-            put("externalOutcomeSource", "Unknown")
-            put("targetKind", metadata.targetKind)
-            put("intentAction", metadata.intentAction)
-            put("metadataPolicy", "AllowlistedCompletionMetadata")
-            put("rawPayloadIncluded", "false")
-            metadata.safeData.forEach { (key, value) ->
-                if (value.isNotBlank()) put(key, value)
-            }
-            extra.forEach { (key, value) ->
-                if (value.isNotBlank()) put(key, value)
-            }
+        extra: Map<String, String> = emptyMap()
+    ): Map<String, String> = buildMap {
+        put("toolName", request.toolName)
+        put("completionState", completionState)
+        put("completionVerified", "false")
+        put("externalOutcome", "Unknown")
+        put("externalOutcomeSource", "Unknown")
+        put("targetKind", metadata.targetKind)
+        put("intentAction", metadata.intentAction)
+        put("metadataPolicy", "AllowlistedCompletionMetadata")
+        put("rawPayloadIncluded", "false")
+        metadata.safeData.forEach { (key, value) ->
+            if (value.isNotBlank()) put(key, value)
         }
+        extra.forEach { (key, value) ->
+            if (value.isNotBlank()) put(key, value)
+        }
+    }
 
     private fun ToolRequest.externalActivityMetadata(intent: Intent?): ExternalActivityMetadata {
         val action = intent?.action.orEmpty().ifBlank { defaultIntentActionFor(toolName) }
@@ -1008,7 +995,7 @@ class ActionExecutor(
                     arguments[AppDeepTargets.PACKAGE_NAME_ARGUMENT].orEmpty()
                 else -> ""
             },
-            deepTargetKind = deepTarget?.targetKind,
+            deepTargetKind = deepTarget?.targetKind
         )
     }
 
@@ -1021,7 +1008,7 @@ class ActionExecutor(
             uriData = uri.safeUriMetadata(),
             targetId = targetId.orEmpty(),
             targetPackage = packageName.orEmpty(),
-            deepTargetKind = deepTarget?.targetKind,
+            deepTargetKind = deepTarget?.targetKind
         )
     }
 
@@ -1032,7 +1019,7 @@ class ActionExecutor(
         mimeTypeData: Map<String, String> = emptyMap(),
         targetId: String = "",
         targetPackage: String = "",
-        deepTargetKind: String? = null,
+        deepTargetKind: String? = null
     ): ExternalActivityMetadata {
         val (targetKind, safeData) = when (toolName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS,
@@ -1063,11 +1050,9 @@ class ActionExecutor(
         return ExternalActivityMetadata(targetKind = targetKind, intentAction = action, safeData = safeData)
     }
 
-    private fun Intent?.safeUriMetadata(): Map<String, String> =
-        this?.data?.let { uri -> safeUriMetadata(uri.scheme, uri.host, uri.port) }.orEmpty()
+    private fun Intent?.safeUriMetadata(): Map<String, String> = this?.data?.let { uri -> safeUriMetadata(uri.scheme, uri.host, uri.port) }.orEmpty()
 
-    private fun Intent?.safeMimeTypeMetadata(): Map<String, String> =
-        this?.type?.let { mimeType -> mapOf("payloadMimeType" to mimeType) }.orEmpty()
+    private fun Intent?.safeMimeTypeMetadata(): Map<String, String> = this?.type?.let { mimeType -> mapOf("payloadMimeType" to mimeType) }.orEmpty()
 
     private fun String?.safeUriMetadata(): Map<String, String> {
         val uri = runCatching { this?.trim()?.takeIf { it.isNotBlank() }?.let(::URI) }.getOrNull()
@@ -1076,71 +1061,65 @@ class ActionExecutor(
     }
 
     /** Scheme, host and explicit port only: never path, query or fragment. */
-    private fun safeUriMetadata(scheme: String?, host: String?, port: Int): Map<String, String> =
-        buildMap {
-            scheme?.let { put("targetUriScheme", it) }
-            host?.let { put("targetUriHost", it) }
-            if (port != -1) put("targetUriPort", port.toString())
-        }
+    private fun safeUriMetadata(scheme: String?, host: String?, port: Int): Map<String, String> = buildMap {
+        scheme?.let { put("targetUriScheme", it) }
+        host?.let { put("targetUriHost", it) }
+        if (port != -1) put("targetUriPort", port.toString())
+    }
 
-    private fun defaultIntentActionFor(toolName: String): String =
-        when (toolName) {
-            MobileActionFunctions.OPEN_WIFI_SETTINGS -> Settings.ACTION_WIFI_SETTINGS
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> Settings.ACTION_USAGE_ACCESS_SETTINGS
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> Settings.ACTION_SETTINGS
-            MobileActionFunctions.SEARCH_MAPS -> Intent.ACTION_VIEW
-            MobileActionFunctions.COMPOSE_EMAIL -> Intent.ACTION_SENDTO
-            MobileActionFunctions.DIAL_PHONE_NUMBER -> Intent.ACTION_DIAL
-            MobileActionFunctions.COMPOSE_SMS -> Intent.ACTION_SENDTO
-            MobileActionFunctions.CREATE_CALENDAR_EVENT -> Intent.ACTION_INSERT
-            MobileActionFunctions.CREATE_CONTACT_DRAFT -> ContactsContract.Intents.Insert.ACTION
-            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> Settings.ACTION_SETTINGS
-            MobileActionFunctions.SHARE_TEXT -> Intent.ACTION_CHOOSER
-            MobileActionFunctions.OPEN_DEEP_LINK -> Intent.ACTION_VIEW
-            MobileActionFunctions.OPEN_CAMERA -> MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA
-            MobileActionFunctions.SET_SYSTEM_ALARM -> AlarmClock.ACTION_SET_ALARM
-            MobileActionFunctions.SET_SYSTEM_TIMER -> AlarmClock.ACTION_SET_TIMER
-            MobileActionFunctions.OPEN_APP_BY_NAME -> Intent.ACTION_MAIN
-            MobileActionFunctions.OPEN_APP_INTENT -> Intent.ACTION_MAIN
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
-                AppDeepTargets.requireTarget(AppDeepTargets.APP_DETAILS_SETTINGS_ID).intentAction
-            else -> ""
-        }
+    private fun defaultIntentActionFor(toolName: String): String = when (toolName) {
+        MobileActionFunctions.OPEN_WIFI_SETTINGS -> Settings.ACTION_WIFI_SETTINGS
+        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> Settings.ACTION_USAGE_ACCESS_SETTINGS
+        MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> Settings.ACTION_SETTINGS
+        MobileActionFunctions.SEARCH_MAPS -> Intent.ACTION_VIEW
+        MobileActionFunctions.COMPOSE_EMAIL -> Intent.ACTION_SENDTO
+        MobileActionFunctions.DIAL_PHONE_NUMBER -> Intent.ACTION_DIAL
+        MobileActionFunctions.COMPOSE_SMS -> Intent.ACTION_SENDTO
+        MobileActionFunctions.CREATE_CALENDAR_EVENT -> Intent.ACTION_INSERT
+        MobileActionFunctions.CREATE_CONTACT_DRAFT -> ContactsContract.Intents.Insert.ACTION
+        MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> Settings.ACTION_SETTINGS
+        MobileActionFunctions.SHARE_TEXT -> Intent.ACTION_CHOOSER
+        MobileActionFunctions.OPEN_DEEP_LINK -> Intent.ACTION_VIEW
+        MobileActionFunctions.OPEN_CAMERA -> MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA
+        MobileActionFunctions.SET_SYSTEM_ALARM -> AlarmClock.ACTION_SET_ALARM
+        MobileActionFunctions.SET_SYSTEM_TIMER -> AlarmClock.ACTION_SET_TIMER
+        MobileActionFunctions.OPEN_APP_BY_NAME -> Intent.ACTION_MAIN
+        MobileActionFunctions.OPEN_APP_INTENT -> Intent.ACTION_MAIN
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
+            AppDeepTargets.requireTarget(AppDeepTargets.APP_DETAILS_SETTINGS_ID).intentAction
+        else -> ""
+    }
 
     /** Primary settings action first, then fallbacks for OEMs that do not export it. */
-    internal fun systemSettingsActionsFor(target: String): List<String> =
-        when (target) {
-            SystemSettingsTargets.DO_NOT_DISTURB ->
-                listOf(ZEN_MODE_SETTINGS_ACTION, Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS, Settings.ACTION_SOUND_SETTINGS)
-            SystemSettingsTargets.VOLUME -> listOf(VOLUME_PANEL_ACTION, Settings.ACTION_SOUND_SETTINGS)
-            else -> listOf(systemSettingsActionFor(target))
-        }
+    internal fun systemSettingsActionsFor(target: String): List<String> = when (target) {
+        SystemSettingsTargets.DO_NOT_DISTURB ->
+            listOf(ZEN_MODE_SETTINGS_ACTION, Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS, Settings.ACTION_SOUND_SETTINGS)
+        SystemSettingsTargets.VOLUME -> listOf(VOLUME_PANEL_ACTION, Settings.ACTION_SOUND_SETTINGS)
+        else -> listOf(systemSettingsActionFor(target))
+    }
 
-    private fun systemSettingsActionFor(target: String): String =
-        when (target) {
-            SystemSettingsTargets.DO_NOT_DISTURB -> ZEN_MODE_SETTINGS_ACTION
-            SystemSettingsTargets.VOLUME -> VOLUME_PANEL_ACTION
-            SystemSettingsTargets.BLUETOOTH -> Settings.ACTION_BLUETOOTH_SETTINGS
-            SystemSettingsTargets.LOCATION -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
-            SystemSettingsTargets.NOTIFICATION -> "android.settings.NOTIFICATION_SETTINGS"
-            SystemSettingsTargets.DISPLAY -> Settings.ACTION_DISPLAY_SETTINGS
-            SystemSettingsTargets.SOUND -> Settings.ACTION_SOUND_SETTINGS
-            SystemSettingsTargets.BATTERY_SAVER -> Settings.ACTION_BATTERY_SAVER_SETTINGS
-            SystemSettingsTargets.NETWORK -> Settings.ACTION_WIRELESS_SETTINGS
-            SystemSettingsTargets.AIRPLANE_MODE -> Settings.ACTION_AIRPLANE_MODE_SETTINGS
-            SystemSettingsTargets.INPUT_METHOD -> Settings.ACTION_INPUT_METHOD_SETTINGS
-            SystemSettingsTargets.ACCESSIBILITY -> Settings.ACTION_ACCESSIBILITY_SETTINGS
-            else -> Settings.ACTION_SETTINGS
-        }
+    private fun systemSettingsActionFor(target: String): String = when (target) {
+        SystemSettingsTargets.DO_NOT_DISTURB -> ZEN_MODE_SETTINGS_ACTION
+        SystemSettingsTargets.VOLUME -> VOLUME_PANEL_ACTION
+        SystemSettingsTargets.BLUETOOTH -> Settings.ACTION_BLUETOOTH_SETTINGS
+        SystemSettingsTargets.LOCATION -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
+        SystemSettingsTargets.NOTIFICATION -> "android.settings.NOTIFICATION_SETTINGS"
+        SystemSettingsTargets.DISPLAY -> Settings.ACTION_DISPLAY_SETTINGS
+        SystemSettingsTargets.SOUND -> Settings.ACTION_SOUND_SETTINGS
+        SystemSettingsTargets.BATTERY_SAVER -> Settings.ACTION_BATTERY_SAVER_SETTINGS
+        SystemSettingsTargets.NETWORK -> Settings.ACTION_WIRELESS_SETTINGS
+        SystemSettingsTargets.AIRPLANE_MODE -> Settings.ACTION_AIRPLANE_MODE_SETTINGS
+        SystemSettingsTargets.INPUT_METHOD -> Settings.ACTION_INPUT_METHOD_SETTINGS
+        SystemSettingsTargets.ACCESSIBILITY -> Settings.ACTION_ACCESSIBILITY_SETTINGS
+        else -> Settings.ACTION_SETTINGS
+    }
 
-    private fun appDeepTargetFor(request: ToolRequest): AppDeepTarget =
-        AppDeepTargets.requireTarget(request.arguments.getValue(AppDeepTargets.TARGET_ID_ARGUMENT))
+    private fun appDeepTargetFor(request: ToolRequest): AppDeepTarget = AppDeepTargets.requireTarget(request.arguments.getValue(AppDeepTargets.TARGET_ID_ARGUMENT))
 
     private fun startInjectedExternalActivity(
         starter: (ExternalActivityLaunch) -> Boolean,
-        launch: ExternalActivityLaunch,
-    ): ExternalActivityStartResult =
-        startExternalActivity { starter(launch) }
+        launch: ExternalActivityLaunch
+    ): ExternalActivityStartResult = startExternalActivity { starter(launch) }
 
     private fun startActivity(intent: Intent): ExternalActivityStartResult {
         com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.currentBinding()?.let { binding ->
@@ -1166,18 +1145,17 @@ class ActionExecutor(
         }
     }
 
-    private fun startExternalActivity(start: () -> Boolean): ExternalActivityStartResult =
-        try {
-            if (start()) {
-                ExternalActivityStartResult.Started
-            } else {
-                ExternalActivityStartResult.ActivityNotFound
-            }
-        } catch (_: ActivityNotFoundException) {
+    private fun startExternalActivity(start: () -> Boolean): ExternalActivityStartResult = try {
+        if (start()) {
+            ExternalActivityStartResult.Started
+        } else {
             ExternalActivityStartResult.ActivityNotFound
-        } catch (throwable: Throwable) {
-            ExternalActivityStartResult.Failed(throwable)
         }
+    } catch (_: ActivityNotFoundException) {
+        ExternalActivityStartResult.ActivityNotFound
+    } catch (throwable: Throwable) {
+        ExternalActivityStartResult.Failed(throwable)
+    }
 
     private fun readClipboardText(): String? {
         val appContext = context ?: return null
@@ -1210,12 +1188,11 @@ class ActionExecutor(
         return LaunchableAppEntry(label = label, packageName = packageName)
     }
 
-    private fun appNameResolutionFailureSummary(request: ToolRequest): String =
-        when (val resolution = resolveLaunchableApp(request.arguments["appName"].orEmpty())) {
-            AppLaunchResolution.Ambiguous -> "找到多个同名或相近应用，请换成更完整的应用名后重试。"
-            AppLaunchResolution.NotFound -> "没有找到匹配的可启动应用，请确认应用已安装或换成系统桌面显示的应用名。"
-            is AppLaunchResolution.Resolved -> "已找到应用 ${resolution.label}，但系统没有可打开的启动页。"
-        }
+    private fun appNameResolutionFailureSummary(request: ToolRequest): String = when (val resolution = resolveLaunchableApp(request.arguments["appName"].orEmpty())) {
+        AppLaunchResolution.Ambiguous -> "找到多个同名或相近应用，请换成更完整的应用名后重试。"
+        AppLaunchResolution.NotFound -> "没有找到匹配的可启动应用，请确认应用已安装或换成系统桌面显示的应用名。"
+        is AppLaunchResolution.Resolved -> "已找到应用 ${resolution.label}，但系统没有可打开的启动页。"
+    }
 
     private companion object {
         const val MAX_CLIPBOARD_RESULT_CHARS = 4_000
@@ -1228,8 +1205,10 @@ class ActionExecutor(
         const val EXTERNAL_ACTIVITY_START_FAILED_SUMMARY = "外部应用或系统页面启动失败"
         val PACKAGE_NAME_PATTERN = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+$""")
         const val SMS_BODY_EXTRA = "sms_body"
+
         /** Settings.ACTION_ZEN_MODE_SETTINGS is @hide but exported by AOSP and most OEM Settings apps. */
         const val ZEN_MODE_SETTINGS_ACTION = "android.settings.ZEN_MODE_SETTINGS"
+
         /** Settings.Panel.ACTION_VOLUME (API 29+); older releases fall back to sound settings. */
         const val VOLUME_PANEL_ACTION = "android.settings.panel.action.VOLUME"
         val phoneNumberRegex = Regex(PHONE_NUMBER_PATTERN)
@@ -1237,39 +1216,36 @@ class ActionExecutor(
 }
 
 /** Android media key code for a `control_media` command, or null when unsupported. */
-internal fun mediaKeyCodeFor(command: String): Int? =
-    when (command) {
-        "play" -> KeyEvent.KEYCODE_MEDIA_PLAY
-        "pause" -> KeyEvent.KEYCODE_MEDIA_PAUSE
-        "play_pause" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
-        "next" -> KeyEvent.KEYCODE_MEDIA_NEXT
-        "previous" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
-        "stop" -> KeyEvent.KEYCODE_MEDIA_STOP
-        else -> null
-    }
+internal fun mediaKeyCodeFor(command: String): Int? = when (command) {
+    "play" -> KeyEvent.KEYCODE_MEDIA_PLAY
+    "pause" -> KeyEvent.KEYCODE_MEDIA_PAUSE
+    "play_pause" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+    "next" -> KeyEvent.KEYCODE_MEDIA_NEXT
+    "previous" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
+    "stop" -> KeyEvent.KEYCODE_MEDIA_STOP
+    else -> null
+}
 
-internal fun mediaCommandLabel(command: String): String =
-    when (command) {
-        "play" -> "播放"
-        "pause" -> "暂停"
-        "play_pause" -> "播放/暂停"
-        "next" -> "下一首"
-        "previous" -> "上一首"
-        "stop" -> "停止播放"
-        else -> "媒体控制"
-    }
+internal fun mediaCommandLabel(command: String): String = when (command) {
+    "play" -> "播放"
+    "pause" -> "暂停"
+    "play_pause" -> "播放/暂停"
+    "next" -> "下一首"
+    "previous" -> "上一首"
+    "stop" -> "停止播放"
+    else -> "媒体控制"
+}
 
-private fun ToolRequest.clipboardContextData(): Map<String, String> =
-    mapOf(
-        "toolName" to toolName,
-        "privacy" to MessagePrivacy.LocalOnly.name,
-        "requiresLocalModel" to true.toString(),
-    )
+private fun ToolRequest.clipboardContextData(): Map<String, String> = mapOf(
+    "toolName" to toolName,
+    "privacy" to MessagePrivacy.LocalOnly.name,
+    "requiresLocalModel" to true.toString()
+)
 
 private data class ExternalActivityMetadata(
     val targetKind: String,
     val intentAction: String,
-    val safeData: Map<String, String> = emptyMap(),
+    val safeData: Map<String, String> = emptyMap()
 )
 
 private sealed class ExternalActivityStartResult {
@@ -1283,13 +1259,13 @@ data class ExternalActivityLaunch(
     val action: String,
     val uri: String? = null,
     val packageName: String? = null,
-    val targetId: String? = null,
+    val targetId: String? = null
 )
 
 sealed class AppLaunchResolution {
     data class Resolved(
         val label: String,
-        val packageName: String,
+        val packageName: String
     ) : AppLaunchResolution()
 
     data object NotFound : AppLaunchResolution()
@@ -1298,12 +1274,12 @@ sealed class AppLaunchResolution {
 
 data class LaunchableAppEntry(
     val label: String,
-    val packageName: String,
+    val packageName: String
 )
 
 fun matchLaunchableApp(
     appName: String,
-    entries: List<LaunchableAppEntry>,
+    entries: List<LaunchableAppEntry>
 ): AppLaunchResolution {
     val normalizedQuery = appName.normalizedAppLookupKey()
     if (normalizedQuery.isBlank()) return AppLaunchResolution.NotFound
@@ -1315,7 +1291,7 @@ fun matchLaunchableApp(
             entry = entry,
             labelKey = labelKey,
             packageKey = packageKey,
-            aliasKey = appLookupAliases[labelKey],
+            aliasKey = appLookupAliases[labelKey]
         )
     }
 
@@ -1335,7 +1311,7 @@ fun matchLaunchableApp(
                 candidate.aliasKey == normalizedQuery ||
                 candidate.labelKey == aliasedQuery ||
                 candidate.packageKey == aliasedQuery
-        },
+        }
     ).takeIf { it !is AppLaunchResolution.NotFound }?.let { return it }
 
     unique(
@@ -1344,7 +1320,7 @@ fun matchLaunchableApp(
                 candidate.packageKey.startsWith(normalizedQuery) ||
                 candidate.labelKey.startsWith(aliasedQuery) ||
                 candidate.packageKey.startsWith(aliasedQuery)
-        },
+        }
     ).takeIf { it !is AppLaunchResolution.NotFound }?.let { return it }
 
     return unique(
@@ -1353,7 +1329,7 @@ fun matchLaunchableApp(
                 candidate.packageKey.contains(normalizedQuery) ||
                 candidate.labelKey.contains(aliasedQuery) ||
                 candidate.packageKey.contains(aliasedQuery)
-        },
+        }
     )
 }
 
@@ -1361,11 +1337,10 @@ private data class ResolvedAppCandidate(
     val entry: LaunchableAppEntry,
     val labelKey: String,
     val packageKey: String,
-    val aliasKey: String?,
+    val aliasKey: String?
 )
 
-private fun LaunchableAppEntry.toResolution(): AppLaunchResolution.Resolved =
-    AppLaunchResolution.Resolved(label = label, packageName = packageName)
+private fun LaunchableAppEntry.toResolution(): AppLaunchResolution.Resolved = AppLaunchResolution.Resolved(label = label, packageName = packageName)
 
 private val appLookupAliases = mapOf(
     "taobao" to "淘宝",
@@ -1394,9 +1369,17 @@ private val appLookupAliases = mapOf(
     "ctrip" to "携程",
     "eleme" to "饿了么",
     "饿了吗" to "饿了么",
+    "设置" to "settings",
+    "系统设置" to "settings",
+    "时钟" to "clock",
+    "闹钟" to "clock",
+    "计算器" to "calculator",
+    "日历" to "calendar",
+    "联系人" to "contacts",
+    "通讯录" to "contacts",
+    "相机" to "camera"
 )
 
-private fun String.normalizedAppLookupKey(): String =
-    lowercase()
-        .replace(Regex("""[\s_\-·.。:：]+"""), "")
-        .trim()
+private fun String.normalizedAppLookupKey(): String = lowercase()
+    .replace(Regex("""[\s_\-·.。:：]+"""), "")
+    .trim()

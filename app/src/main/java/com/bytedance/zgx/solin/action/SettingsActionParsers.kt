@@ -41,21 +41,21 @@ internal object DeviceSettingsActionParser {
                 title = "打开使用情况访问权限设置",
                 summary = "将打开系统使用情况访问权限设置页，由你手动为Solin授权。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> ActionDraft(
                 functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
                 title = "打开手电筒设置",
                 summary = "将打开系统设置，由你手动确认手电筒相关操作。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             else -> ActionDraft(
                 functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                 title = "打开 Wi-Fi 设置",
                 summary = "将打开系统 Wi-Fi 设置页。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
         }
     }
@@ -88,11 +88,12 @@ internal object DeviceSettingsActionParser {
         val hasChineseOpenTrigger = listOf("打开", "开启", "进入", "跳转", "前往", "去", "设置").any { it in this }
         val hasEnglishOpenTrigger =
             WIFI_SETTINGS_OPEN_TRIGGER_REGEX.containsMatchIn(normalized)
-        return referencesWifi && (
-            (referencesSettings && (hasChineseOpenTrigger || englishWifiSettingsPattern.containsMatchIn(normalized))) ||
-                hasChineseOpenTrigger ||
-                hasEnglishOpenTrigger
-            )
+        return referencesWifi &&
+            (
+                (referencesSettings && (hasChineseOpenTrigger || englishWifiSettingsPattern.containsMatchIn(normalized))) ||
+                    hasChineseOpenTrigger ||
+                    hasEnglishOpenTrigger
+                )
     }
 
     private fun String.requestsFlashlightSettings(): Boolean {
@@ -101,10 +102,12 @@ internal object DeviceSettingsActionParser {
             FLASHLIGHT_WORD_REGEX.containsMatchIn(normalized)
         val referencesSettings = "设置" in this ||
             SETTINGS_PREFERENCES_REGEX.containsMatchIn(normalized)
-        return referencesFlashlight && referencesSettings && (
-            listOf("打开", "进入", "跳转", "前往", "去", "设置").any { it in this } ||
-                englishFlashlightSettingsPattern.containsMatchIn(normalized)
-            )
+        return referencesFlashlight &&
+            referencesSettings &&
+            (
+                listOf("打开", "进入", "跳转", "前往", "去", "设置").any { it in this } ||
+                    englishFlashlightSettingsPattern.containsMatchIn(normalized)
+                )
     }
 
     private fun String.requestsUsageAccessSettings(): Boolean {
@@ -112,13 +115,14 @@ internal object DeviceSettingsActionParser {
         val referencesUsageAccess = listOf(
             "使用情况访问权限",
             "应用使用情况权限",
-            "查看应用使用情况",
+            "查看应用使用情况"
         ).any { it in this } ||
             USAGE_ACCESS_WORD_REGEX.containsMatchIn(normalized)
-        return referencesUsageAccess && (
-            listOf("打开", "进入", "跳转", "前往", "去", "设置", "开启", "授权").any { it in this } ||
-                englishUsageAccessPattern.containsMatchIn(normalized)
-            )
+        return referencesUsageAccess &&
+            (
+                listOf("打开", "进入", "跳转", "前往", "去", "设置", "开启", "授权").any { it in this } ||
+                    englishUsageAccessPattern.containsMatchIn(normalized)
+                )
     }
 }
 
@@ -159,6 +163,9 @@ private val REFERENCED_TARGET_ACCESSIBILITY_SETTINGS_REGEX =
 private val REFERENCED_TARGET_GENERAL_REGEX =
     Regex("""\b(?:system|phone|android)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?settings?\b""", RegexOption.IGNORE_CASE)
 
+private val REFERENCED_TARGET_GENERAL_ZH_REGEX =
+    Regex("""(?:打开|进入|跳转|前往|去|调出|启动)\s*(?:一下)?\s*设置(?:\s*(?:页面|界面|应用))?(?:\s|[。！!.，,]|$)""")
+
 private val VOLUME_PANEL_ADJUST_REGEX =
     Regex("""调(?:大|小|高|低|节|整)?(?:一下|一点)?(?:手机|媒体|系统)?音量|音量调(?:大|小|高|低)""")
 
@@ -178,7 +185,7 @@ internal object SystemSettingsActionParser {
             title = "打开 $label",
             summary = "将打开$label，由你手动完成后续操作。",
             parameters = mapOf("target" to target),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
     }
 
@@ -241,7 +248,8 @@ internal object SystemSettingsActionParser {
                 SystemSettingsTargets.ACCESSIBILITY
 
             listOf("系统设置", "手机设置", "设置页").any { it in input } ||
-                REFERENCED_TARGET_GENERAL_REGEX.containsMatchIn(normalized) ->
+                REFERENCED_TARGET_GENERAL_REGEX.containsMatchIn(normalized) ||
+                REFERENCED_TARGET_GENERAL_ZH_REGEX.containsMatchIn(input) ->
                 SystemSettingsTargets.GENERAL
 
             else -> null
@@ -249,9 +257,9 @@ internal object SystemSettingsActionParser {
     }
 
     /** 音量面板 / 调大音量 / 调节音量; "音量设置" keeps mapping to the sound settings page. */
-    private fun String.requestsVolumePanel(): Boolean =
-        "音量面板" in this || "音量调节" in this ||
-            VOLUME_PANEL_ADJUST_REGEX.containsMatchIn(this)
+    private fun String.requestsVolumePanel(): Boolean = "音量面板" in this ||
+        "音量调节" in this ||
+        VOLUME_PANEL_ADJUST_REGEX.containsMatchIn(this)
 
     private fun String.hasSettingsOpenIntent(): Boolean {
         val normalized = lowercase()
@@ -273,7 +281,7 @@ internal object SystemSettingsActionParser {
             "淘宝",
             "taobao",
             "应用",
-            "app",
+            "app"
         ).any { it in normalized }
         val referencesScopedSettings = listOf("通知设置", "权限", "应用设置", "app settings").any { it in normalized }
         return referencesAppScope && referencesScopedSettings
@@ -290,21 +298,21 @@ private fun String.looksLikeDeviceSettingsNonAction(): Boolean {
     val normalized = lowercase()
     return startsWithActionNegation() ||
         listOf(
-        "不要打开",
-        "别打开",
-        "不要进入",
-        "别进入",
-        "不要去",
-        "在哪里",
-        "在哪",
-        "哪里",
-        "怎么实现",
-        "如何实现",
-        "怎么设计",
-        "代码",
-        "组件",
-        "接口",
-    ).any { it in this } ||
+            "不要打开",
+            "别打开",
+            "不要进入",
+            "别进入",
+            "不要去",
+            "在哪里",
+            "在哪",
+            "哪里",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+            "代码",
+            "组件",
+            "接口"
+        ).any { it in this } ||
         normalized.contains(DEVICE_SETTINGS_NON_ACTION_DO_NOT_REGEX) ||
         normalized.contains(DEVICE_SETTINGS_NON_ACTION_HOW_TO_REGEX)
 }

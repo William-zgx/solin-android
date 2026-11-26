@@ -4,21 +4,17 @@ import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL
 import com.bytedance.zgx.solin.InferenceMode
-import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.LocalModelTokenLimits
-import com.bytedance.zgx.solin.presentation.MemoryEvidenceUiSummary
+import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.ModelHealth
 import com.bytedance.zgx.solin.ModelHealthState
-import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
 import com.bytedance.zgx.solin.PendingRemoteSendDisclosure
-import com.bytedance.zgx.solin.tool.PublicWebEvidenceItem
-import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
-import com.bytedance.zgx.solin.presentation.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.RunDataReceiptUiSummary
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
@@ -26,23 +22,27 @@ import com.bytedance.zgx.solin.capability.CapabilityMatrix
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
+import com.bytedance.zgx.solin.presentation.MemoryEvidenceUiSummary
+import com.bytedance.zgx.solin.presentation.RunTimelineItemUiSummary
+import com.bytedance.zgx.solin.tool.PublicWebEvidenceItem
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.ui.components.ACTION_SUMMARY_COLLAPSE_CHARS
 import com.bytedance.zgx.solin.ui.components.RunStepVisual
+import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_BODY
+import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_TITLE
 import com.bytedance.zgx.solin.ui.components.actionDataBoundaryDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionDataLeavesPhone
 import com.bytedance.zgx.solin.ui.components.actionParameterDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionTextDisplay
 import com.bytedance.zgx.solin.ui.components.attachmentProtectionNotice
 import com.bytedance.zgx.solin.ui.components.compactModelStatusShort
-import com.bytedance.zgx.solin.ui.components.homeOffersLoadModel
-import com.bytedance.zgx.solin.ui.components.meteredDownloadActionLabel
 import com.bytedance.zgx.solin.ui.components.composerNotice
-import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_BODY
-import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_TITLE
 import com.bytedance.zgx.solin.ui.components.hasAnySavedValue
+import com.bytedance.zgx.solin.ui.components.homeOffersLoadModel
 import com.bytedance.zgx.solin.ui.components.inferencePreferenceDescription
 import com.bytedance.zgx.solin.ui.components.memoryEvidenceDisplayText
+import com.bytedance.zgx.solin.ui.components.meteredDownloadActionLabel
 import com.bytedance.zgx.solin.ui.components.modelPathGuidanceRows
 import com.bytedance.zgx.solin.ui.components.parseRemoteContextWindowTokens
 import com.bytedance.zgx.solin.ui.components.publicWebEvidenceDisplayRows
@@ -54,7 +54,6 @@ import com.bytedance.zgx.solin.ui.components.remoteSendDisclosureDisplayRows
 import com.bytedance.zgx.solin.ui.components.runTimelineItemDisplayText
 import com.bytedance.zgx.solin.ui.components.runTimelineStepVisuals
 import com.bytedance.zgx.solin.ui.components.selectableInferencePreferences
-import com.bytedance.zgx.solin.ui.components.semanticMemoryIndexStatusText
 import com.bytedance.zgx.solin.ui.components.trustDeletionBoundaryText
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -72,7 +71,7 @@ class SolinScreenDisplayTest {
             "非图片附件",
             "分享文本",
             "OCR",
-            "不会自动发送",
+            "不会自动发送"
         )
     }
 
@@ -82,7 +81,7 @@ class SolinScreenDisplayTest {
             PRODUCT_POSITIONING_TEXT,
             "隐私优先",
             "远程可选",
-            "设备动作必须确认",
+            "设备动作必须确认"
         )
         assertContainsAll(PRODUCT_POSITIONING_SHORT_TEXT, "隐私优先的随身 AI 助手")
         // Not-ready home: three placements, and the promise that nothing is read or sent first.
@@ -106,7 +105,7 @@ class SolinScreenDisplayTest {
             "闹钟",
             "日历",
             "操作手机",
-            "记忆",
+            "记忆"
         )
         assertContainsAll(MODEL_MANAGER_POSITIONING_TEXT, "下载或导入本地模型", "离线使用", "远程多模态可选", "切换远程会提醒")
         assertContainsAll(PRODUCT_LOCAL_VALUE_TEXT, "基础问答", "主动选择的图片")
@@ -140,7 +139,7 @@ class SolinScreenDisplayTest {
             "低风险 App 搜索控制",
             "本地提醒与后台任务",
             "远程公开证据查询",
-            "能力与信任中心",
+            "能力与信任中心"
         ).forEach { expectedTitle ->
             assertTrue("missing trust center row: $expectedTitle", rows.any { it.title == expectedTitle })
         }
@@ -158,7 +157,7 @@ class SolinScreenDisplayTest {
             "远程：可用",
             "远程：不可自动发送",
             "停止执行并提示",
-            "整批拒绝",
+            "整批拒绝"
         ).forEach { requiredCopy ->
             assertTrue("missing trust center copy: $requiredCopy", allText.contains(requiredCopy))
         }
@@ -180,7 +179,7 @@ class SolinScreenDisplayTest {
             "媒体、最近图片和截图 OCR",
             "Usage Stats 前台应用估计",
             "Accessibility 当前屏幕文本",
-            "当前屏幕截图 OCR",
+            "当前屏幕截图 OCR"
         ).forEach { expectedTitle ->
             assertTrue("missing disclosure row: $expectedTitle", rows.any { it.title == expectedTitle })
         }
@@ -199,7 +198,7 @@ class SolinScreenDisplayTest {
             "不是截图、像素读取或视觉理解",
             "MediaProjection",
             "仅本机",
-            "审计仅保留脱敏摘要",
+            "审计仅保留脱敏摘要"
         ).forEach { requiredCopy ->
             assertTrue("missing disclosure copy: $requiredCopy", allText.contains(requiredCopy))
         }
@@ -229,7 +228,7 @@ class SolinScreenDisplayTest {
             "主动附加",
             "轻量",
             "没有更小的官方推荐聊天模型",
-            ".litertlm",
+            ".litertlm"
         )
     }
 
@@ -237,7 +236,7 @@ class SolinScreenDisplayTest {
     fun actionParametersDisplayLinkDomainAndTargetPackage() {
         val linkRows = actionParameterDisplayRows(
             key = "uri",
-            value = "https://example.com/private/path?ref=demo",
+            value = "https://example.com/private/path?ref=demo"
         )
 
         assertEquals("链接域名", linkRows[0].label)
@@ -247,7 +246,7 @@ class SolinScreenDisplayTest {
 
         val packageRows = actionParameterDisplayRows(
             key = "packageName",
-            value = "com.example.target",
+            value = "com.example.target"
         )
 
         assertEquals(1, packageRows.size)
@@ -294,12 +293,12 @@ class SolinScreenDisplayTest {
         val collapsed = actionTextDisplay(
             text = longText,
             collapsedMaxChars = ACTION_SUMMARY_COLLAPSE_CHARS,
-            expanded = false,
+            expanded = false
         )
         val expanded = actionTextDisplay(
             text = longText,
             collapsedMaxChars = ACTION_SUMMARY_COLLAPSE_CHARS,
-            expanded = true,
+            expanded = true
         )
 
         assertTrue(collapsed.canToggle)
@@ -315,8 +314,8 @@ class SolinScreenDisplayTest {
             ChatUiState(
                 modelPath = "/tmp/model.litertlm",
                 backend = BackendChoice.GPU,
-                localMaxTotalTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
-            ),
+                localMaxTotalTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS
+            )
         )
 
         assertContainsAll(status, "GPU", "Token 8k")
@@ -329,8 +328,8 @@ class SolinScreenDisplayTest {
             ChatUiState(
                 inferenceMode = InferenceMode.Remote,
                 remoteModelConfig = RemoteModelConfig(modelName = "remote-test-model"),
-                isReady = true,
-            ),
+                isReady = true
+            )
         )
 
         assertContainsAll(status, "remote-test-model", "远程")
@@ -344,8 +343,8 @@ class SolinScreenDisplayTest {
                 inferenceMode = InferenceMode.Remote,
                 remoteModelConfig = RemoteModelConfig(modelName = "remote-test-model"),
                 modelPath = "/tmp/local-model.litertlm",
-                statusText = "远程模型未配置",
-            ),
+                statusText = "远程模型未配置"
+            )
         )
 
         assertContainsAll(status, "偏好：远程", "远程模型未配置")
@@ -356,27 +355,27 @@ class SolinScreenDisplayTest {
     fun modelManagerPreferenceOptionsRespectRolloutVisibility() {
         assertEquals(
             listOf(InferenceMode.Local, InferenceMode.Remote),
-            selectableInferencePreferences(autoSelectable = false),
+            selectableInferencePreferences(autoSelectable = false)
         )
         assertEquals(
             listOf(InferenceMode.Local, InferenceMode.Auto, InferenceMode.Remote),
-            selectableInferencePreferences(autoSelectable = true),
+            selectableInferencePreferences(autoSelectable = true)
         )
         assertContainsAll(
             inferencePreferenceDescription(InferenceMode.Local),
             "只用手机模型",
-            "不可用时明确失败",
+            "不可用时明确失败"
         )
         assertContainsAll(
             inferencePreferenceDescription(InferenceMode.Auto),
             "允许远程",
             "任务和设备状态",
-            "显式选择",
+            "显式选择"
         )
         assertContainsAll(
             inferencePreferenceDescription(InferenceMode.Remote),
             "强制使用",
-            "仅本机数据仍会阻断",
+            "仅本机数据仍会阻断"
         )
     }
 
@@ -404,8 +403,8 @@ class SolinScreenDisplayTest {
             ChatUiState(
                 modelPath = "/models/chat.litertlm",
                 isReady = false,
-                inferenceMode = InferenceMode.Remote,
-            ).homeOffersLoadModel(),
+                inferenceMode = InferenceMode.Remote
+            ).homeOffersLoadModel()
         )
     }
 
@@ -413,7 +412,7 @@ class SolinScreenDisplayTest {
     fun meteredDownloadLabelStatesTheDataStillToFetch() {
         assertEquals(
             "用移动数据继续（约 ${ModelCatalog.formatBytes(1_500_000_000L)}）",
-            meteredDownloadActionLabel(ChatUiState(downloadedBytes = 500_000_000L, totalBytes = 2_000_000_000L)),
+            meteredDownloadActionLabel(ChatUiState(downloadedBytes = 500_000_000L, totalBytes = 2_000_000_000L))
         )
         assertEquals("用移动数据继续", meteredDownloadActionLabel(ChatUiState()))
     }
@@ -429,8 +428,8 @@ class SolinScreenDisplayTest {
         val status = currentModelStatus(
             ChatUiState(
                 inferenceMode = InferenceMode.Auto,
-                remoteModelConfig = RemoteModelConfig(modelName = "remote-candidate"),
-            ),
+                remoteModelConfig = RemoteModelConfig(modelName = "remote-candidate")
+            )
         )
 
         assertContainsAll(status, "偏好：自动", "按请求评估")
@@ -441,23 +440,23 @@ class SolinScreenDisplayTest {
     fun attachmentNoticeUsesActualPlacementWhenAvailableAndPreferenceOtherwise() {
         assertEquals(
             AUTO_ATTACHMENT_PROTECTION_NOTICE,
-            attachmentProtectionNotice(InferenceMode.Auto, null, null),
+            attachmentProtectionNotice(InferenceMode.Auto, null, null)
         )
         assertEquals(
             ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE,
             attachmentProtectionNotice(
                 preference = InferenceMode.Auto,
                 actualPlacement = RunPlacement.Remote,
-                actualReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
-            ),
+                actualReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE
+            )
         )
         assertEquals(
             null,
             attachmentProtectionNotice(
                 preference = InferenceMode.Remote,
                 actualPlacement = RunPlacement.Local,
-                actualReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL,
-            ),
+                actualReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL
+            )
         )
     }
 
@@ -470,7 +469,7 @@ class SolinScreenDisplayTest {
             "不保存音频",
             "只填入输入框",
             "不会自动发送",
-            "请求麦克风权限",
+            "请求麦克风权限"
         )
     }
 
@@ -483,7 +482,7 @@ class SolinScreenDisplayTest {
         val actualRemote = composerNotice(
             preference = InferenceMode.Auto,
             actualPlacement = RunPlacement.Remote,
-            actualReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
+            actualReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE
         )
         assertEquals("本次远程：图片发送前确认，其他附件不发", actualRemote?.text)
         assertEquals(ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE, actualRemote?.fullText)
@@ -496,7 +495,7 @@ class SolinScreenDisplayTest {
         listOfNotNull(remote, actualRemote, auto).forEach { notice ->
             assertTrue(
                 "Composer notice must stay one short line: ${notice.text}",
-                notice.text.length <= 24,
+                notice.text.length <= 24
             )
             assertContainsAll(notice.text, "图片发送前确认", "附件不发")
         }
@@ -507,8 +506,8 @@ class SolinScreenDisplayTest {
             composerNotice(
                 preference = InferenceMode.Remote,
                 actualPlacement = RunPlacement.Local,
-                actualReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL,
-            ),
+                actualReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL
+            )
         )
     }
 
@@ -520,22 +519,22 @@ class SolinScreenDisplayTest {
             "本次使用本地模型：任务较轻，手机状态正常。",
             activePlacementDisplayText(
                 placement = RunPlacement.Local,
-                reason = PlacementReasonCode.AUTO_SIMPLE_LOCAL,
-            ),
+                reason = PlacementReasonCode.AUTO_SIMPLE_LOCAL
+            )
         )
         assertEquals(
             "本次使用远程模型：任务较复杂，且远程连接已验证。",
             activePlacementDisplayText(
                 placement = RunPlacement.Remote,
-                reason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
-            ),
+                reason = PlacementReasonCode.AUTO_COMPLEX_REMOTE
+            )
         )
         assertEquals(
             "无法执行：没有同时满足隐私、能力和可用性要求的模型。",
             activePlacementDisplayText(
                 placement = null,
-                reason = PlacementReasonCode.NO_ELIGIBLE_TARGET,
-            ),
+                reason = PlacementReasonCode.NO_ELIGIBLE_TARGET
+            )
         )
     }
 
@@ -543,7 +542,7 @@ class SolinScreenDisplayTest {
     fun compactBusyStatusKeepsPreferenceAndActualPlacementVisible() {
         val busyAuto = ChatUiState(
             inferenceMode = InferenceMode.Auto,
-            isBusy = true,
+            isBusy = true
         )
 
         assertEquals(
@@ -551,18 +550,18 @@ class SolinScreenDisplayTest {
             compactModelStatusShort(
                 busyAuto.copy(
                     activeRunPlacement = RunPlacement.Local,
-                    activeRunPlacementReason = PlacementReasonCode.AUTO_SIMPLE_LOCAL,
-                ),
-            ),
+                    activeRunPlacementReason = PlacementReasonCode.AUTO_SIMPLE_LOCAL
+                )
+            )
         )
         assertEquals(
             "自动→远程",
             compactModelStatusShort(
                 busyAuto.copy(
                     activeRunPlacement = RunPlacement.Remote,
-                    activeRunPlacementReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
-                ),
-            ),
+                    activeRunPlacementReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE
+                )
+            )
         )
         assertEquals("自动·处理中", compactModelStatusShort(busyAuto))
     }
@@ -588,7 +587,7 @@ class SolinScreenDisplayTest {
             "10.0.2.2",
             "localhost",
             "endpoint",
-            "revision",
+            "revision"
         )
         assertEquals(null, activePlacementDisplayText(null, null))
     }
@@ -600,7 +599,7 @@ class SolinScreenDisplayTest {
         val source = listOf("ChatComposer.kt", "ChatTopBar.kt").joinToString("\n") { name ->
             listOf(
                 File("src/main/java/com/bytedance/zgx/solin/ui/components/$name"),
-                File("app/src/main/java/com/bytedance/zgx/solin/ui/components/$name"),
+                File("app/src/main/java/com/bytedance/zgx/solin/ui/components/$name")
             ).first { it.isFile }.readText()
         }
 
@@ -608,7 +607,7 @@ class SolinScreenDisplayTest {
             source,
             "actualPlacement = state.activeRunPlacement",
             "actualReason = state.activeRunPlacementReason",
-            "activePlacementDisplayText(state.activeRunPlacement, state.activeRunPlacementReason)",
+            "activePlacementDisplayText(state.activeRunPlacement, state.activeRunPlacementReason)"
         )
     }
 
@@ -627,8 +626,8 @@ class SolinScreenDisplayTest {
                 protectedSourceCount = 4,
                 rawContentPersisted = false,
                 protectedContentTypes = listOf("本地记忆", "设备上下文", "LocalOnly 历史"),
-                deletableRecordTypes = listOf("对话消息", "Agent 轨迹", "显式记忆"),
-            ),
+                deletableRecordTypes = listOf("对话消息", "Agent 轨迹", "显式记忆")
+            )
         )
 
         assertContainsAll(
@@ -639,7 +638,7 @@ class SolinScreenDisplayTest {
             "过滤仅本机历史：2",
             "保护：本地记忆、设备上下文、仅本机历史",
             "可删除：对话消息、Agent 轨迹、显式记忆",
-            "原文持久化：否",
+            "原文持久化：否"
         )
     }
 
@@ -652,8 +651,8 @@ class SolinScreenDisplayTest {
                 apiKeyConfigured = true,
                 connectivityStatus = RemoteModelConnectivityStatus.Reachable,
                 supportsVisionInput = true,
-                isConfigured = true,
-            ),
+                isConfigured = true
+            )
         ).joinToString("\n")
 
         assertContainsAll(
@@ -669,7 +668,7 @@ class SolinScreenDisplayTest {
             "设备上下文",
             "非图片附件正文或 OCR 摘录",
             "已配置 API Key",
-            "连接状态：可达",
+            "连接状态：可达"
         )
     }
 
@@ -686,8 +685,8 @@ class SolinScreenDisplayTest {
                 imageAttachmentCount = 1,
                 protectedSourceCount = 3,
                 apiKeyConfigured = true,
-                connectivityStatus = RemoteModelConnectivityStatus.Reachable,
-            ),
+                connectivityStatus = RemoteModelConnectivityStatus.Reachable
+            )
         ).joinToString("\n")
 
         assertContainsAll(
@@ -701,7 +700,7 @@ class SolinScreenDisplayTest {
             "本地记忆",
             "设备上下文",
             "记录或保留请求",
-            "图片和响应",
+            "图片和响应"
         )
         assertContainsNone(text, "API Key", "连接状态", "不要展示密钥")
     }
@@ -718,32 +717,32 @@ class SolinScreenDisplayTest {
             localOnlyHistoryFilteredCount = 0,
             imageAttachmentCount = 0,
             protectedSourceCount = 0,
-            apiKeyConfigured = true,
+            apiKeyConfigured = true
         )
 
         assertTrue(
             remoteSendDisclosureCanSuppressForSession(
                 policy = RemoteSendDisclosurePolicy.OncePerSession,
-                disclosure = quietTextDisclosure,
-            ),
+                disclosure = quietTextDisclosure
+            )
         )
         assertFalse(
             remoteSendDisclosureCanSuppressForSession(
                 policy = RemoteSendDisclosurePolicy.EveryMessage,
-                disclosure = quietTextDisclosure,
-            ),
+                disclosure = quietTextDisclosure
+            )
         )
         assertFalse(
             remoteSendDisclosureCanSuppressForSession(
                 policy = RemoteSendDisclosurePolicy.OncePerSession,
-                disclosure = quietTextDisclosure.copy(imageAttachmentCount = 1),
-            ),
+                disclosure = quietTextDisclosure.copy(imageAttachmentCount = 1)
+            )
         )
         assertFalse(
             remoteSendDisclosureCanSuppressForSession(
                 policy = RemoteSendDisclosurePolicy.OncePerSession,
-                disclosure = quietTextDisclosure.copy(sensitiveHitCategories = listOf("疑似密钥")),
-            ),
+                disclosure = quietTextDisclosure.copy(sensitiveHitCategories = listOf("疑似密钥"))
+            )
         )
     }
 
@@ -760,8 +759,8 @@ class SolinScreenDisplayTest {
                 localOnlyHistoryFilteredCount = 0,
                 imageAttachmentCount = 0,
                 protectedSourceCount = 0,
-                apiKeyConfigured = true,
-            ),
+                apiKeyConfigured = true
+            )
         ).joinToString("\n")
 
         assertContainsAll(text, "工具结果续写提示", "记录或保留请求", "本次没有图片字节发送")
@@ -781,8 +780,8 @@ class SolinScreenDisplayTest {
                 localOnlyHistoryFilteredCount = 1,
                 imageAttachmentCount = 0,
                 protectedSourceCount = 0,
-                apiKeyConfigured = false,
-            ),
+                apiKeyConfigured = false
+            )
         ).joinToString("\n")
 
         assertContainsAll(text, "当前输入", "本次没有图片字节发送", "记录或保留请求和响应")
@@ -803,8 +802,8 @@ class SolinScreenDisplayTest {
                 imageAttachmentCount = 0,
                 protectedSourceCount = 0,
                 apiKeyConfigured = true,
-                promptPreview = "帮我总结这段会议纪要",
-            ),
+                promptPreview = "帮我总结这段会议纪要"
+            )
         ).joinToString("\n")
 
         assertContainsAll(text, "将发送内容预览：帮我总结这段会议纪要")
@@ -828,8 +827,8 @@ class SolinScreenDisplayTest {
                 forcedBySensitiveContent = true,
                 promptPreview = "我的手机号是 13800001111",
                 sensitiveHitCategories = listOf("疑似手机号/电话", "疑似个人身份信息"),
-                sensitiveHitSnippets = listOf("13800001111"),
-            ),
+                sensitiveHitSnippets = listOf("13800001111")
+            )
         ).joinToString("\n")
 
         assertContainsAll(text, "检测到疑似敏感内容", "疑似手机号/电话", "疑似个人身份信息", "命中片段：13800001111")
@@ -844,8 +843,8 @@ class SolinScreenDisplayTest {
                 state = "Executing",
                 detail = "打开设置",
                 privacyLabel = "仅本机",
-                riskLabel = "需要确认",
-            ),
+                riskLabel = "需要确认"
+            )
         )
         val memoryText = memoryEvidenceDisplayText(
             MemoryEvidenceUiSummary(
@@ -853,8 +852,8 @@ class SolinScreenDisplayTest {
                 typeLabel = "偏好",
                 recallLabel = "语义召回",
                 reasonLabel = "alice@example.com password=secret",
-                scoreLabel = "高相关",
-            ),
+                scoreLabel = "高相关"
+            )
         )
 
         assertContainsAll(timelineText, "执行工具", "打开设置", "仅本机", "需要确认")
@@ -870,19 +869,33 @@ class SolinScreenDisplayTest {
                     id = "t$index",
                     label = "步骤 $index",
                     state = state,
-                    detail = "",
+                    detail = ""
                 )
             }
 
         assertEquals(
             listOf(RunStepVisual.Done, RunStepVisual.Done, RunStepVisual.Current),
-            runTimelineStepVisuals(running),
+            runTimelineStepVisuals(running)
         )
 
-        // A finished run leaves every step done and nothing amber.
+        // A finished run leaves every step done and nothing amber, even when earlier events retain
+        // their own phase states (e.g. Observing -> Completed).
         assertEquals(
             listOf(RunStepVisual.Done, RunStepVisual.Done, RunStepVisual.Done),
-            runTimelineStepVisuals(running.map { it.copy(state = "Completed") }),
+            runTimelineStepVisuals(running.map { it.copy(state = "Completed") })
+        )
+        val finishedWithPriorPhaseStates = listOf("Observing", "Observing", "Completed")
+            .mapIndexed { index, state ->
+                RunTimelineItemUiSummary(
+                    id = "f$index",
+                    label = "步骤 $index",
+                    state = state,
+                    detail = ""
+                )
+            }
+        assertEquals(
+            listOf(RunStepVisual.Done, RunStepVisual.Done, RunStepVisual.Done),
+            runTimelineStepVisuals(finishedWithPriorPhaseStates)
         )
         assertEquals(emptyList<RunStepVisual>(), runTimelineStepVisuals(emptyList()))
     }
@@ -894,14 +907,14 @@ class SolinScreenDisplayTest {
             sourceToolName = MobileActionFunctions.SCHEDULE_REMINDER,
             request = ToolRequest(
                 toolName = MobileActionFunctions.CANCEL_REMINDER,
-                arguments = mapOf("taskId" to "42"),
+                arguments = mapOf("taskId" to "42")
             ),
             draft = ActionDraft(
                 functionName = MobileActionFunctions.CANCEL_REMINDER,
                 title = "撤销提醒",
                 summary = "将取消提醒任务：42",
-                parameters = mapOf("taskId" to "42"),
-            ),
+                parameters = mapOf("taskId" to "42")
+            )
         )
         val other = undo.copy(
             request = ToolRequest(toolName = MobileActionFunctions.DIAL_PHONE_NUMBER),
@@ -909,8 +922,8 @@ class SolinScreenDisplayTest {
                 functionName = MobileActionFunctions.DIAL_PHONE_NUMBER,
                 title = "拨打号码",
                 summary = "打开拨号盘",
-                parameters = emptyMap(),
-            ),
+                parameters = emptyMap()
+            )
         )
 
         assertEquals("撤销", recoveryActionButtonLabel(undo))
@@ -933,11 +946,11 @@ class SolinScreenDisplayTest {
                             url = "https://example.com/private/path?email=alice@example.com",
                             snippet = "Search now shows source cards with citations.",
                             sourceName = "",
-                            qualityLabel = "High",
-                        ),
-                    ),
-                ),
-            ),
+                            qualityLabel = "High"
+                        )
+                    )
+                )
+            )
         )
 
         val text = rows.joinToString("\n") { row -> publicWebSourceDisplayText(row) }
@@ -962,9 +975,9 @@ class SolinScreenDisplayTest {
                             url = "https://first.example.com/story",
                             snippet = "First snippet.",
                             sourceName = "First Example",
-                            qualityLabel = "High",
-                        ),
-                    ),
+                            qualityLabel = "High"
+                        )
+                    )
                 ),
                 PublicWebEvidencePack(
                     query = "second query",
@@ -978,7 +991,7 @@ class SolinScreenDisplayTest {
                             url = "https://second.example.com/story",
                             snippet = "Second snippet.",
                             sourceName = "Second Example",
-                            qualityLabel = "High",
+                            qualityLabel = "High"
                         ),
                         PublicWebEvidenceItem(
                             sourceId = "S7",
@@ -986,11 +999,11 @@ class SolinScreenDisplayTest {
                             url = "https://first.example.com/duplicate",
                             snippet = "Duplicate snippet.",
                             sourceName = "First Example",
-                            qualityLabel = "High",
-                        ),
-                    ),
-                ),
-            ),
+                            qualityLabel = "High"
+                        )
+                    )
+                )
+            )
         )
 
         assertEquals(listOf("S1", "S2"), rows.map { row -> row.sourceId })
@@ -1013,11 +1026,11 @@ class SolinScreenDisplayTest {
                             url = "https://news.example.com/story",
                             snippet = """{"query":"private query token=secret"}""",
                             sourceName = "News Example",
-                            qualityLabel = "Low",
-                        ),
-                    ),
-                ),
-            ),
+                            qualityLabel = "Low"
+                        )
+                    )
+                )
+            )
         )
 
         val text = rows.joinToString("\n") { row -> publicWebSourceDisplayText(row) }
@@ -1039,8 +1052,8 @@ class SolinScreenDisplayTest {
                 localOnlyHistoryFilteredCount = 0,
                 imageAttachmentCount = 0,
                 protectedSourceCount = 0,
-                apiKeyConfigured = true,
-            ),
+                apiKeyConfigured = true
+            )
         ).joinToString("\n")
 
         assertContainsNone(text, "将发送内容预览", "检测到疑似敏感内容")
@@ -1060,9 +1073,9 @@ class SolinScreenDisplayTest {
                     tokenCount = 42,
                     tokensPerSecond = 7.25,
                     fallbackBackend = BackendChoice.CPU,
-                    failureReason = "GPU 初始化失败",
-                ),
-            ),
+                    failureReason = "GPU 初始化失败"
+                )
+            )
         )
 
         assertContainsAll(
@@ -1074,8 +1087,7 @@ class SolinScreenDisplayTest {
             "first=456ms",
             "tokens=42",
             "speed=7.3 tok/s",
-            "reason=GPU 初始化失败",
+            "reason=GPU 初始化失败"
         )
     }
-
 }

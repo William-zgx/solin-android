@@ -20,9 +20,10 @@ import com.bytedance.zgx.solin.tool.ToolRegistry
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.LinkedBlockingQueue
+import kotlin.reflect.KClass
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -35,7 +36,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okio.Timeout
-import kotlin.reflect.KClass
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,16 +46,16 @@ class RemoteChatRuntimeTest {
     @Test
     fun boundRemoteContinuationBlocksNewLocalOnlyObservationBeforeAnyFallback() {
         val permit = ActiveRunPlacementPermit.detached(
-            testBinding("run-local-only-continuation", RunPlacement.Remote),
+            testBinding("run-local-only-continuation", RunPlacement.Remote)
         )
         val initialPlan = PromptPrivacyPlanner.build(
             listOf(
                 PromptPrivacySegment(
                     source = PromptSegmentSource.CurrentInput,
                     privacy = MessagePrivacy.RemoteEligible,
-                    requiresLocalModel = false,
-                ),
-            ),
+                    requiresLocalModel = false
+                )
+            )
         )
         val tightenedPlan = PromptPrivacyPlanner.append(
             initialPlan,
@@ -63,9 +63,9 @@ class RemoteChatRuntimeTest {
                 PromptPrivacySegment(
                     source = PromptSegmentSource.ToolObservation,
                     privacy = MessagePrivacy.LocalOnly,
-                    requiresLocalModel = true,
-                ),
-            ),
+                    requiresLocalModel = true
+                )
+            )
         )
         val invocations = FakeBoundContinuationInvocations()
 
@@ -75,7 +75,7 @@ class RemoteChatRuntimeTest {
 
         assertEquals(
             PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED,
-            (blocked as BoundRunContinuationResolution.Blocked).reason,
+            (blocked as BoundRunContinuationResolution.Blocked).reason
         )
         assertEquals(1, invocations.remote)
         assertEquals(0, invocations.local)
@@ -90,7 +90,7 @@ class RemoteChatRuntimeTest {
             prompt = "你好",
             history = history,
             parameters = GenerationParameters(),
-            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a")
         )
 
         assertEquals("model-a", body.getString("model"))
@@ -103,7 +103,7 @@ class RemoteChatRuntimeTest {
             "Solin",
             "用户当前输入一致的语言",
             "优先调用合适工具获取证据",
-            "多个独立工具调用",
+            "多个独立工具调用"
         )
         assertEquals("history-5", messages.getJSONObject(1).getString("content"))
         assertEquals("你好", messages.getJSONObject(21).getString("content"))
@@ -115,7 +115,7 @@ class RemoteChatRuntimeTest {
             prompt = "你好",
             history = emptyList(),
             parameters = GenerationParameters(),
-            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a")
         )
 
         assertTrue(body.has("temperature"))
@@ -128,7 +128,7 @@ class RemoteChatRuntimeTest {
             prompt = "你好",
             history = emptyList(),
             parameters = GenerationParameters(),
-            config = RemoteModelConfig("https://api.moonshot.cn/v1", "kimi-k2.5"),
+            config = RemoteModelConfig("https://api.moonshot.cn/v1", "kimi-k2.5")
         )
 
         assertFalse(body.has("temperature"))
@@ -142,7 +142,7 @@ class RemoteChatRuntimeTest {
             prompt = "你好",
             history = emptyList(),
             parameters = GenerationParameters(),
-            config = RemoteModelConfig("https://api.moonshot.ai/v1", "kimi-k3"),
+            config = RemoteModelConfig("https://api.moonshot.ai/v1", "kimi-k3")
         )
 
         assertEquals("max", body.getString("reasoning_effort"))
@@ -151,44 +151,69 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
+    fun buildChatCompletionBody_omitsSamplingParametersForProviderPrefixedKimiModels() {
+        val prefixedPro = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.example.com/v1", "ark/kimi-k3.1-pro")
+        )
+        val prefixedK3 = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.example.com/v1", "openrouter/moonshotai/kimi-k3")
+        )
+
+        assertFalse(prefixedPro.has("temperature"))
+        assertFalse(prefixedPro.has("top_p"))
+        assertFalse(prefixedPro.has("reasoning_effort"))
+        assertEquals(RemoteOutputTokenLimits.THINKING_MODEL_MAX_OUTPUT_TOKENS, prefixedPro.getInt("max_tokens"))
+
+        assertEquals("max", prefixedK3.getString("reasoning_effort"))
+        assertFalse(prefixedK3.has("temperature"))
+        assertFalse(prefixedK3.has("top_p"))
+        assertEquals(RemoteOutputTokenLimits.MAX_EFFORT_THINKING_MODEL_MAX_OUTPUT_TOKENS, prefixedK3.getInt("max_tokens"))
+    }
+
+    @Test
     fun buildChatCompletionBody_setsBoundedDefaultMaxTokens() {
         val generic = buildChatCompletionBody(
             prompt = "你好",
             history = emptyList(),
             parameters = GenerationParameters(),
-            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a")
         )
         val thinking = buildChatCompletionBody(
             prompt = "你好",
             history = emptyList(),
             parameters = GenerationParameters(),
-            config = RemoteModelConfig("https://api.moonshot.cn/v1", "kimi-k2.5"),
+            config = RemoteModelConfig("https://api.moonshot.cn/v1", "kimi-k2.5")
         )
         val maxEffort = buildChatCompletionBody(
             prompt = "你好",
             history = emptyList(),
             parameters = GenerationParameters(),
-            config = RemoteModelConfig("https://api.moonshot.ai/v1", "kimi-k3"),
+            config = RemoteModelConfig("https://api.moonshot.ai/v1", "kimi-k3")
         )
 
         assertEquals(RemoteOutputTokenLimits.DEFAULT_MAX_OUTPUT_TOKENS, generic.getInt("max_tokens"))
         assertEquals(RemoteOutputTokenLimits.THINKING_MODEL_MAX_OUTPUT_TOKENS, thinking.getInt("max_tokens"))
         assertEquals(
             RemoteOutputTokenLimits.MAX_EFFORT_THINKING_MODEL_MAX_OUTPUT_TOKENS,
-            maxEffort.getInt("max_tokens"),
+            maxEffort.getInt("max_tokens")
         )
     }
 
     @Test
     fun buildChatCompletionBody_clampsConfiguredMaxTokens() {
-        fun maxTokens(requested: Int): Int =
-            buildChatCompletionBody(
-                prompt = "你好",
-                history = emptyList(),
-                parameters = GenerationParameters(),
-                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
-                maxOutputTokens = requested,
-            ).getInt("max_tokens")
+        fun maxTokens(requested: Int): Int = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            maxOutputTokens = requested
+        ).getInt("max_tokens")
 
         assertEquals(1_000, maxTokens(1_000))
         assertEquals(RemoteOutputTokenLimits.MIN_MAX_OUTPUT_TOKENS, maxTokens(1))
@@ -202,15 +227,15 @@ class RemoteChatRuntimeTest {
         assertEquals(2_048, RemoteOutputTokenLimits.resolve(config, configuredMaxOutputTokens = 2_048))
         assertEquals(
             RemoteOutputTokenLimits.DEFAULT_MAX_OUTPUT_TOKENS,
-            RemoteOutputTokenLimits.resolve(config, configuredMaxOutputTokens = 0),
+            RemoteOutputTokenLimits.resolve(config, configuredMaxOutputTokens = 0)
         )
         assertEquals(
             3_000,
-            RemoteOutputTokenLimits.resolve(config.copy(contextWindowTokens = 6_000)),
+            RemoteOutputTokenLimits.resolve(config.copy(contextWindowTokens = 6_000))
         )
         assertEquals(
             RemoteOutputTokenLimits.MIN_MAX_OUTPUT_TOKENS,
-            RemoteOutputTokenLimits.resolve(config.copy(contextWindowTokens = 100)),
+            RemoteOutputTokenLimits.resolve(config.copy(contextWindowTokens = 100))
         )
     }
 
@@ -223,7 +248,7 @@ class RemoteChatRuntimeTest {
                         .code(200)
                         .addHeader("Content-Type", "application/json")
                         .body("""{"choices":[{"message":{"content":"ok"}}]}""")
-                        .build(),
+                        .build()
                 )
             }
             server.start()
@@ -246,7 +271,7 @@ class RemoteChatRuntimeTest {
                     .code(200)
                     .addHeader("Content-Type", "application/json")
                     .body("""{"choices":[{"message":{"content":"ok"}}]}""")
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient(), maxOutputTokens = 1_234)
@@ -255,7 +280,7 @@ class RemoteChatRuntimeTest {
                 prompt = "你好",
                 history = emptyList(),
                 parameters = GenerationParameters(),
-                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
+                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a")
             ).toList()
 
             assertEquals(listOf("ok"), output)
@@ -271,10 +296,10 @@ class RemoteChatRuntimeTest {
             history = listOf(
                 ChatMessage(MessageRole.User, "普通历史"),
                 ChatMessage(MessageRole.User, "分享来的本地内容", privacy = MessagePrivacy.LocalOnly),
-                ChatMessage(MessageRole.Assistant, "本地工具摘要", privacy = MessagePrivacy.LocalOnly),
+                ChatMessage(MessageRole.Assistant, "本地工具摘要", privacy = MessagePrivacy.LocalOnly)
             ),
             parameters = GenerationParameters(),
-            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a")
         )
 
         val encoded = body.toString()
@@ -290,7 +315,7 @@ class RemoteChatRuntimeTest {
             history = emptyList(),
             parameters = GenerationParameters(),
             config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
-            tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs(),
+            tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs()
         )
 
         val tool = body.getJSONArray("tools").getJSONObject(0)
@@ -317,9 +342,9 @@ class RemoteChatRuntimeTest {
             imageAttachments = listOf(
                 ChatImageAttachment(
                     mimeType = "image/png",
-                    dataUrl = "data:image/png;base64,AA==",
-                ),
-            ),
+                    dataUrl = "data:image/png;base64,AA=="
+                )
+            )
         )
 
         val userMessage = body.getJSONArray("messages").getJSONObject(1)
@@ -331,7 +356,7 @@ class RemoteChatRuntimeTest {
         assertEquals("image_url", content.getJSONObject(1).getString("type"))
         assertEquals(
             "data:image/png;base64,AA==",
-            content.getJSONObject(1).getJSONObject("image_url").getString("url"),
+            content.getJSONObject(1).getJSONObject("image_url").getString("url")
         )
     }
 
@@ -345,14 +370,14 @@ class RemoteChatRuntimeTest {
                 config = RemoteModelConfig(
                     baseUrl = "https://api.example.com/v1",
                     modelName = "text-only",
-                    supportsVisionInput = false,
+                    supportsVisionInput = false
                 ),
                 imageAttachments = listOf(
                     ChatImageAttachment(
                         mimeType = "image/png",
-                        dataUrl = "data:image/png;base64,AA==",
-                    ),
-                ),
+                        dataUrl = "data:image/png;base64,AA=="
+                    )
+                )
             )
         }.exceptionOrNull()
 
@@ -364,15 +389,15 @@ class RemoteChatRuntimeTest {
     fun parseChatCompletionChunkText_readsDeltaContent() {
         assertEquals(
             "你",
-            parseChatCompletionChunkText("""{"choices":[{"delta":{"content":"你"}}]}"""),
+            parseChatCompletionChunkText("""{"choices":[{"delta":{"content":"你"}}]}""")
         )
         assertEquals(
             "",
-            parseChatCompletionChunkText("""{"choices":[{"delta":{"content":null}}]}"""),
+            parseChatCompletionChunkText("""{"choices":[{"delta":{"content":null}}]}""")
         )
         assertEquals(
             "",
-            parseChatCompletionChunkText("""{"choices":[{"delta":{}}]}"""),
+            parseChatCompletionChunkText("""{"choices":[{"delta":{}}]}""")
         )
     }
 
@@ -380,7 +405,7 @@ class RemoteChatRuntimeTest {
     fun parseChatCompletionText_ignoresJsonNullContent() {
         assertEquals(
             "fallback",
-            parseChatCompletionText("""{"choices":[{"message":{"content":null},"text":"fallback"}]}"""),
+            parseChatCompletionText("""{"choices":[{"message":{"content":null},"text":"fallback"}]}""")
         )
     }
 
@@ -406,7 +431,7 @@ class RemoteChatRuntimeTest {
                 }
               ]
             }
-            """.trimIndent(),
+            """.trimIndent()
         )
 
         val toolCall = events.single() as RemoteChatEvent.ToolCall
@@ -445,7 +470,7 @@ class RemoteChatRuntimeTest {
                 }
               ]
             }
-            """.trimIndent(),
+            """.trimIndent()
         )
 
         val toolCalls = events.single() as RemoteChatEvent.ToolCalls
@@ -453,11 +478,11 @@ class RemoteChatRuntimeTest {
         assertEquals(listOf("call-beijing", "call-shanghai"), toolCalls.requests.map { request -> request.id })
         assertEquals(
             listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.WEB_SEARCH),
-            toolCalls.requests.map { request -> request.toolName },
+            toolCalls.requests.map { request -> request.toolName }
         )
         assertEquals(
             listOf(mapOf("query" to "北京天气"), mapOf("query" to "上海天气")),
-            toolCalls.requests.map { request -> request.arguments },
+            toolCalls.requests.map { request -> request.arguments }
         )
     }
 
@@ -487,7 +512,7 @@ class RemoteChatRuntimeTest {
                 }
               ]
             }
-            """.trimIndent(),
+            """.trimIndent()
         )
 
         val error = events.single() as RemoteChatEvent.ParseError
@@ -532,7 +557,7 @@ class RemoteChatRuntimeTest {
               {"index":0,"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{}"}},
               {"index":1,"id":"call-2","type":"function","function":{"name":"open_wifi_settings","arguments":"{}"}}
             ]}}]}
-            """.trimIndent(),
+            """.trimIndent()
         )
 
         val toolCalls = accumulator.finish().single() as RemoteChatEvent.ToolCalls
@@ -540,7 +565,7 @@ class RemoteChatRuntimeTest {
         assertEquals(listOf("call-1", "call-2"), toolCalls.requests.map { request -> request.id })
         assertEquals(
             listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            toolCalls.requests.map { request -> request.toolName },
+            toolCalls.requests.map { request -> request.toolName }
         )
     }
 
@@ -556,7 +581,7 @@ class RemoteChatRuntimeTest {
         assertEquals(listOf("call-1", "call-2"), toolCalls.requests.map { request -> request.id })
         assertEquals(
             listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            toolCalls.requests.map { request -> request.toolName },
+            toolCalls.requests.map { request -> request.toolName }
         )
     }
 
@@ -570,7 +595,7 @@ class RemoteChatRuntimeTest {
               {"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{\"query\""}},
               {"id":"call-2","type":"function","function":{"name":"web_search","arguments":"{\"query\""}}
             ]}}]}
-            """.trimIndent(),
+            """.trimIndent()
         )
         accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":":\"北京天气\"}"}}]}}]}""")
 
@@ -584,11 +609,11 @@ class RemoteChatRuntimeTest {
 
         assertTrue(
             accumulator.absorb(
-                """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{}"}}]}}]}""",
-            ).isEmpty(),
+                """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{}"}}]}}]}"""
+            ).isEmpty()
         )
         val error = accumulator.absorb(
-            """{"choices":[{"delta":{"function_call":{"name":"web_search","arguments":"{}"}}}]}""",
+            """{"choices":[{"delta":{"function_call":{"name":"web_search","arguments":"{}"}}}]}"""
         ).single() as RemoteChatEvent.ParseError
         assertTrue(error.summary.contains("多种工具调用格式"))
 
@@ -613,9 +638,9 @@ class RemoteChatRuntimeTest {
 
                         data: [DONE]
 
-                        """.trimIndent(),
+                        """.trimIndent()
                     )
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -624,10 +649,10 @@ class RemoteChatRuntimeTest {
                 prompt = "你好",
                 history = listOf(
                     ChatMessage(MessageRole.User, "可发送历史"),
-                    ChatMessage(MessageRole.User, "仅本地历史", privacy = MessagePrivacy.LocalOnly),
+                    ChatMessage(MessageRole.User, "仅本地历史", privacy = MessagePrivacy.LocalOnly)
                 ),
                 parameters = GenerationParameters(),
-                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
+                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a")
             ).toList()
 
             assertEquals("你好", chunks.joinToString(separator = ""))
@@ -652,9 +677,9 @@ class RemoteChatRuntimeTest {
 
                         data: [DONE]
 
-                        """.trimIndent(),
+                        """.trimIndent()
                     )
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -663,7 +688,7 @@ class RemoteChatRuntimeTest {
                 prompt = "你好",
                 history = emptyList(),
                 parameters = GenerationParameters(),
-                config = RemoteModelConfig(server.url("/").toString().trimEnd('/'), "model-a"),
+                config = RemoteModelConfig(server.url("/").toString().trimEnd('/'), "model-a")
             ).toList()
 
             assertEquals("好", chunks.joinToString(separator = ""))
@@ -684,9 +709,9 @@ class RemoteChatRuntimeTest {
 
                         data: [DONE]
 
-                        """.trimIndent(),
+                        """.trimIndent()
                     )
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -699,14 +724,14 @@ class RemoteChatRuntimeTest {
                 config = RemoteModelConfig(
                     baseUrl = server.url("/v1").toString().trimEnd('/'),
                     modelName = "vision-model",
-                    supportsVisionInput = true,
+                    supportsVisionInput = true
                 ),
                 imageAttachments = listOf(
                     ChatImageAttachment(
                         mimeType = "image/png",
-                        dataUrl = dataUrl,
-                    ),
-                ),
+                        dataUrl = dataUrl
+                    )
+                )
             ).toList()
 
             assertEquals("完成", chunks.joinToString(separator = ""))
@@ -732,7 +757,7 @@ class RemoteChatRuntimeTest {
                     .code(200)
                     .addHeader("Content-Type", "application/json")
                     .body("""{"choices":[{"message":{"content":"完成"}}]}""")
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -741,7 +766,7 @@ class RemoteChatRuntimeTest {
                 prompt = "继续",
                 history = emptyList(),
                 parameters = GenerationParameters(),
-                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
+                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a")
             ).toList()
 
             assertEquals(listOf("完成"), chunks)
@@ -765,9 +790,9 @@ class RemoteChatRuntimeTest {
 
                         data: [DONE]
 
-                        """.trimIndent(),
+                        """.trimIndent()
                     )
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -777,7 +802,7 @@ class RemoteChatRuntimeTest {
                 history = emptyList(),
                 parameters = GenerationParameters(),
                 config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
-                tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs(),
+                tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs()
             ).toList()
 
             assertEquals("我会准备搜索。", (events[0] as RemoteChatEvent.TextDelta).text)
@@ -805,9 +830,9 @@ class RemoteChatRuntimeTest {
 
                         data: [DONE]
 
-                        """.trimIndent(),
+                        """.trimIndent()
                     )
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -817,14 +842,14 @@ class RemoteChatRuntimeTest {
                 history = emptyList(),
                 parameters = GenerationParameters(),
                 config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
-                tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs(),
+                tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs()
             ).toList()
 
             val toolCalls = events.single() as RemoteChatEvent.ToolCalls
             assertEquals(2, toolCalls.requests.size)
             assertEquals(
                 listOf(mapOf("query" to "北京天气"), mapOf("query" to "上海天气")),
-                toolCalls.requests.map { request -> request.arguments },
+                toolCalls.requests.map { request -> request.arguments }
             )
         }
     }
@@ -836,7 +861,7 @@ class RemoteChatRuntimeTest {
                 MockResponse.Builder()
                     .code(401)
                     .body("""{"error":"secret-key should not appear"}""")
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -846,7 +871,7 @@ class RemoteChatRuntimeTest {
                     prompt = "继续",
                     history = emptyList(),
                     parameters = GenerationParameters(),
-                    config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
+                    config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a")
                 ).toList()
             }.exceptionOrNull()
 
@@ -863,7 +888,7 @@ class RemoteChatRuntimeTest {
                 MockResponse.Builder()
                     .code(400)
                     .body("""{"error":"secret-image-body should not appear"}""")
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -876,14 +901,14 @@ class RemoteChatRuntimeTest {
                     config = RemoteModelConfig(
                         server.url("/v1").toString().trimEnd('/'),
                         "model-a",
-                        supportsVisionInput = true,
+                        supportsVisionInput = true
                     ),
                     imageAttachments = listOf(
                         ChatImageAttachment(
                             mimeType = "image/png",
-                            dataUrl = "data:image/png;base64,AA==",
-                        ),
-                    ),
+                            dataUrl = "data:image/png;base64,AA=="
+                        )
+                    )
                 ).toList()
             }.exceptionOrNull()
 
@@ -900,9 +925,9 @@ class RemoteChatRuntimeTest {
                 MockResponse.Builder()
                     .code(400)
                     .body(
-                        """{"error":"context_length_exceeded prompt=private@example.com token=sk-${"x".repeat(32)}"}""",
+                        """{"error":"context_length_exceeded prompt=private@example.com token=sk-${"x".repeat(32)}"}"""
                     )
-                    .build(),
+                    .build()
             )
             server.start()
             val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
@@ -914,8 +939,8 @@ class RemoteChatRuntimeTest {
                     parameters = GenerationParameters(),
                     config = RemoteModelConfig(
                         server.url("/v1").toString().trimEnd('/'),
-                        "model-a",
-                    ),
+                        "model-a"
+                    )
                 ).toList()
             }.exceptionOrNull()
 
@@ -935,7 +960,7 @@ class RemoteChatRuntimeTest {
                 prompt = "取消",
                 history = emptyList(),
                 parameters = GenerationParameters(),
-                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+                config = RemoteModelConfig("https://api.example.com/v1", "model-a")
             ).toList()
         }
         val call = factory.created.get(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -953,7 +978,7 @@ class RemoteChatRuntimeTest {
                 prompt = "first",
                 history = emptyList(),
                 parameters = GenerationParameters(),
-                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+                config = RemoteModelConfig("https://api.example.com/v1", "model-a")
             ).toList()
         }
         val secondCollection = async(Dispatchers.Default) {
@@ -961,7 +986,7 @@ class RemoteChatRuntimeTest {
                 prompt = "second",
                 history = emptyList(),
                 parameters = GenerationParameters(),
-                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+                config = RemoteModelConfig("https://api.example.com/v1", "model-a")
             ).toList()
         }
         val firstCall = factory.created.poll(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -1003,7 +1028,7 @@ class RemoteChatRuntimeTest {
                 prompt = "stop before registration",
                 history = emptyList(),
                 parameters = GenerationParameters(),
-                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+                config = RemoteModelConfig("https://api.example.com/v1", "model-a")
             ).toList()
         }.exceptionOrNull()
 
@@ -1022,8 +1047,8 @@ class RemoteChatRuntimeTest {
                 maxAttempts = 3,
                 baseDelayMillis = 400,
                 maxDelayMillis = 400,
-                jitterRatio = 0.0,
-            ),
+                jitterRatio = 0.0
+            )
         )
         val collection = async(Dispatchers.Default) {
             runCatching {
@@ -1031,13 +1056,13 @@ class RemoteChatRuntimeTest {
                     prompt = "stop during backoff",
                     history = emptyList(),
                     parameters = GenerationParameters(),
-                    config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+                    config = RemoteModelConfig("https://api.example.com/v1", "model-a")
                 ).toList()
             }.exceptionOrNull()
         }
         assertTrue(
             "first attempt should fail",
-            factory.firstFailure.await(2, java.util.concurrent.TimeUnit.SECONDS),
+            factory.firstFailure.await(2, java.util.concurrent.TimeUnit.SECONDS)
         )
         // Let the runtime classify the transport failure and enter the retry backoff.
         Thread.sleep(80)
@@ -1048,7 +1073,7 @@ class RemoteChatRuntimeTest {
         assertEquals("stop() during backoff must not start another attempt", 1, factory.callCount.get())
         assertTrue(
             "stopped generation should surface as cancellation but was $failure",
-            failure is kotlinx.coroutines.CancellationException,
+            failure is kotlinx.coroutines.CancellationException
         )
     }
 
@@ -1096,12 +1121,11 @@ class RemoteChatRuntimeTest {
     private class MultiBlockingCallFactory : Call.Factory {
         val created = LinkedBlockingQueue<BlockingCall>()
 
-        override fun newCall(request: Request): Call =
-            BlockingCall(request).also(created::add)
+        override fun newCall(request: Request): Call = BlockingCall(request).also(created::add)
     }
 
     private class BlockingCall(
-        private val request: Request,
+        private val request: Request
     ) : Call {
         val canceled = CompletableFuture<Unit>()
         private var executed = false
@@ -1134,11 +1158,9 @@ class RemoteChatRuntimeTest {
 
         override fun <T> tag(type: Class<out T>): T? = null
 
-        override fun <T : Any> tag(type: KClass<T>, computeIfAbsent: () -> T): T =
-            computeIfAbsent()
+        override fun <T : Any> tag(type: KClass<T>, computeIfAbsent: () -> T): T = computeIfAbsent()
 
-        override fun <T : Any> tag(type: Class<T>, computeIfAbsent: () -> T): T =
-            computeIfAbsent()
+        override fun <T : Any> tag(type: Class<T>, computeIfAbsent: () -> T): T = computeIfAbsent()
 
         override fun clone(): Call = BlockingCall(request)
     }

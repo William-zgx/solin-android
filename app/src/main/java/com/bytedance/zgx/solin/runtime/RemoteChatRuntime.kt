@@ -375,9 +375,11 @@ object RemoteOutputTokenLimits {
     }
 }
 
-private fun isRemoteThinkingModel(modelName: String): Boolean = modelName.startsWith("kimi-", ignoreCase = true)
+private fun normalizedRemoteModelId(modelName: String): String = modelName.trim().substringAfterLast('/')
 
-private fun usesMaxReasoningEffort(modelName: String): Boolean = modelName.equals("kimi-k3", ignoreCase = true)
+private fun isRemoteThinkingModel(modelName: String): Boolean = normalizedRemoteModelId(modelName).startsWith("kimi-", ignoreCase = true)
+
+private fun usesMaxReasoningEffort(modelName: String): Boolean = normalizedRemoteModelId(modelName).equals("kimi-k3", ignoreCase = true)
 
 internal fun buildChatCompletionBody(
     prompt: String,

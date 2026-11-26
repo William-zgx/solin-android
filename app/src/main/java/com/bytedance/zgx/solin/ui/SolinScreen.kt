@@ -27,35 +27,15 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.bytedance.zgx.solin.ui.components.BackgroundTaskSheet
-import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_CURRENT_TAB_INDEX
-import com.bytedance.zgx.solin.ui.components.McpCapabilityToggleUiState
-import com.bytedance.zgx.solin.presentation.MemoryPanelState
-import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_PRIVACY_TAB_INDEX
-import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_REMOTE_TAB_INDEX
-import com.bytedance.zgx.solin.ui.components.DeleteSessionConfirmDialog
-import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_MEMORY_TAB_INDEX
-import com.bytedance.zgx.solin.ui.components.ModelManagerSheet
-import com.bytedance.zgx.solin.ui.components.SessionDrawer
-import com.bytedance.zgx.solin.ui.components.SolinSheetHost
-import com.bytedance.zgx.solin.ui.components.ChatEmptyState
-import com.bytedance.zgx.solin.ui.components.ChatTopBar
-import com.bytedance.zgx.solin.ui.components.Composer
-import com.bytedance.zgx.solin.ui.components.MemoryContextStrip
-import com.bytedance.zgx.solin.ui.components.MessageBubble
-import com.bytedance.zgx.solin.ui.components.RecoveryActionEntry
-import com.bytedance.zgx.solin.ui.components.RunTimelineStrip
-import com.bytedance.zgx.solin.ui.components.SourcesStrip
-import com.bytedance.zgx.solin.ui.components.publicWebEvidenceDisplayRows
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.GenerationParameters
@@ -69,11 +49,32 @@ import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
 import com.bytedance.zgx.solin.RuntimePermissionRequirement
 import com.bytedance.zgx.solin.SpecialAccessRequirement
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
+import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
-import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
-import com.bytedance.zgx.solin.data.DecisionModelRoutingState
+import com.bytedance.zgx.solin.presentation.MemoryPanelState
+import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
+import com.bytedance.zgx.solin.ui.components.BackgroundTaskSheet
+import com.bytedance.zgx.solin.ui.components.ChatAutoScrollEffect
+import com.bytedance.zgx.solin.ui.components.ChatEmptyState
+import com.bytedance.zgx.solin.ui.components.ChatTopBar
+import com.bytedance.zgx.solin.ui.components.Composer
+import com.bytedance.zgx.solin.ui.components.DeleteSessionConfirmDialog
+import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_CURRENT_TAB_INDEX
+import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_MEMORY_TAB_INDEX
+import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_PRIVACY_TAB_INDEX
+import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_REMOTE_TAB_INDEX
+import com.bytedance.zgx.solin.ui.components.McpCapabilityToggleUiState
+import com.bytedance.zgx.solin.ui.components.MemoryContextStrip
+import com.bytedance.zgx.solin.ui.components.MessageBubble
+import com.bytedance.zgx.solin.ui.components.ModelManagerSheet
+import com.bytedance.zgx.solin.ui.components.RecoveryActionEntry
+import com.bytedance.zgx.solin.ui.components.RunTimelineStrip
+import com.bytedance.zgx.solin.ui.components.SessionDrawer
+import com.bytedance.zgx.solin.ui.components.SolinSheetHost
+import com.bytedance.zgx.solin.ui.components.SourcesStrip
+import com.bytedance.zgx.solin.ui.components.publicWebEvidenceDisplayRows
 import kotlinx.coroutines.launch
 
 @Composable
@@ -151,7 +152,7 @@ fun SolinScreen(
     onPickSharedAttachment: () -> Unit,
     onVoiceInputConsumed: (Long) -> Unit,
     onStopGeneration: () -> Unit,
-    resourceSampler: (suspend () -> SystemResourceSnapshot?)? = null,
+    resourceSampler: (suspend () -> SystemResourceSnapshot?)? = null
 ) {
     val pickModel = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onImportModel)
@@ -172,20 +173,14 @@ fun SolinScreen(
     val lastMessageId = state.messages.lastOrNull()?.id
     val lastMessageText = state.messages.lastOrNull()?.text.orEmpty()
 
-    // Follow the growing last message only while the user is already at the bottom; scrolling up
-    // to read earlier text must never be yanked back by the next streamed token.
-    LaunchedEffect(state.activeSessionId, lastMessageId) {
-        if (state.messages.isNotEmpty()) {
-            listState.animateScrollToItem(state.messages.lastIndex)
-        }
-    }
-    LaunchedEffect(lastMessageText) {
-        // canScrollForward is false exactly when the list sits at its end. Streaming tokens then
-        // keep the newest line visible; a user who scrolled up is left where they are.
-        if (state.messages.isNotEmpty() && !listState.canScrollForward) {
-            listState.scrollToItem(state.messages.lastIndex)
-        }
-    }
+    ChatAutoScrollEffect(
+        listState = listState,
+        sessionId = state.activeSessionId,
+        messageCount = state.messages.size,
+        lastMessageId = lastMessageId,
+        lastMessageText = lastMessageText,
+        bottomChromeCount = state.activeRunTimeline.size + state.activeMemoryEvidence.size + state.activePublicWebEvidence.size
+    )
 
     // A remote-mode disclosure must never sit behind the model manager it was raised from.
     LaunchedEffect(state.pendingRemoteModeDisclosure) {
@@ -215,12 +210,12 @@ fun SolinScreen(
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
+        color = MaterialTheme.colorScheme.background
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
+                .background(MaterialTheme.colorScheme.background)
         ) {
             ModalNavigationDrawer(
                 drawerState = drawerState,
@@ -228,7 +223,7 @@ fun SolinScreen(
                 drawerContent = {
                     ModalDrawerSheet(
                         drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                        modifier = Modifier.widthIn(max = 300.dp),
+                        modifier = Modifier.widthIn(max = 300.dp)
                     ) {
                         SessionDrawer(
                             state = state,
@@ -253,15 +248,15 @@ fun SolinScreen(
                                 closeDrawer()
                                 showDeleteSession = true
                             },
-                            onClose = { closeDrawer() },
+                            onClose = { closeDrawer() }
                         )
                     }
-                },
+                }
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .imePadding(),
+                        .imePadding()
                 ) {
                     ChatTopBar(
                         state = state,
@@ -269,124 +264,124 @@ fun SolinScreen(
                         onOpenSessions = { scope.launch { drawerState.open() } },
                         onOpenModelManager = { openModelManager(MODEL_MANAGER_CURRENT_TAB_INDEX) },
                         onCreateSession = onCreateSession,
-                        onDeleteSession = { showDeleteSession = true },
+                        onDeleteSession = { showDeleteSession = true }
                     )
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                ) {
-                    if (state.messages.isEmpty()) {
-                        ChatEmptyState(
-                            state = state,
-                            onOpenModelManager = { openModelManager(MODEL_MANAGER_CURRENT_TAB_INDEX) },
-                            onOpenPrivacyNotice = { openModelManager(MODEL_MANAGER_PRIVACY_TAB_INDEX) },
-                            onOpenRemoteModelConfig = { openModelManager(MODEL_MANAGER_REMOTE_TAB_INDEX) },
-                            onPickModel = { pickModel.launch(arrayOf("*/*")) },
-                            onDownloadModel = onDownloadModel,
-                            onCancelDownload = onCancelDownload,
-                            onAllowMeteredDownload = onAllowMeteredDownload,
-                            onLoadModel = onLoadModel,
-                            onSendPrompt = onSendMessage,
-                            onSetupModelToggled = onSetupModelToggled,
-                            onDownloadSetupModels = onDownloadSetupModels,
-                            onSkipFirstRunSetup = onSkipFirstRunSetup,
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            state = listState,
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(
-                                items = state.messages,
-                                key = { it.id },
-                            ) { message ->
-                                MessageBubble(
-                                    message = message,
-                                    isStreaming = state.isGenerating &&
-                                        message.role == MessageRole.Assistant &&
-                                        message.id == lastMessageId,
-                                )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        if (state.messages.isEmpty()) {
+                            ChatEmptyState(
+                                state = state,
+                                onOpenModelManager = { openModelManager(MODEL_MANAGER_CURRENT_TAB_INDEX) },
+                                onOpenPrivacyNotice = { openModelManager(MODEL_MANAGER_PRIVACY_TAB_INDEX) },
+                                onOpenRemoteModelConfig = { openModelManager(MODEL_MANAGER_REMOTE_TAB_INDEX) },
+                                onPickModel = { pickModel.launch(arrayOf("*/*")) },
+                                onDownloadModel = onDownloadModel,
+                                onCancelDownload = onCancelDownload,
+                                onAllowMeteredDownload = onAllowMeteredDownload,
+                                onLoadModel = onLoadModel,
+                                onSendPrompt = onSendMessage,
+                                onSetupModelToggled = onSetupModelToggled,
+                                onDownloadSetupModels = onDownloadSetupModels,
+                                onSkipFirstRunSetup = onSkipFirstRunSetup
+                            )
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                state = listState,
+                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(
+                                    items = state.messages,
+                                    key = { it.id }
+                                ) { message ->
+                                    MessageBubble(
+                                        message = message,
+                                        isStreaming = state.isGenerating &&
+                                            message.role == MessageRole.Assistant &&
+                                            message.id == lastMessageId
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                val publicSourceRows = remember(state.activePublicWebEvidence) {
-                    publicWebEvidenceDisplayRows(state.activePublicWebEvidence)
-                }
-                if (publicSourceRows.isNotEmpty()) {
-                    SourcesStrip(
-                        modifier = Modifier
-                            .padding(horizontal = 20.dp, vertical = 8.dp)
-                            .testTag("public_sources_strip"),
-                        rows = publicSourceRows,
-                    )
-                }
+                    val publicSourceRows = remember(state.activePublicWebEvidence) {
+                        publicWebEvidenceDisplayRows(state.activePublicWebEvidence)
+                    }
+                    if (publicSourceRows.isNotEmpty()) {
+                        SourcesStrip(
+                            modifier = Modifier
+                                .padding(horizontal = 20.dp, vertical = 8.dp)
+                                .testTag("public_sources_strip"),
+                            rows = publicSourceRows
+                        )
+                    }
 
-                if (state.activeRunTimeline.isNotEmpty()) {
-                    RunTimelineStrip(
-                        modifier = Modifier
-                            .padding(horizontal = 20.dp, vertical = 8.dp)
-                            .testTag("run_timeline_strip"),
-                        items = state.activeRunTimeline,
-                    )
-                }
+                    if (state.activeRunTimeline.isNotEmpty()) {
+                        RunTimelineStrip(
+                            modifier = Modifier
+                                .padding(horizontal = 20.dp, vertical = 8.dp)
+                                .testTag("run_timeline_strip"),
+                            items = state.activeRunTimeline
+                        )
+                    }
 
-                if (state.activeMemoryEvidence.isNotEmpty()) {
-                    MemoryContextStrip(
-                        modifier = Modifier
-                            .padding(horizontal = 20.dp, vertical = 8.dp)
-                            .testTag("memory_context_strip"),
-                        evidence = state.activeMemoryEvidence,
-                    )
-                }
+                    if (state.activeMemoryEvidence.isNotEmpty()) {
+                        MemoryContextStrip(
+                            modifier = Modifier
+                                .padding(horizontal = 20.dp, vertical = 8.dp)
+                                .testTag("memory_context_strip"),
+                            evidence = state.activeMemoryEvidence
+                        )
+                    }
 
-                state.latestRecoveryAction
-                    ?.takeIf { state.pendingConfirmation == null && state.pendingExternalOutcome == null }
-                    ?.let { recoveryAction ->
-                    RecoveryActionEntry(
-                        modifier = Modifier
-                            .padding(horizontal = 20.dp, vertical = 8.dp)
-                            .testTag("latest_recovery_action_entry"),
-                        action = recoveryAction,
-                        enabled = !state.isBusy,
-                        onClick = { onOpenRecoveryAction(recoveryAction) },
-                    )
-                }
-
-                Composer(
-                    state = state,
-                    input = input,
-                    onInputChanged = { input = it },
-                    onOpenModelManager = { openModelManager(MODEL_MANAGER_CURRENT_TAB_INDEX) },
-                    onStartVoiceInput = onStartVoiceInput,
-                    onCancelVoiceInput = onCancelVoiceInput,
-                    onFinishVoiceInput = onFinishVoiceInput,
-                    onPickSharedAttachment = onPickSharedAttachment,
-                    onClearPendingSharedInput = onClearPendingSharedInput,
-                    onSend = {
-                        val message = input
-                        if (state.pendingSharedInputDraft != null) {
-                            input = ""
-                            onSendPendingSharedInput(message)
-                        } else {
-                            onSendMessage(message)
-                            if (state.isReady) input = ""
+                    state.latestRecoveryAction
+                        ?.takeIf { state.pendingConfirmation == null && state.pendingExternalOutcome == null }
+                        ?.let { recoveryAction ->
+                            RecoveryActionEntry(
+                                modifier = Modifier
+                                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                                    .testTag("latest_recovery_action_entry"),
+                                action = recoveryAction,
+                                enabled = !state.isBusy,
+                                onClick = { onOpenRecoveryAction(recoveryAction) }
+                            )
                         }
-                    },
-                    onStopGeneration = onStopGeneration,
-                )
+
+                    Composer(
+                        state = state,
+                        input = input,
+                        onInputChanged = { input = it },
+                        onOpenModelManager = { openModelManager(MODEL_MANAGER_CURRENT_TAB_INDEX) },
+                        onStartVoiceInput = onStartVoiceInput,
+                        onCancelVoiceInput = onCancelVoiceInput,
+                        onFinishVoiceInput = onFinishVoiceInput,
+                        onPickSharedAttachment = onPickSharedAttachment,
+                        onClearPendingSharedInput = onClearPendingSharedInput,
+                        onSend = {
+                            val message = input
+                            if (state.pendingSharedInputDraft != null) {
+                                input = ""
+                                onSendPendingSharedInput(message)
+                            } else {
+                                onSendMessage(message)
+                                if (state.isReady) input = ""
+                            }
+                        },
+                        onStopGeneration = onStopGeneration
+                    )
                 }
             }
 
             if (showModelManager) {
                 ModalBottomSheet(
                     sheetState = modelManagerSheetState,
-                    onDismissRequest = { showModelManager = false },
+                    onDismissRequest = { showModelManager = false }
                 ) {
                     ModelManagerSheet(
                         state = state,
@@ -435,7 +430,7 @@ fun SolinScreen(
                         onDismissMemorySuggestion = onDismissMemorySuggestion,
                         onRemoteSendDisclosurePolicySelected = onRemoteSendDisclosurePolicySelected,
                         onOpenModelPage = onOpenModelPage,
-                        onDismiss = { showModelManager = false },
+                        onDismiss = { showModelManager = false }
                     )
                 }
             }
@@ -443,7 +438,7 @@ fun SolinScreen(
             if (showBackgroundTasks) {
                 ModalBottomSheet(
                     sheetState = backgroundTaskSheetState,
-                    onDismissRequest = { showBackgroundTasks = false },
+                    onDismissRequest = { showBackgroundTasks = false }
                 ) {
                     BackgroundTaskSheet(
                         state = state,
@@ -452,7 +447,7 @@ fun SolinScreen(
                         onCancelBackgroundTask = onCancelBackgroundTask,
                         onSetPeriodicCheckPolicy = onSetPeriodicCheckPolicy,
                         onDisablePeriodicCheckPolicy = onDisablePeriodicCheckPolicy,
-                        onDismiss = { showBackgroundTasks = false },
+                        onDismiss = { showBackgroundTasks = false }
                     )
                 }
             }
@@ -463,7 +458,7 @@ fun SolinScreen(
                         showDeleteSession = false
                         onDeleteSession()
                     },
-                    onDismiss = { showDeleteSession = false },
+                    onDismiss = { showDeleteSession = false }
                 )
             }
 
@@ -480,7 +475,7 @@ fun SolinScreen(
                 onOpenSpecialAccessSettings = onOpenSpecialAccessSettings,
                 onConfirmAgentConfirmation = onConfirmAgentConfirmation,
                 onDismissAgentConfirmation = onDismissAgentConfirmation,
-                onRecordExternalOutcome = onRecordExternalOutcome,
+                onRecordExternalOutcome = onRecordExternalOutcome
             )
         }
     }

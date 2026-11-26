@@ -13,9 +13,9 @@ import com.bytedance.zgx.solin.background.ReminderScheduleRequest
 import com.bytedance.zgx.solin.background.ScheduledTask
 import com.bytedance.zgx.solin.background.ScheduledTaskStatus
 import com.bytedance.zgx.solin.background.ScheduledTaskType
-import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.MAX_SHARE_TEXT_CHARS
 import com.bytedance.zgx.solin.tool.MAX_SHARE_TITLE_CHARS
+import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolStatus
 import org.junit.Assert.assertEquals
@@ -31,7 +31,7 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             backgroundTaskScheduler = scheduler,
-            canPostReminderNotifications = { true },
+            canPostReminderNotifications = { true }
         )
 
         val result = executor.execute(reminderRequest())
@@ -51,7 +51,7 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             backgroundTaskScheduler = scheduler,
-            canPostReminderNotifications = { true },
+            canPostReminderNotifications = { true }
         )
 
         val result = executor.execute(
@@ -61,10 +61,10 @@ class ActionExecutorTest {
                 arguments = mapOf(
                     "title" to "开会",
                     "body" to "明天早上8点提醒我开会",
-                    "triggerAtMillis" to "1781481600000",
+                    "triggerAtMillis" to "1781481600000"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -82,7 +82,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launched += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -93,10 +93,10 @@ class ActionExecutorTest {
                     "hour" to "23",
                     "minutes" to "25",
                     "recurrence" to "daily",
-                    "message" to "起床",
+                    "message" to "起床"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -114,7 +114,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launched += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -123,10 +123,10 @@ class ActionExecutorTest {
                 toolName = MobileActionFunctions.SET_SYSTEM_TIMER,
                 arguments = mapOf(
                     "lengthSeconds" to "1200",
-                    "message" to "泡茶",
+                    "message" to "泡茶"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -144,7 +144,7 @@ class ActionExecutorTest {
             activityStarter = { intent ->
                 launched += intent
                 true
-            },
+            }
         )
 
         val alarmResult = executor.execute(
@@ -153,18 +153,18 @@ class ActionExecutorTest {
                 toolName = MobileActionFunctions.SET_SYSTEM_ALARM,
                 arguments = mapOf(
                     "hour" to "24",
-                    "minutes" to "0",
+                    "minutes" to "0"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val timerResult = executor.execute(
             ToolRequest(
                 id = "request-invalid-timer",
                 toolName = MobileActionFunctions.SET_SYSTEM_TIMER,
                 arguments = mapOf("lengthSeconds" to "0"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, alarmResult.status)
@@ -182,12 +182,12 @@ class ActionExecutorTest {
             activityStarter = { intent ->
                 launched += intent
                 true
-            },
+            }
         )
         val invalidArguments = listOf(
             mapOf("title" to "评审", "beginTimeMillis" to "2000", "endTimeMillis" to "1000"),
             mapOf("title" to "评审", "endTimeMillis" to "1000"),
-            mapOf("title" to "评审", "beginTimeMillis" to "soon"),
+            mapOf("title" to "评审", "beginTimeMillis" to "soon")
         )
 
         invalidArguments.forEachIndexed { index, arguments ->
@@ -196,8 +196,8 @@ class ActionExecutorTest {
                     id = "request-invalid-calendar-$index",
                     toolName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
                     arguments = arguments,
-                    reason = "test",
-                ),
+                    reason = "test"
+                )
             )
             assertEquals(arguments.toString(), ToolErrorCode.InvalidRequest, result.error?.code)
         }
@@ -210,7 +210,7 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             backgroundTaskScheduler = scheduler,
-            canPostReminderNotifications = { true },
+            canPostReminderNotifications = { true }
         )
 
         val result = executor.execute(
@@ -223,10 +223,10 @@ class ActionExecutorTest {
                     "minNotificationSpacingMinutes" to "180",
                     "overdueGraceMinutes" to "15",
                     "requiresBatteryNotLow" to "false",
-                    "requiresCharging" to "true",
+                    "requiresCharging" to "true"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -251,7 +251,7 @@ class ActionExecutorTest {
         val scheduler = RecordingBackgroundTaskScheduler()
         val executor = ActionExecutor(
             context = null,
-            backgroundTaskScheduler = scheduler,
+            backgroundTaskScheduler = scheduler
         )
 
         val result = executor.execute(
@@ -259,8 +259,8 @@ class ActionExecutorTest {
                 id = "request-disable-periodic-check",
                 toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
                 arguments = mapOf("enabled" to "false"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -275,7 +275,7 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             backgroundTaskScheduler = scheduler,
-            canPostReminderNotifications = { false },
+            canPostReminderNotifications = { false }
         )
 
         val result = executor.execute(
@@ -283,8 +283,8 @@ class ActionExecutorTest {
                 id = "request-periodic-check",
                 toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
                 arguments = mapOf("enabled" to "true"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -298,7 +298,7 @@ class ActionExecutorTest {
         val scheduler = RecordingBackgroundTaskScheduler()
         val executor = ActionExecutor(
             context = null,
-            backgroundTaskScheduler = scheduler,
+            backgroundTaskScheduler = scheduler
         )
 
         val result = executor.execute(
@@ -306,8 +306,8 @@ class ActionExecutorTest {
                 id = "request-cancel-reminder",
                 toolName = MobileActionFunctions.CANCEL_REMINDER,
                 arguments = mapOf("taskId" to "task-1"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -320,7 +320,7 @@ class ActionExecutorTest {
     fun rejectsReminderCancellationWithoutTaskId() {
         val executor = ActionExecutor(
             context = null,
-            backgroundTaskScheduler = RecordingBackgroundTaskScheduler(),
+            backgroundTaskScheduler = RecordingBackgroundTaskScheduler()
         )
 
         val result = executor.execute(
@@ -328,8 +328,8 @@ class ActionExecutorTest {
                 id = "request-cancel-reminder",
                 toolName = MobileActionFunctions.CANCEL_REMINDER,
                 arguments = mapOf("taskId" to " "),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -341,8 +341,8 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             backgroundTaskScheduler = RecordingBackgroundTaskScheduler(
-                failure = IllegalStateException("cancel unavailable"),
-            ),
+                failure = IllegalStateException("cancel unavailable")
+            )
         )
 
         val result = executor.execute(
@@ -350,8 +350,8 @@ class ActionExecutorTest {
                 id = "request-cancel-reminder",
                 toolName = MobileActionFunctions.CANCEL_REMINDER,
                 arguments = mapOf("taskId" to "task-1"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -364,8 +364,8 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             backgroundTaskScheduler = RecordingBackgroundTaskScheduler(
-                failure = IllegalArgumentException("Scheduled task not found: task-1"),
-            ),
+                failure = IllegalArgumentException("Scheduled task not found: task-1")
+            )
         )
 
         val result = executor.execute(
@@ -373,8 +373,8 @@ class ActionExecutorTest {
                 id = "request-cancel-reminder",
                 toolName = MobileActionFunctions.CANCEL_REMINDER,
                 arguments = mapOf("taskId" to "task-1"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -388,7 +388,7 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             backgroundTaskScheduler = RecordingBackgroundTaskScheduler(),
-            canPostReminderNotifications = { false },
+            canPostReminderNotifications = { false }
         )
 
         val result = executor.execute(reminderRequest())
@@ -403,9 +403,9 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             backgroundTaskScheduler = RecordingBackgroundTaskScheduler(
-                failure = IllegalStateException("alarm unavailable"),
+                failure = IllegalStateException("alarm unavailable")
             ),
-            canPostReminderNotifications = { true },
+            canPostReminderNotifications = { true }
         )
 
         val result = executor.execute(reminderRequest())
@@ -419,15 +419,15 @@ class ActionExecutorTest {
     fun readsClipboardTextThroughInjectedProvider() {
         val executor = ActionExecutor(
             context = null,
-            clipboardTextProvider = { "  需要总结的剪贴板内容  " },
+            clipboardTextProvider = { "  需要总结的剪贴板内容  " }
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "request-clipboard",
                 toolName = MobileActionFunctions.READ_CLIPBOARD,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -442,15 +442,15 @@ class ActionExecutorTest {
     fun reportsEmptyClipboardAsStructuredFailure() {
         val executor = ActionExecutor(
             context = null,
-            clipboardTextProvider = { " " },
+            clipboardTextProvider = { " " }
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "request-clipboard-empty",
                 toolName = MobileActionFunctions.READ_CLIPBOARD,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -468,15 +468,15 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "request-usage-access",
                 toolName = MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -497,15 +497,15 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
             ToolRequest(
                 id = "request-open-camera",
                 toolName = MobileActionFunctions.OPEN_CAMERA,
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -527,7 +527,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -535,8 +535,8 @@ class ActionExecutorTest {
                 id = "request-open-bluetooth-settings",
                 toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
                 arguments = mapOf("target" to SystemSettingsTargets.BLUETOOTH),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -559,8 +559,8 @@ class ActionExecutorTest {
                 id = "request-open-unknown-settings",
                 toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
                 arguments = mapOf("target" to "developer_options"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -575,7 +575,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -583,8 +583,8 @@ class ActionExecutorTest {
                 id = "request-deep-link",
                 toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                 arguments = mapOf("uri" to "https://example.com/path?q=agent"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -605,7 +605,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -613,8 +613,8 @@ class ActionExecutorTest {
                 id = "request-deep-link-unsafe",
                 toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                 arguments = mapOf("uri" to "javascript:alert(1)"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -630,7 +630,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -638,8 +638,8 @@ class ActionExecutorTest {
                 id = "request-app",
                 toolName = MobileActionFunctions.OPEN_APP_INTENT,
                 arguments = mapOf("packageName" to "com.example.app"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -664,7 +664,7 @@ class ActionExecutorTest {
             appLauncherResolver = { appName ->
                 assertEquals("淘宝", appName)
                 AppLaunchResolution.Resolved(label = "淘宝", packageName = "com.taobao.taobao")
-            },
+            }
         )
 
         val result = executor.execute(
@@ -672,8 +672,8 @@ class ActionExecutorTest {
                 id = "request-app-by-name",
                 toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
                 arguments = mapOf("appName" to "淘宝"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -691,7 +691,7 @@ class ActionExecutorTest {
         val executor = ActionExecutor(
             context = null,
             externalActivityStarter = { false },
-            appLauncherResolver = { AppLaunchResolution.NotFound },
+            appLauncherResolver = { AppLaunchResolution.NotFound }
         )
 
         val result = executor.execute(
@@ -699,8 +699,8 @@ class ActionExecutorTest {
                 id = "request-app-by-name-missing",
                 toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
                 arguments = mapOf("appName" to "不存在的应用"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -715,7 +715,7 @@ class ActionExecutorTest {
         val entries = listOf(
             LaunchableAppEntry(label = "淘宝", packageName = "com.taobao.taobao"),
             LaunchableAppEntry(label = "拼多多", packageName = "com.xunmeng.pinduoduo"),
-            LaunchableAppEntry(label = "拼多多商家版", packageName = "com.xunmeng.merchant"),
+            LaunchableAppEntry(label = "拼多多商家版", packageName = "com.xunmeng.merchant")
         )
 
         val taobao = matchLaunchableApp("taobao", entries)
@@ -728,6 +728,17 @@ class ActionExecutorTest {
 
         assertEquals(AppLaunchResolution.Ambiguous, matchLaunchableApp("拼", entries))
         assertEquals(AppLaunchResolution.NotFound, matchLaunchableApp("微信", entries))
+
+        val englishSystemEntries = listOf(
+            LaunchableAppEntry(label = "Settings", packageName = "com.android.settings"),
+            LaunchableAppEntry(label = "Clock", packageName = "com.google.android.deskclock")
+        )
+        val settings = matchLaunchableApp("设置", englishSystemEntries)
+        require(settings is AppLaunchResolution.Resolved)
+        assertEquals("com.android.settings", settings.packageName)
+        val clock = matchLaunchableApp("时钟", englishSystemEntries)
+        require(clock is AppLaunchResolution.Resolved)
+        assertEquals("com.google.android.deskclock", clock.packageName)
     }
 
     @Test
@@ -738,7 +749,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -747,10 +758,10 @@ class ActionExecutorTest {
                 toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
                 arguments = mapOf(
                     "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
-                    "packageName" to "com.example.app",
+                    "packageName" to "com.example.app"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -772,7 +783,7 @@ class ActionExecutorTest {
             context = null,
             externalActivityStarter = {
                 throw ActivityNotFoundException("missing activity")
-            },
+            }
         )
 
         val result = executor.execute(
@@ -780,8 +791,8 @@ class ActionExecutorTest {
                 id = "request-deep-link-missing",
                 toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                 arguments = mapOf("uri" to "https://example.com/path"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -797,7 +808,7 @@ class ActionExecutorTest {
             context = null,
             externalActivityStarter = {
                 throw IllegalStateException("launcher unavailable")
-            },
+            }
         )
 
         val result = executor.execute(
@@ -805,8 +816,8 @@ class ActionExecutorTest {
                 id = "request-app-exception",
                 toolName = MobileActionFunctions.OPEN_APP_INTENT,
                 arguments = mapOf("packageName" to "com.example.app"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -824,7 +835,7 @@ class ActionExecutorTest {
     fun shareTextMetadataDoesNotIncludeRawPayload() {
         val executor = ActionExecutor(
             context = null,
-            externalActivityStarter = { true },
+            externalActivityStarter = { true }
         )
 
         val result = executor.execute(
@@ -832,8 +843,8 @@ class ActionExecutorTest {
                 id = "request-share",
                 toolName = MobileActionFunctions.SHARE_TEXT,
                 arguments = mapOf("text" to "private share payload"),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
@@ -850,7 +861,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val oversizedText = executor.execute(
@@ -858,8 +869,8 @@ class ActionExecutorTest {
                 id = "request-share-text-too-long",
                 toolName = MobileActionFunctions.SHARE_TEXT,
                 arguments = mapOf("text" to "x".repeat(MAX_SHARE_TEXT_CHARS + 1)),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
         val oversizedTitle = executor.execute(
             ToolRequest(
@@ -867,10 +878,10 @@ class ActionExecutorTest {
                 toolName = MobileActionFunctions.SHARE_TEXT,
                 arguments = mapOf(
                     "text" to "hello",
-                    "title" to "x".repeat(MAX_SHARE_TITLE_CHARS + 1),
+                    "title" to "x".repeat(MAX_SHARE_TITLE_CHARS + 1)
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, oversizedText.status)
@@ -890,7 +901,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -899,10 +910,10 @@ class ActionExecutorTest {
                 toolName = MobileActionFunctions.OPEN_APP_INTENT,
                 arguments = mapOf(
                     "packageName" to "com.example.app",
-                    "action" to Intent.ACTION_VIEW,
+                    "action" to Intent.ACTION_VIEW
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -918,7 +929,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -927,10 +938,10 @@ class ActionExecutorTest {
                 toolName = MobileActionFunctions.OPEN_APP_INTENT,
                 arguments = mapOf(
                     "packageName" to "com.example.app",
-                    "data" to "file:///sdcard/private.txt",
+                    "data" to "file:///sdcard/private.txt"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -946,7 +957,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -955,10 +966,10 @@ class ActionExecutorTest {
                 toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
                 arguments = mapOf(
                     "targetId" to "arbitrary_activity",
-                    "packageName" to "com.example.app",
+                    "packageName" to "com.example.app"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -974,7 +985,7 @@ class ActionExecutorTest {
             externalActivityStarter = { launch ->
                 launches += launch
                 true
-            },
+            }
         )
 
         val result = executor.execute(
@@ -984,10 +995,10 @@ class ActionExecutorTest {
                 arguments = mapOf(
                     "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
                     "packageName" to "com.example.app",
-                    "uri" to "package:com.example.app/private",
+                    "uri" to "package:com.example.app/private"
                 ),
-                reason = "test",
-            ),
+                reason = "test"
+            )
         )
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -995,22 +1006,21 @@ class ActionExecutorTest {
         assertTrue(launches.isEmpty())
     }
 
-    private fun reminderRequest(): ToolRequest =
-        ToolRequest(
-            id = "request-reminder",
-            toolName = MobileActionFunctions.SCHEDULE_REMINDER,
-            arguments = mapOf(
-                "title" to "喝水",
-                "body" to "提醒我 15 分钟后喝水",
-                "delayMinutes" to "15",
-            ),
-            reason = "test",
-        )
+    private fun reminderRequest(): ToolRequest = ToolRequest(
+        id = "request-reminder",
+        toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+        arguments = mapOf(
+            "title" to "喝水",
+            "body" to "提醒我 15 分钟后喝水",
+            "delayMinutes" to "15"
+        ),
+        reason = "test"
+    )
 
     private fun assertExternalActivityOpened(
         data: Map<String, String>,
         targetKind: String,
-        intentAction: String,
+        intentAction: String
     ) {
         assertEquals("ExternalActivityOpened", data["completionState"])
         assertEquals("false", data["completionVerified"])
@@ -1025,7 +1035,7 @@ class ActionExecutorTest {
     private fun assertExternalActivityNotStarted(
         data: Map<String, String>,
         targetKind: String,
-        intentAction: String,
+        intentAction: String
     ) {
         assertEquals("NotStarted", data["completionState"])
         assertEquals("false", data["completionVerified"])
@@ -1038,7 +1048,7 @@ class ActionExecutorTest {
     }
 
     private class RecordingBackgroundTaskScheduler(
-        private val failure: Throwable? = null,
+        private val failure: Throwable? = null
     ) : BackgroundTaskScheduler {
         var lastReminderRequest: ReminderScheduleRequest? = null
             private set
@@ -1061,13 +1071,13 @@ class ActionExecutorTest {
                     triggerAtMillis = 901_000L,
                     status = ScheduledTaskStatus.Scheduled,
                     createdAtMillis = 1_000L,
-                    updatedAtMillis = 1_000L,
-                ),
+                    updatedAtMillis = 1_000L
+                )
             )
         }
 
         override fun setPeriodicCheckPolicy(
-            request: PeriodicCheckScheduleRequest,
+            request: PeriodicCheckScheduleRequest
         ): Result<PeriodicCheckPolicySummary> {
             lastPeriodicCheckRequest = request
             failure?.let { return Result.failure(it) }
@@ -1078,8 +1088,8 @@ class ActionExecutorTest {
                     taskStatus = ScheduledTaskStatus.Scheduled,
                     nextAllowedRunAtMillis = 10_000L,
                     lastRunSummary = null,
-                    updatedAtMillis = 2_000L,
-                ),
+                    updatedAtMillis = 2_000L
+                )
             )
         }
 
@@ -1092,17 +1102,16 @@ class ActionExecutorTest {
                     taskStatus = ScheduledTaskStatus.Cancelled,
                     nextAllowedRunAtMillis = null,
                     lastRunSummary = null,
-                    updatedAtMillis = 3_000L,
-                ),
+                    updatedAtMillis = 3_000L
+                )
             )
         }
 
-        override fun cancel(taskId: String): Result<Unit> =
-            if (failure == null) {
-                lastCancelledTaskId = taskId
-                Result.success(Unit)
-            } else {
-                Result.failure(failure)
-            }
+        override fun cancel(taskId: String): Result<Unit> = if (failure == null) {
+            lastCancelledTaskId = taskId
+            Result.success(Unit)
+        } else {
+            Result.failure(failure)
+        }
     }
 }

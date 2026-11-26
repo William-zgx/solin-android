@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,16 +11,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,12 +33,76 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.bytedance.zgx.solin.presentation.MemoryEvidenceUiSummary
-import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
-import com.bytedance.zgx.solin.presentation.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
+import com.bytedance.zgx.solin.presentation.MemoryEvidenceUiSummary
+import com.bytedance.zgx.solin.presentation.RunTimelineItemUiSummary
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
+
+/**
+ * Keeps the chat list pinned to the newest message while the user is at the bottom, including as
+ * streamed tokens expand the last bubble or bottom strips shrink the viewport, without yanking a
+ * user who scrolled up to read earlier messages.
+ */
+@Composable
+internal fun ChatAutoScrollEffect(
+    listState: LazyListState,
+    sessionId: String?,
+    messageCount: Int,
+    lastMessageId: Long?,
+    lastMessageText: String,
+    bottomChromeCount: Int
+) {
+    var stickToBottom by remember(sessionId) { mutableStateOf(true) }
+    var programmaticScroll by remember(sessionId) { mutableStateOf(false) }
+
+    LaunchedEffect(listState, sessionId) {
+        snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
+            .collect { (scrolling, canScrollForward) ->
+                if (!programmaticScroll && (scrolling || !canScrollForward)) {
+                    stickToBottom = !canScrollForward
+                }
+            }
+    }
+    LaunchedEffect(sessionId, lastMessageId) {
+        if (messageCount > 0) {
+            stickToBottom = true
+            programmaticScroll = true
+            try {
+                listState.scrollToBottomOf(messageCount - 1, animate = true)
+            } finally {
+                programmaticScroll = false
+            }
+        }
+    }
+    LaunchedEffect(lastMessageText, bottomChromeCount) {
+        if (messageCount > 0 && stickToBottom) {
+            programmaticScroll = true
+            try {
+                listState.scrollToBottomOf(messageCount - 1, animate = false)
+            } finally {
+                programmaticScroll = false
+            }
+        }
+    }
+}
+
+private suspend fun LazyListState.scrollToBottomOf(lastIndex: Int, animate: Boolean) {
+    if (lastIndex < 0) return
+    if (animate) {
+        animateScrollToItem(lastIndex)
+    } else {
+        scrollToItem(lastIndex)
+    }
+    val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull { it.index == lastIndex }
+    val overflow = lastVisible?.let { item ->
+        (item.offset + item.size) - layoutInfo.viewportEndOffset
+    } ?: 0
+    if (overflow > 0) {
+        scrollBy(overflow.toFloat())
+    }
+}
 
 /**
  * One quiet line for the memory that was recalled into this answer. Everything stays on this
@@ -42,7 +111,7 @@ import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 @Composable
 internal fun MemoryContextStrip(
     modifier: Modifier = Modifier,
-    evidence: List<MemoryEvidenceUiSummary>,
+    evidence: List<MemoryEvidenceUiSummary>
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     Column(modifier = modifier.fillMaxWidth()) {
@@ -50,7 +119,7 @@ internal fun MemoryContextStrip(
             label = "引用本地记忆 ${evidence.size} 条",
             leavesPhone = false,
             expanded = expanded,
-            onToggle = { expanded = !expanded },
+            onToggle = { expanded = !expanded }
         )
         if (expanded) {
             evidence.take(3).forEachIndexed { index, item ->
@@ -63,7 +132,7 @@ internal fun MemoryContextStrip(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -77,7 +146,7 @@ internal fun MemoryContextStrip(
 @Composable
 internal fun SourcesStrip(
     modifier: Modifier = Modifier,
-    rows: List<PublicWebSourceDisplayRow>,
+    rows: List<PublicWebSourceDisplayRow>
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     Column(modifier = modifier.fillMaxWidth()) {
@@ -85,7 +154,7 @@ internal fun SourcesStrip(
             label = "公开来源 ${rows.size} 条",
             leavesPhone = true,
             expanded = expanded,
-            onToggle = { expanded = !expanded },
+            onToggle = { expanded = !expanded }
         )
         if (expanded) {
             rows.take(4).forEachIndexed { index, row ->
@@ -103,7 +172,7 @@ private fun QuietStripLine(
     label: String,
     leavesPhone: Boolean,
     expanded: Boolean,
-    onToggle: () -> Unit,
+    onToggle: () -> Unit
 ) {
     val actionLabel = if (expanded) "收起" else "展开"
     Row(
@@ -115,7 +184,7 @@ private fun QuietStripLine(
             .semantics { contentDescription = "$label，点按$actionLabel" }
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         PlacementMark(leavesPhone = leavesPhone, modifier = Modifier.size(10.dp))
         Text(
@@ -124,12 +193,12 @@ private fun QuietStripLine(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Ellipsis
         )
         Text(
             text = actionLabel,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -141,21 +210,21 @@ internal fun SourceCard(row: PublicWebSourceDisplayRow) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 18.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(
             text = row.title,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Ellipsis
         )
         Text(
             text = publicWebSourceMetaText(row),
             style = MaterialTheme.typography.labelSmall,
             color = LocalSolinColors.current.remote,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Ellipsis
         )
         if (row.snippet.isNotBlank()) {
             Text(
@@ -163,7 +232,7 @@ internal fun SourceCard(row: PublicWebSourceDisplayRow) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -173,13 +242,13 @@ internal fun SourceCard(row: PublicWebSourceDisplayRow) {
 @Composable
 internal fun RunTimelineStrip(
     modifier: Modifier = Modifier,
-    items: List<RunTimelineItemUiSummary>,
+    items: List<RunTimelineItemUiSummary>
 ) {
     val recent = items.takeLast(4)
     val visuals = runTimelineStepVisuals(recent)
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         recent.forEachIndexed { index, item ->
             RunTimelineStep(item = item, visual = visuals[index])
@@ -196,6 +265,10 @@ private val TERMINAL_RUN_STATES = setOf("Completed", "Failed", "Cancelled", "Emp
  * and anything below it has not started. A finished run leaves every step done.
  */
 internal fun runTimelineStepVisuals(items: List<RunTimelineItemUiSummary>): List<RunStepVisual> {
+    if (items.isEmpty()) return emptyList()
+    if (items.last().state in TERMINAL_RUN_STATES) {
+        return List(items.size) { RunStepVisual.Done }
+    }
     val currentIndex = items.indexOfLast { item -> item.state !in TERMINAL_RUN_STATES }
     return items.mapIndexed { index, _ ->
         when {
@@ -215,7 +288,7 @@ private fun RunTimelineStep(item: RunTimelineItemUiSummary, visual: RunStepVisua
             .fillMaxWidth()
             .padding(vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.Top
     ) {
         // The dot sits on the first text line; a soft ring marks the step the run is on now.
         val dotColor = when (visual) {
@@ -228,7 +301,7 @@ private fun RunTimelineStep(item: RunTimelineItemUiSummary, visual: RunStepVisua
                 .padding(top = 6.dp)
                 .size(if (visual == RunStepVisual.Current) 14.dp else 7.dp),
             shape = CircleShape,
-            color = if (visual == RunStepVisual.Current) colors.busyContainer else dotColor,
+            color = if (visual == RunStepVisual.Current) colors.busyContainer else dotColor
         ) {
             if (visual == RunStepVisual.Current) {
                 Box(contentAlignment = Alignment.Center) {
@@ -247,21 +320,19 @@ private fun RunTimelineStep(item: RunTimelineItemUiSummary, visual: RunStepVisua
             },
             fontWeight = if (visual == RunStepVisual.Current) FontWeight.Medium else FontWeight.Normal,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
 
-internal fun runTimelineItemDisplayText(item: RunTimelineItemUiSummary): String =
-    listOf(item.label, item.detail, item.privacyLabel, item.riskLabel)
-        .mapNotNull { value -> value?.safeStripDisplayText()?.takeIf { it.isNotBlank() } }
-        .joinToString(" · ")
+internal fun runTimelineItemDisplayText(item: RunTimelineItemUiSummary): String = listOf(item.label, item.detail, item.privacyLabel, item.riskLabel)
+    .mapNotNull { value -> value?.safeStripDisplayText()?.takeIf { it.isNotBlank() } }
+    .joinToString(" · ")
 
-internal fun memoryEvidenceDisplayText(item: MemoryEvidenceUiSummary): String =
-    listOf(item.typeLabel, item.recallLabel, item.reasonLabel, item.scoreLabel)
-        .map { value -> value.safeStripDisplayText() }
-        .filter { value -> value.isNotBlank() }
-        .joinToString(" · ")
+internal fun memoryEvidenceDisplayText(item: MemoryEvidenceUiSummary): String = listOf(item.typeLabel, item.recallLabel, item.reasonLabel, item.scoreLabel)
+    .map { value -> value.safeStripDisplayText() }
+    .filter { value -> value.isNotBlank() }
+    .joinToString(" · ")
 
 internal data class PublicWebSourceDisplayRow(
     val sourceId: String,
@@ -269,44 +340,41 @@ internal data class PublicWebSourceDisplayRow(
     val source: String,
     val retrievedAt: String,
     val qualityLabel: String,
-    val snippet: String,
+    val snippet: String
 )
 
-internal fun publicWebEvidenceDisplayRows(packs: List<PublicWebEvidencePack>): List<PublicWebSourceDisplayRow> =
-    packs
-        .flatMap { pack ->
-            val retrievedAt = pack.retrievedAt
-            val packQuality = pack.quality
-            pack.items.map { item ->
-                val url = item.url
-                PublicWebSourceDisplayRow(
-                    sourceId = "",
-                    title = item.title.safeStripDisplayText().ifBlank { "公开来源" },
-                    source = item.sourceName.safeStripDisplayText()
-                        .ifBlank { actionLinkDomain(url).orEmpty() }
-                        .safeStripDisplayText()
-                        .ifBlank { "公开网页" },
-                    retrievedAt = retrievedAt.safeStripDisplayText(),
-                    qualityLabel = item.qualityLabel
-                        .ifBlank { packQuality }
-                        .safeStripDisplayText(),
-                    snippet = item.snippet.safeStripDisplayText(),
-                )
-            }
+internal fun publicWebEvidenceDisplayRows(packs: List<PublicWebEvidencePack>): List<PublicWebSourceDisplayRow> = packs
+    .flatMap { pack ->
+        val retrievedAt = pack.retrievedAt
+        val packQuality = pack.quality
+        pack.items.map { item ->
+            val url = item.url
+            PublicWebSourceDisplayRow(
+                sourceId = "",
+                title = item.title.safeStripDisplayText().ifBlank { "公开来源" },
+                source = item.sourceName.safeStripDisplayText()
+                    .ifBlank { actionLinkDomain(url).orEmpty() }
+                    .safeStripDisplayText()
+                    .ifBlank { "公开网页" },
+                retrievedAt = retrievedAt.safeStripDisplayText(),
+                qualityLabel = item.qualityLabel
+                    .ifBlank { packQuality }
+                    .safeStripDisplayText(),
+                snippet = item.snippet.safeStripDisplayText()
+            )
         }
-        .distinctBy { row -> row.source to row.title }
-        .take(8)
-        .mapIndexed { index, row -> row.copy(sourceId = "S${index + 1}") }
+    }
+    .distinctBy { row -> row.source to row.title }
+    .take(8)
+    .mapIndexed { index, row -> row.copy(sourceId = "S${index + 1}") }
 
-internal fun publicWebSourceDisplayText(row: PublicWebSourceDisplayRow): String =
-    listOf(row.title, publicWebSourceMetaText(row), row.snippet)
-        .filter { value -> value.isNotBlank() }
-        .joinToString("\n")
+internal fun publicWebSourceDisplayText(row: PublicWebSourceDisplayRow): String = listOf(row.title, publicWebSourceMetaText(row), row.snippet)
+    .filter { value -> value.isNotBlank() }
+    .joinToString("\n")
 
-private fun publicWebSourceMetaText(row: PublicWebSourceDisplayRow): String =
-    listOf(row.source, row.retrievedAt, row.qualityLabel)
-        .filter { value -> value.isNotBlank() }
-        .joinToString(" · ")
+private fun publicWebSourceMetaText(row: PublicWebSourceDisplayRow): String = listOf(row.source, row.retrievedAt, row.qualityLabel)
+    .filter { value -> value.isNotBlank() }
+    .joinToString(" · ")
 
 private fun String.safeStripDisplayText(): String {
     val normalized = trim().replace(Regex("\\s+"), " ")
@@ -321,7 +389,7 @@ private val PRIVATE_STRIP_TEXT_PATTERNS = listOf(
     Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"),
     Regex("(?i)\\b(password|passwd|secret|token|api[_ -]?key|credential|private)\\b\\s*[:=]?\\s*\\S*"),
     Regex("(?i)\\bresultsJson\\b"),
-    Regex("^\\s*[\\[{].*[\\]}]\\s*$"),
+    Regex("^\\s*[\\[{].*[\\]}]\\s*$")
 )
 
 /**
@@ -334,7 +402,7 @@ internal fun RecoveryActionEntry(
     action: AgentRecoveryAction,
     enabled: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier
 ) {
     val colors = LocalSolinColors.current
     Surface(
@@ -343,7 +411,7 @@ internal fun RecoveryActionEntry(
         onClick = onClick,
         shape = MaterialTheme.shapes.large,
         color = colors.busyContainer,
-        border = BorderStroke(1.dp, colors.busy.copy(alpha = 0.28f)),
+        border = BorderStroke(1.dp, colors.busy.copy(alpha = 0.28f))
     ) {
         Row(
             modifier = Modifier
@@ -352,30 +420,30 @@ internal fun RecoveryActionEntry(
                     contentDescription = action.draft.title
                 },
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             SolinGlyph(
                 modifier = Modifier.size(18.dp),
                 kind = SolinGlyphKind.Undo,
-                tint = colors.busy,
+                tint = colors.busy
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     text = action.draft.title,
                     style = MaterialTheme.typography.titleSmall,
                     color = colors.onBusyContainer,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = action.draft.summary,
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onBusyContainer.copy(alpha = 0.82f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Text(
@@ -385,15 +453,14 @@ internal fun RecoveryActionEntry(
                     colors.busy
                 } else {
                     colors.onBusyContainer.copy(alpha = 0.48f)
-                },
+                }
             )
         }
     }
 }
 
 /** "撤销" for an undo action; otherwise the action's own name so the button is specific. */
-internal fun recoveryActionButtonLabel(action: AgentRecoveryAction): String =
-    when (action.request.toolName) {
-        MobileActionFunctions.CANCEL_REMINDER -> "撤销"
-        else -> action.draft.title.trim().ifBlank { "确认" }
-    }
+internal fun recoveryActionButtonLabel(action: AgentRecoveryAction): String = when (action.request.toolName) {
+    MobileActionFunctions.CANCEL_REMINDER -> "撤销"
+    else -> action.draft.title.trim().ifBlank { "确认" }
+}
