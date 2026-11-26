@@ -294,8 +294,14 @@ class DeviceControlToolExecutor(
         val startY = request.arguments["startYNorm"]?.trim()?.toIntOrNull()
         val endX = request.arguments["endXNorm"]?.trim()?.toIntOrNull()
         val endY = request.arguments["endYNorm"]?.trim()?.toIntOrNull()
-        if (startX == null || startY == null || endX == null || endY == null ||
-            startX !in 0..1000 || startY !in 0..1000 || endX !in 0..1000 || endY !in 0..1000
+        if (startX == null ||
+            startY == null ||
+            endX == null ||
+            endY == null ||
+            startX !in 0..1000 ||
+            startY !in 0..1000 ||
+            endX !in 0..1000 ||
+            endY !in 0..1000
         ) {
             return request.invalidDeviceControlRequest("滑动坐标必须为 0-1000 的归一化整数：startXNorm/startYNorm/endXNorm/endYNorm")
         }
@@ -734,8 +740,14 @@ class DeviceControlToolExecutor(
                 data = request.deviceControlBaseData()
             )
         }
-        val result = provider.waitForScreen(timeoutMillis = request.timeoutMillis())
-            .withExpectedForegroundPackageVerification(request)
+        val requestedTimeout = request.timeoutMillis()
+        val expectedPackage = request.expectedForegroundPackageName()
+        val rawResult = awaitPlainWaitWithExpectedForeground(
+            provider = provider,
+            expectedPackage = expectedPackage,
+            requestedTimeoutMillis = requestedTimeout
+        )
+        val result = rawResult.withExpectedForegroundPackageVerification(request)
         val verification = result.searchVerificationFor(request)
         return actionResult(
             request = request,
@@ -744,6 +756,36 @@ class DeviceControlToolExecutor(
             result = result.withSearchVerification(verification),
             extraData = verification.toData()
         )
+    }
+
+    private fun awaitPlainWaitWithExpectedForeground(
+        provider: CurrentScreenControlProvider,
+        expectedPackage: String?,
+        requestedTimeoutMillis: Long
+    ): UiActionReadResult {
+        val startedAt = System.currentTimeMillis()
+        val initial = provider.waitForScreen(timeoutMillis = requestedTimeoutMillis)
+        if (expectedPackage == null || !initial.needsExpectedForegroundArrivalRetry(expectedPackage)) {
+            return initial
+        }
+        val arrived = runBlocking {
+            awaitExpectedPackageArrival(
+                expectedPackage = expectedPackage,
+                timeoutMillis = (requestedTimeoutMillis - (System.currentTimeMillis() - startedAt)).coerceAtLeast(0L),
+                observe = {
+                    provider.observeCurrentScreen(
+                        maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+                        maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES
+                    )
+                },
+                clock = System::currentTimeMillis,
+                sleep = { millis -> delay(millis) }
+            )
+        }
+        if (!arrived) return initial
+        val remaining = (requestedTimeoutMillis - (System.currentTimeMillis() - startedAt))
+            .coerceIn(POST_LAUNCH_SETTLE_MIN_WAIT_MILLIS, requestedTimeoutMillis)
+        return provider.waitForScreen(timeoutMillis = remaining)
     }
 
     /**
@@ -1305,6 +1347,47 @@ internal suspend fun awaitUiWaitCondition(
         sleep(minOf(left, pollIntervalMillis))
     }
     return UiWaitOutcome(UiWaitStop.Timeout, first, last)
+}
+
+private const val POST_LAUNCH_SETTLE_MIN_WAIT_MILLIS = 500L
+
+internal fun UiActionReadResult.needsExpectedForegroundArrivalRetry(expectedPackage: String): Boolean {
+    val available = this as? UiActionReadResult.Available ?: return false
+    if (available.result.status != UiActionStatus.Succeeded) return false
+    val beforePkg = available.result.before?.packageName?.trim()
+    val afterPkg = available.result.after?.packageName?.trim()
+    // Only retry when the target app has NOT arrived yet (post-launch transition settled on the
+    // previous app). If `beforePkg == expectedPackage`, the target app left foreground -> fail closed.
+    return beforePkg != expectedPackage && afterPkg != expectedPackage
+}
+
+internal suspend fun awaitExpectedPackageArrival(
+    expectedPackage: String,
+    timeoutMillis: Long,
+    observe: () -> ScreenStateReadResult,
+    clock: () -> Long,
+    sleep: suspend (Long) -> Unit,
+    pollIntervalMillis: Long = UI_WAIT_CONDITION_POLL_INTERVAL_MILLIS
+): Boolean {
+    if (timeoutMillis <= 0L) return false
+    val start = clock()
+    val maxRounds = (timeoutMillis / pollIntervalMillis).coerceAtLeast(1L) + 1L
+    repeat(maxRounds.toInt()) {
+        when (val read = observe()) {
+            is ScreenStateReadResult.Available -> {
+                if (read.snapshot.packageName?.trim() == expectedPackage) return true
+            }
+
+            is ScreenStateReadResult.PermissionDenied -> return false
+            is ScreenStateReadResult.Failed -> {
+                if (read.failureKind == UiActionFailureKind.PermissionMissing) return false
+            }
+        }
+        val left = timeoutMillis - (clock() - start)
+        if (left <= 0L) return false
+        sleep(minOf(left, pollIntervalMillis))
+    }
+    return false
 }
 
 private fun ScreenStateSnapshot.showsText(text: String): Boolean {

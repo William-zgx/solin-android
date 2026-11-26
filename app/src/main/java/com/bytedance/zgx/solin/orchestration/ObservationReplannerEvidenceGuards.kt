@@ -136,6 +136,9 @@ internal fun ActionDraft.tapFirstForSearchTypingTarget(
 internal fun ActionDraft.hasMissingRequiredUiTarget(): Boolean = functionName == MobileActionFunctions.UI_TAP &&
     parameters["target"].normalizedLookupKey().isBlank()
 
+internal fun ActionDraft.hasMissingRequiredUiTypeText(): Boolean = functionName == MobileActionFunctions.UI_TYPE_TEXT &&
+    parameters["text"].isNullOrBlank()
+
 internal fun AgentObservationReplanContext.shouldRejectNonLocalObservationTool(
     draft: ActionDraft,
     toolRegistry: ToolRegistry

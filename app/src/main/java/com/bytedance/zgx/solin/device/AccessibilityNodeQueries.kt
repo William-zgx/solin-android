@@ -320,7 +320,10 @@ internal fun AccessibilityNodeInfo.findTargetCandidates(
         true
     }
     return candidates
-        .sortedByDescending { (_, score) -> score }
+        .sortedWith(
+            compareByDescending<Pair<NodeCandidate, Int>> { (_, score) -> score }
+                .thenByDescending { (candidate, _) -> candidate.node.isFocused }
+        )
         .take(limit.coerceAtLeast(1))
         .map { (candidate, _) -> candidate }
 }

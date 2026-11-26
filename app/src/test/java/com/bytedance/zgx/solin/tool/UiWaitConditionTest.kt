@@ -32,11 +32,11 @@ class UiWaitConditionTest {
                 clickable = false,
                 editable = false,
                 scrollable = false,
-                enabled = true,
+                enabled = true
             )
         },
         textSummary = texts.joinToString(" "),
-        truncated = false,
+        truncated = false
     )
 
     /** Serves [reads] in order (the last one repeats) and records every call it gets. */
@@ -50,8 +50,7 @@ class UiWaitConditionTest {
         }
 
         override fun tap(target: String, timeoutMillis: Long) = record("tap")
-        override fun typeText(text: String, target: String?, timeoutMillis: Long, allowClipboardPasteFallback: Boolean) =
-            record("type_text")
+        override fun typeText(text: String, target: String?, timeoutMillis: Long, allowClipboardPasteFallback: Boolean) = record("type_text")
         override fun submitSearch(timeoutMillis: Long) = record("submit_search")
         override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long) = record("scroll")
         override fun swipe(
@@ -60,7 +59,7 @@ class UiWaitConditionTest {
             endXNorm: Int,
             endYNorm: Int,
             durationMillis: Long,
-            timeoutMillis: Long,
+            timeoutMillis: Long
         ) = record("swipe")
         override fun longPress(xNorm: Int, yNorm: Int, holdMillis: Long, timeoutMillis: Long) = record("long_press")
         override fun pressKey(key: UiSystemKey, timeoutMillis: Long) = record("press_key")
@@ -71,13 +70,12 @@ class UiWaitConditionTest {
         private fun record(action: String): UiActionReadResult {
             calls += action
             return UiActionReadResult.Available(
-                UiActionExecutionResult(UiActionStatus.Succeeded, before = null, after = null, summary = "ok", retryable = false),
+                UiActionExecutionResult(UiActionStatus.Succeeded, before = null, after = null, summary = "ok", retryable = false)
             )
         }
     }
 
-    private fun waitRequest(vararg arguments: Pair<String, String>) =
-        ToolRequest(toolName = MobileActionFunctions.UI_WAIT, arguments = mapOf(*arguments))
+    private fun waitRequest(vararg arguments: Pair<String, String>) = ToolRequest(toolName = MobileActionFunctions.UI_WAIT, arguments = mapOf(*arguments))
 
     private fun available(snapshot: ScreenStateSnapshot) = ScreenStateReadResult.Available(snapshot)
 
@@ -148,9 +146,9 @@ class UiWaitConditionTest {
                     "expectText" to "综合",
                     "expectGoneText" to "加载中",
                     "expectPackage" to "com.example.shop",
-                    "timeoutMillis" to "20000",
-                ),
-            ),
+                    "timeoutMillis" to "20000"
+                )
+            )
         )
     }
 
@@ -159,7 +157,7 @@ class UiWaitConditionTest {
     private fun poll(
         condition: UiWaitCondition,
         reads: List<ScreenStateReadResult>,
-        guardPackage: String? = null,
+        guardPackage: String? = null
     ): Pair<UiWaitOutcome, Int> {
         var now = 0L
         var observed = 0
@@ -169,14 +167,13 @@ class UiWaitConditionTest {
                 guardPackage = guardPackage,
                 observe = { reads[minOf(observed++, reads.lastIndex)] },
                 clock = { now },
-                sleep = { millis -> now += millis },
+                sleep = { millis -> now += millis }
             )
         }
         return outcome to observed
     }
 
-    private fun condition(text: String? = null, gone: String? = null, pkg: String? = null, timeout: Long = 2_000L) =
-        UiWaitCondition(expectText = text, expectGoneText = gone, expectPackage = pkg, timeoutMillis = timeout)
+    private fun condition(text: String? = null, gone: String? = null, pkg: String? = null, timeout: Long = 2_000L) = UiWaitCondition(expectText = text, expectGoneText = gone, expectPackage = pkg, timeoutMillis = timeout)
 
     @Test
     fun textMatchingIgnoresWhitespaceAndCase() {
@@ -206,9 +203,12 @@ class UiWaitConditionTest {
             awaitUiWaitCondition(
                 condition = condition(text = "never", timeout = 900L),
                 guardPackage = null,
-                observe = { observed++; available(snapshot("x")) },
+                observe = {
+                    observed++
+                    available(snapshot("x"))
+                },
                 clock = { 0L },
-                sleep = {},
+                sleep = {}
             )
         }
         assertEquals(UiWaitStop.Timeout, outcome.stop)
@@ -220,7 +220,7 @@ class UiWaitConditionTest {
         val (outcome, observed) = poll(
             condition(text = "综合"),
             listOf(available(snapshot("a")), available(snapshot("b", packageName = "com.other"))),
-            guardPackage = "com.example.shop",
+            guardPackage = "com.example.shop"
         )
         assertEquals(UiWaitStop.AppSwitched, outcome.stop)
         assertEquals(3, observed)
@@ -231,7 +231,7 @@ class UiWaitConditionTest {
         val (outcome, _) = poll(
             condition(pkg = "com.other"),
             listOf(available(snapshot("a")), available(snapshot("b", packageName = "com.other"))),
-            guardPackage = "com.example.shop",
+            guardPackage = "com.example.shop"
         )
         assertEquals(UiWaitStop.Met, outcome.stop)
     }
@@ -240,7 +240,7 @@ class UiWaitConditionTest {
     fun aNewOverlayStopsTheWait() {
         val (outcome, _) = poll(
             condition(text = "综合"),
-            listOf(available(snapshot("首页")), available(snapshot("优惠券", "红包", "综合"))),
+            listOf(available(snapshot("首页")), available(snapshot("优惠券", "红包", "综合")))
         )
         assertEquals(UiWaitStop.DialogAppeared, outcome.stop)
     }
@@ -256,11 +256,81 @@ class UiWaitConditionTest {
         assertNull(UiWaitCondition.fromArguments(mapOf("timeoutMillis" to "3000")))
         assertEquals(
             UiWaitCondition("综合", null, null, UI_WAIT_CONDITION_DEFAULT_TIMEOUT_MILLIS),
-            UiWaitCondition.fromArguments(mapOf("expectText" to " 综合 ")),
+            UiWaitCondition.fromArguments(mapOf("expectText" to " 综合 "))
         )
         assertEquals(
             UI_WAIT_CONDITION_MAX_TIMEOUT_MILLIS,
-            UiWaitCondition.fromArguments(mapOf("expectPackage" to "a.b", "timeoutMillis" to "99999"))?.timeoutMillis,
+            UiWaitCondition.fromArguments(mapOf("expectPackage" to "a.b", "timeoutMillis" to "99999"))?.timeoutMillis
         )
+    }
+
+    @Test
+    fun plainWaitWithExpectedPackageWaitsForTargetAppArrivalAfterLaunch() {
+        val oldApp = snapshot("Previous App", packageName = "com.other.prev")
+        val targetApp = snapshot("淘宝", "搜索商品", packageName = "com.taobao.taobao")
+        var waitCalls = 0
+        val provider = object : CurrentScreenControlProvider {
+            private var observeCount = 0
+            override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
+                observeCount += 1
+                return available(if (observeCount < 2) oldApp else targetApp)
+            }
+            override fun tap(target: String, timeoutMillis: Long) = error("unused")
+            override fun typeText(text: String, target: String?, timeoutMillis: Long, allowClipboardPasteFallback: Boolean) = error("unused")
+            override fun submitSearch(timeoutMillis: Long) = error("unused")
+            override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long) = error("unused")
+            override fun swipe(startXNorm: Int, startYNorm: Int, endXNorm: Int, endYNorm: Int, durationMillis: Long, timeoutMillis: Long) = error("unused")
+            override fun longPress(xNorm: Int, yNorm: Int, holdMillis: Long, timeoutMillis: Long) = error("unused")
+            override fun pressKey(key: UiSystemKey, timeoutMillis: Long) = error("unused")
+            override fun pressBack(timeoutMillis: Long) = error("unused")
+            override fun tapByNormalizedCoords(normalizedX: Int, normalizedY: Int, timeoutMillis: Long) = error("unused")
+            override fun waitForScreen(timeoutMillis: Long): UiActionReadResult {
+                waitCalls += 1
+                val snap = if (waitCalls == 1) oldApp else targetApp
+                return UiActionReadResult.Available(
+                    UiActionExecutionResult(UiActionStatus.Succeeded, before = snap, after = snap, summary = "ok", retryable = false)
+                )
+            }
+        }
+
+        val result = DeviceControlToolExecutor(provider).execute(
+            waitRequest("expectedPackageName" to "com.taobao.taobao", "timeoutMillis" to "2000")
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(2, waitCalls)
+    }
+
+    @Test
+    fun plainWaitWithExpectedPackageFailsImmediatelyWhenTargetAppLeavesForeground() {
+        val targetApp = snapshot("淘宝", packageName = "com.taobao.taobao")
+        val otherApp = snapshot("Other", packageName = "com.other.app")
+        var observeCalls = 0
+        val provider = object : CurrentScreenControlProvider {
+            override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
+                observeCalls += 1
+                return available(targetApp)
+            }
+            override fun tap(target: String, timeoutMillis: Long) = error("unused")
+            override fun typeText(text: String, target: String?, timeoutMillis: Long, allowClipboardPasteFallback: Boolean) = error("unused")
+            override fun submitSearch(timeoutMillis: Long) = error("unused")
+            override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long) = error("unused")
+            override fun swipe(startXNorm: Int, startYNorm: Int, endXNorm: Int, endYNorm: Int, durationMillis: Long, timeoutMillis: Long) = error("unused")
+            override fun longPress(xNorm: Int, yNorm: Int, holdMillis: Long, timeoutMillis: Long) = error("unused")
+            override fun pressKey(key: UiSystemKey, timeoutMillis: Long) = error("unused")
+            override fun pressBack(timeoutMillis: Long) = error("unused")
+            override fun tapByNormalizedCoords(normalizedX: Int, normalizedY: Int, timeoutMillis: Long) = error("unused")
+            override fun waitForScreen(timeoutMillis: Long): UiActionReadResult = UiActionReadResult.Available(
+                UiActionExecutionResult(UiActionStatus.Succeeded, before = targetApp, after = otherApp, summary = "ok", retryable = false)
+            )
+        }
+
+        val result = DeviceControlToolExecutor(provider).execute(
+            waitRequest("expectedPackageName" to "com.taobao.taobao", "timeoutMillis" to "2000")
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals("app_not_foreground", result.data["failureKind"])
+        assertEquals(0, observeCalls)
     }
 }

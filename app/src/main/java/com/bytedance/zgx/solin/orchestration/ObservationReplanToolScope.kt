@@ -1,7 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
-import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.device.screenObservationFromJsonStringOrNull
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolRegistry
@@ -27,20 +27,25 @@ internal val IN_APP_LOOP_CONTROL_TOOL_NAMES = listOf(
     MobileActionFunctions.FINISH,
     MobileActionFunctions.ASK_USER,
     MobileActionFunctions.TAKE_OVER,
-    MobileActionFunctions.NOTE,
+    MobileActionFunctions.NOTE
 )
 
 /** Fixed few-shot calls (ids are illustrative; the prompt says to copy targets from the shortlist). */
 internal const val OBSERVATION_REPLAN_FEW_SHOT_EXAMPLES =
     """Examples: call:ui_tap{"target":"search-entry"} | """ +
-        """call:ui_type_text{"target":"search-input","text":"牛奶"} | call:ui_submit_search{}"""
+        """call:ui_type_text{"target":"search-input","text":"<user-query>"} | call:ui_submit_search{}"""
 
 internal fun AgentObservationReplanContext.observationReplanToolSpecs(toolRegistry: ToolRegistry): List<ToolSpec> {
     val composite = applicablePhoneCompositeTool()
-    val primitives = if (composite == null) MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES else
+    val primitives = if (composite == null) {
+        MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
+    } else {
         MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES - setOf(
-            MobileActionFunctions.UI_SWIPE, MobileActionFunctions.UI_LONG_PRESS, MobileActionFunctions.UI_PRESS_KEY,
+            MobileActionFunctions.UI_SWIPE,
+            MobileActionFunctions.UI_LONG_PRESS,
+            MobileActionFunctions.UI_PRESS_KEY
         )
+    }
     val deviceControl = (primitives + listOfNotNull(composite))
         .mapNotNull(toolRegistry::specFor)
         .filter { spec -> spec.capability == ToolCapability.DeviceControl }
@@ -57,8 +62,11 @@ private fun AgentObservationReplanContext.applicablePhoneCompositeTool(): String
     if (observedResult.data["privacy"] != MessagePrivacy.LocalOnly.name) return null
     val raw = observedResult.data["afterScreenObservationJson"] ?: observedResult.data["screenObservationJson"] ?: return null
     val screen = screenObservationFromJsonStringOrNull(raw)?.takeIf {
-        it.privacyLevel == MessagePrivacy.LocalOnly && !it.truncated && !it.packageName.isNullOrBlank() &&
-            it.elements.isNotEmpty() && it.elements.all { element -> element.sensitiveFlags.isEmpty() }
+        it.privacyLevel == MessagePrivacy.LocalOnly &&
+            !it.truncated &&
+            !it.packageName.isNullOrBlank() &&
+            it.elements.isNotEmpty() &&
+            it.elements.all { element -> element.sensitiveFlags.isEmpty() }
     } ?: return null
     val intent = nextActionInput?.takeIf(String::isNotBlank) ?: run.input
     val scrollable = screen.elements.any { it.clickability.enabled && it.clickability.scrollable }
@@ -75,10 +83,9 @@ private val COLLECT_INTENT = Regex("采集|收集|读完|读取全部|聊天记�
 private val FIND_INTENT = Regex("(?:滚动|列表|翻页).*(?:找到|查找|寻找)|(?:找到|查找|寻找).*(?:列表|滚动|翻页)|\\b(?:scroll.*find|find.*(?:list|scroll))\\b", RegexOption.IGNORE_CASE)
 
 /** Compact signatures, e.g. `ui_type_text{target,text}`: `target` (when accepted) then required args. */
-internal fun AgentObservationReplanContext.observationReplanToolSignatures(toolRegistry: ToolRegistry): String =
-    observationReplanToolSpecs(toolRegistry)
-        .joinToString(separator = ",") { spec -> spec.compactCallSignature() }
-        .ifBlank { "none" }
+internal fun AgentObservationReplanContext.observationReplanToolSignatures(toolRegistry: ToolRegistry): String = observationReplanToolSpecs(toolRegistry)
+    .joinToString(separator = ",") { spec -> spec.compactCallSignature() }
+    .ifBlank { "none" }
 
 internal fun ToolSpec.compactCallSignature(): String {
     val schema = runCatching { JSONObject(inputSchemaJson) }.getOrNull() ?: return "$name{}"

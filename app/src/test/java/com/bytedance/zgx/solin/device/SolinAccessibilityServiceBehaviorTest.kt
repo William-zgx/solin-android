@@ -217,4 +217,66 @@ class SolinAccessibilityServiceBehaviorTest {
     fun aCompletedGestureNeverNeedsAFallbackClick() {
         assertFalse(GestureOutcome.Completed.allowsFallbackClick)
     }
+
+    @Test
+    fun searchEntryLookupRanksNamedSearchInputAboveUnrelatedEditableField() {
+        val rootBounds = ScreenBounds(left = 0, top = 0, right = 1080, bottom = 2400)
+        val inputNode = ScreenNode(
+            id = "n1_input",
+            text = "Eval input field",
+            contentDescription = "EvalInputField",
+            className = "android.widget.EditText",
+            bounds = ScreenBounds(left = 32, top = 260, right = 1048, bottom = 380),
+            clickable = true,
+            editable = true,
+            scrollable = false,
+            enabled = true
+        )
+        val searchNode = ScreenNode(
+            id = "n2_search",
+            text = "搜索商品",
+            contentDescription = "EvalSearchInput",
+            className = "android.widget.EditText",
+            bounds = ScreenBounds(left = 32, top = 400, right = 1048, bottom = 500),
+            clickable = true,
+            editable = true,
+            scrollable = false,
+            enabled = true
+        )
+        val inputScore = runtimeTargetMatchScore(
+            node = inputNode,
+            label = runtimeNodeSearchLabel(inputNode.text, inputNode.contentDescription, null, inputNode.className),
+            target = "EvalSearchInput",
+            profile = null,
+            rootBounds = rootBounds
+        )
+        val searchScore = runtimeTargetMatchScore(
+            node = searchNode,
+            label = runtimeNodeSearchLabel(searchNode.text, searchNode.contentDescription, null, searchNode.className),
+            target = "EvalSearchInput",
+            profile = null,
+            rootBounds = rootBounds
+        )
+
+        assertTrue(
+            "Expected EvalSearchInput ($searchScore) to outrank EvalInputField ($inputScore)",
+            (searchScore ?: 0) > (inputScore ?: 0)
+        )
+    }
+
+    @Test
+    fun searchEntryLookupDoesNotBlindlyShortCircuitToUnrelatedFocusedEditable() {
+        val source = listOf(
+            java.io.File("src/main/java/com/bytedance/zgx/solin/device/SolinAccessibilityService.kt"),
+            java.io.File("app/src/main/java/com/bytedance/zgx/solin/device/SolinAccessibilityService.kt")
+        ).first { it.isFile }.readText()
+
+        val searchBranch = source
+            .substringAfter("if (kind == UiTargetKind.SearchEntry)")
+            .substringBefore("val targetNode = root.findTargetCandidate")
+        assertFalse(
+            "SearchEntry branch must rank candidates instead of blindly returning any focused editable",
+            searchBranch.contains("findFocusedEditableForTyping()")
+        )
+    }
 }

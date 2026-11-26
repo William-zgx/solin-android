@@ -360,6 +360,7 @@ class ModelObservationReplanner(
             shouldRejectUnsupportedTargetlessTyping(draft, parseCache) -> "unsupported_targetless_typing"
             shouldRejectUnsupportedObservedTarget(guardDraft, parseCache) -> "unsupported_observed_target"
             shouldRejectUnsupportedRepeatTarget(guardDraft, parseCache) -> "unsupported_repeat_target"
+            draft.hasMissingRequiredUiTypeText() -> "missing_required_ui_text"
             else -> null
         }
         if (rejectionReason != null) {

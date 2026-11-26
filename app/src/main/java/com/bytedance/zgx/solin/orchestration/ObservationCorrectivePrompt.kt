@@ -31,7 +31,8 @@ private val correctableGuardRejections = mapOf(
     "unsupported_submit_search" to "当前屏幕没有可提交搜索的证据",
     "unsupported_targetless_typing" to "输入文字必须指定输入框 target",
     "unsupported_observed_target" to "target 不在当前屏幕候选中",
-    "unsupported_repeat_target" to "上一步对同一 target 已失败"
+    "unsupported_repeat_target" to "上一步对同一 target 已失败",
+    "missing_required_ui_text" to "ui_type_text 必须提供非空 text 参数"
 )
 
 internal fun String.isCorrectableGuardRejection(): Boolean = this in correctableGuardRejections

@@ -179,4 +179,64 @@ class ModelObservationReplannerScopedTargetAcceptanceTest : ObservationReplanner
         assertFalse(list, list.contains("..."))
         assertTrue(prompt.length.toString(), prompt.length <= MAX_CORRECTIVE_PROMPT_CHARS)
     }
+
+    @Test
+    fun rejectsUiTypeTextMissingRequiredTextArgumentBeforeReturningReplan() {
+        val editableObservation = """
+            {
+              "schemaVersion": 1,
+              "observationId": "$afterId",
+              "capturedAtMillis": 1000,
+              "packageName": "com.example.shop",
+              "privacyLevel": "LocalOnly",
+              "sources": ["accessibility"],
+              "elementCount": 1,
+              "sourceCounts": {"accessibility": 1},
+              "truncated": false,
+              "elements": [
+                {
+                  "id": "search_input",
+                  "source": "accessibility",
+                  "bounds": {"left": 0, "top": 0, "right": 100, "bottom": 40},
+                  "text": "搜索商品",
+                  "role": "editText",
+                  "clickability": {"clickable": true, "editable": true, "scrollable": false, "enabled": true},
+                  "confidence": 1.0,
+                  "sensitiveFlags": [],
+                  "privacyLevel": "LocalOnly"
+                }
+              ]
+            }
+        """.trimIndent()
+        val replanner = ModelObservationReplanner(
+            actionPlanningRuntime = RecordingModelActionRuntime(
+                MobileActionFunctions.UI_TYPE_TEXT,
+                mapOf("target" to "search_input")
+            ),
+            actionModelPathProvider = { "/tmp/action.litertlm" },
+            toolRegistry = ToolRegistry()
+        )
+        val context = AgentObservationReplanContext(
+            run = AgentRun(
+                id = "run",
+                input = "打开淘宝搜索海河牛奶",
+                state = AgentRunState.Observing,
+                createdAtMillis = 1L,
+                updatedAtMillis = 1L
+            ),
+            previousRequest = ToolRequest(id = "o", toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN),
+            observedResult = ToolResult(
+                requestId = "o",
+                status = ToolStatus.Succeeded,
+                summary = "ok",
+                data = mapOf("privacy" to "LocalOnly", "afterScreenObservationJson" to editableObservation)
+            ),
+            priorRequests = emptyList()
+        )
+
+        val replan = replanner.planNext(context)
+
+        assertNull("Malformed ui_type_text without text must be rejected", replan)
+        assertEquals("missing_required_ui_text", replanner.lastDiagnosticSnapshot()?.reason)
+    }
 }

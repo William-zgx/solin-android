@@ -365,8 +365,27 @@ class SolinAccessibilityService : AccessibilityService() {
         val scopedRef = SnapshotRefs.parse(target) != null
         if (!scopedRef && UiTargetResolver.kindForTarget(target) == UiTargetKind.SearchEntry) {
             return@executeUiAction when (val result = focusSearchEditableFromEntry(root, target, timeoutMillis)) {
-                is EditableFocusResult.Found ->
+                is EditableFocusResult.Found -> {
+                    val alreadyFocused = result.node.refresh() &&
+                        result.node.isSafeEditableForTyping() &&
+                        result.node.isFocused
+                    if (!alreadyFocused) {
+                        prepareEditableForTextInput(result.node)
+                        val focusedAfterTap = (
+                            result.node.refresh() &&
+                                result.node.isSafeEditableForTyping() &&
+                                result.node.isFocused
+                            ) ||
+                            activeWindowRoot()?.findFocusedEditableForTyping() != null
+                        if (!focusedAfterTap) {
+                            return@executeUiAction UiPrimitiveResult.failed(
+                                reason = "已点击搜索输入框，但未获得输入焦点",
+                                failureKind = UiActionFailureKind.EditableNotFound
+                            )
+                        }
+                    }
                     UiPrimitiveResult.succeeded("已聚焦搜索输入框")
+                }
 
                 is EditableFocusResult.Failed ->
                     tapOcrGroundingHint(root, target, ocrGroundingHint)
@@ -1480,7 +1499,6 @@ class SolinAccessibilityService : AccessibilityService() {
                 )
         }
         if (kind == UiTargetKind.SearchEntry) {
-            root.findFocusedEditableForTyping()?.let { return EditableFocusResult.Found(it) }
             return focusSearchEditableFromEntry(root, normalizedTarget, timeoutMillis)
         }
 
@@ -1532,7 +1550,7 @@ class SolinAccessibilityService : AccessibilityService() {
         target: String,
         timeoutMillis: Long
     ): EditableFocusResult {
-        initialRoot.findFocusedEditableForTyping()?.let { return EditableFocusResult.Found(it) }
+        val initiallyFocusedFingerprint = initialRoot.findFocusedEditableForTyping()?.fingerprint()
         var currentRoot = initialRoot
         val attemptedFingerprints = mutableSetOf<String>()
         var matchedCandidates = 0
@@ -1571,12 +1589,16 @@ class SolinAccessibilityService : AccessibilityService() {
                 return@repeat
             }
             activatedCandidates += 1
-            waitForEditable(perAttemptWaitMillis)?.let { return EditableFocusResult.Found(it) }
+            waitForEditable(perAttemptWaitMillis, excludedFingerprint = initiallyFocusedFingerprint)
+                ?.let { return EditableFocusResult.Found(it) }
             val refreshedRoot = activeWindowRoot() ?: currentRoot
-            refreshedRoot.findFocusedEditableForTyping()?.let { return EditableFocusResult.Found(it) }
+            refreshedRoot.findFocusedEditableForTyping()
+                ?.takeIf { node -> initiallyFocusedFingerprint == null || node.fingerprint() != initiallyFocusedFingerprint }
+                ?.let { return EditableFocusResult.Found(it) }
             if (dismissTransientSearchOverlay(refreshedRoot)) {
                 attemptedFingerprints -= candidateFingerprint
-                waitForEditable(perAttemptWaitMillis)?.let { return EditableFocusResult.Found(it) }
+                waitForEditable(perAttemptWaitMillis, excludedFingerprint = initiallyFocusedFingerprint)
+                    ?.let { return EditableFocusResult.Found(it) }
             }
             currentRoot = activeWindowRoot() ?: refreshedRoot
         }
@@ -1594,14 +1616,19 @@ class SolinAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun waitForEditable(timeoutMillis: Long): AccessibilityNodeInfo? {
+    private fun waitForEditable(
+        timeoutMillis: Long,
+        excludedFingerprint: String? = null
+    ): AccessibilityNodeInfo? {
         val waitMillis = timeoutMillis
             .coerceAtMost(MAX_SEARCH_ENTRY_FOCUS_WAIT_MILLIS)
             .coerceAtLeast(DEFAULT_POST_ACTION_WAIT_MILLIS)
         val deadline = System.currentTimeMillis() + waitMillis
         do {
             if (Thread.currentThread().isInterrupted) throw InterruptedException("UI action cancelled")
-            activeWindowRoot()?.findFocusedEditableForTyping()?.let { return it }
+            activeWindowRoot()?.findFocusedEditableForTyping()
+                ?.takeIf { node -> excludedFingerprint == null || node.fingerprint() != excludedFingerprint }
+                ?.let { return it }
             sleepForUiIdle(SEARCH_ENTRY_FOCUS_POLL_MILLIS)
         } while (System.currentTimeMillis() < deadline)
         return null
